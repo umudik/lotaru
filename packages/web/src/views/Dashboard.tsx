@@ -1,0 +1,257 @@
+import { useState } from 'react';
+import { Folder, FolderInput } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { statusDotClass, tsOrZero } from '@/lib/format';
+import { actions, useStore } from '@/state/store';
+import { api } from '@/api/client';
+import { navigate } from '@/app';
+import type { Workspace, Execution, ExecutionStatus } from '@/types';
+
+function workspaceRunningCount(
+  workspaceId: string,
+  tasksByWorkspace: Record<string, { id: string }[]>,
+  liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
+): number {
+  const tasks = tasksByWorkspace[workspaceId];
+  if (tasks === undefined) {
+    return 0;
+  }
+  const taskIds = new Set<string>();
+  for (const t of tasks) {
+    taskIds.add(t.id);
+  }
+  let count = 0;
+  for (const key of Object.keys(liveExec)) {
+    const e = liveExec[key];
+    if (e === undefined) {
+      continue;
+    }
+    if (taskIds.has(e.taskId) && e.status === 'running') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function workspaceRecentDots(
+  workspaceId: string,
+  tasksByWorkspace: Record<string, { id: string }[]>,
+  executionsByTask: Record<string, Execution[]>,
+  recentExecutions: Execution[],
+): Execution[] {
+  const tasks = tasksByWorkspace[workspaceId];
+  if (tasks === undefined) {
+    return [];
+  }
+  const taskIds = new Set<string>();
+  for (const t of tasks) {
+    taskIds.add(t.id);
+  }
+  const collected: Execution[] = [];
+  for (const e of recentExecutions) {
+    if (taskIds.has(e.task_id)) {
+      collected.push(e);
+    }
+  }
+  if (collected.length >= 5) {
+    return collected.slice(0, 5);
+  }
+  for (const t of tasks) {
+    const list = executionsByTask[t.id];
+    if (list === undefined) {
+      continue;
+    }
+    for (const e of list) {
+      let found = false;
+      for (const c of collected) {
+        if (c.id === e.id) {
+          found = true;
+        }
+      }
+      if (!found) {
+        collected.push(e);
+      }
+    }
+  }
+  collected.sort((a, b) => tsOrZero(b.started_at) - tsOrZero(a.started_at));
+  return collected.slice(0, 5);
+}
+
+interface ProjectCardProps {
+  workspace: Workspace;
+}
+
+function ProjectCard(props: ProjectCardProps): React.JSX.Element {
+  const tasksByWorkspace = useStore((s) => s.tasksByWorkspace);
+  const liveExec = useStore((s) => s.liveExecutions);
+  const executionsByTask = useStore((s) => s.executionsByTask);
+  const recentExecutions = useStore((s) => s.recentExecutions);
+
+  const w = props.workspace;
+  const tasks = tasksByWorkspace[w.id];
+  let taskCount = 0;
+  if (tasks !== undefined) {
+    taskCount = tasks.length;
+  }
+  const running = workspaceRunningCount(w.id, tasksByWorkspace, liveExec);
+  const dots = workspaceRecentDots(w.id, tasksByWorkspace, executionsByTask, recentExecutions);
+
+  let badge: React.JSX.Element = <Badge variant="success">Live</Badge>;
+  if (w.paused) {
+    badge = <Badge variant="warn">Paused</Badge>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => { navigate(`/workspace/${w.id}`); }}
+      className="text-left w-full"
+    >
+      <Card className="hover:bg-secondary/30 transition-colors h-full">
+        <CardContent className="p-5 flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-secondary border grid place-items-center text-sm font-semibold shrink-0">
+                {w.name.charAt(0).toUpperCase()}
+              </div>
+              <span className="font-semibold truncate">{w.name}</span>
+            </div>
+            {badge}
+          </div>
+          <p className="text-xs text-muted-foreground font-mono truncate">{w.path}</p>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>{`${String(taskCount)} tasks`}</span>
+            {running > 0 && <span className="text-primary">{`${String(running)} running`}</span>}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {dots.map((e) => (
+              <span
+                key={e.id}
+                className={cn('w-2 h-2 rounded-full', statusDotClass(e.status))}
+                title={e.status}
+              />
+            ))}
+            {dots.length === 0 && (
+              <span className="text-xs text-muted-foreground">No runs yet</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
+interface AddWorkspaceProps {
+  onDone(): void;
+}
+
+function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
+  const [name, setName] = useState('');
+  const [path, setPath] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function pickDir(): Promise<void> {
+    if (!('showDirectoryPicker' in window)) {
+      setError('This browser does not support folder picker — paste path manually.');
+      return;
+    }
+    try {
+      const w = window as unknown as { showDirectoryPicker: () => Promise<{ name: string }> };
+      const handle = await w.showDirectoryPicker();
+      setName(handle.name);
+    } catch (_e: unknown) {
+    }
+  }
+
+  async function submit(): Promise<void> {
+    setError(null);
+    if (name.length === 0 || path.length === 0) {
+      setError('Name and absolute path required.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.createWorkspace(name, path);
+      await actions.refreshWorkspaces();
+      setName('');
+      setPath('');
+      props.onDone();
+      toast.success('Project created');
+    } catch (e: unknown) {
+      setError(String(e));
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" htmlFor="ws-name">Name</label>
+            <Input id="ws-name" value={name} onChange={(e) => { setName(e.target.value); }} placeholder="frontend" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" htmlFor="ws-path">Absolute path</label>
+            <Input
+              id="ws-path"
+              value={path}
+              onChange={(e) => { setPath(e.target.value); }}
+              placeholder="C:\Users\you\projects\frontend"
+              className="font-mono"
+            />
+          </div>
+        </div>
+        {error !== null && <div className="text-xs text-destructive">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" onClick={() => { void pickDir(); }} variant="ghost" size="sm">
+            <Folder className="w-3.5 h-3.5" /> Browse
+          </Button>
+          <Button type="button" onClick={props.onDone} variant="outline" size="sm">Cancel</Button>
+          <Button type="button" onClick={() => { void submit(); }} disabled={busy} size="sm">
+            <FolderInput className="w-3.5 h-3.5" /> Create
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function DashboardView(): React.JSX.Element {
+  const workspaces = useStore((s) => s.workspaces);
+  const [adding, setAdding] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-8">
+      <header className="flex items-end justify-between gap-4 pb-6 border-b">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
+          <p className="text-sm text-muted-foreground mt-1">Local workspaces and task orchestration.</p>
+        </div>
+        {!adding && (
+          <Button type="button" onClick={() => { setAdding(true); }}>Add project</Button>
+        )}
+      </header>
+
+      {adding && <AddWorkspace onDone={() => { setAdding(false); }} />}
+
+      {workspaces.length === 0 && !adding && (
+        <div className="text-center py-16 text-muted-foreground text-sm">No projects yet. Add one to get started.</div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {workspaces.map((w) => (
+          <ProjectCard key={w.id} workspace={w} />
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,25 @@
+{
+  "name": "lotaru",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "lotaru": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node ../../scripts/cp-public.mjs",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lotaru/server": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
