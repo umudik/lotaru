@@ -37,9 +37,9 @@ On macOS/Linux use `export LOTARU_SHELL_HOST=1`.
 
 ## Publish setup (maintainers)
 
-1. Create an npm [access token](https://www.npmjs.com/settings/~youruser/tokens) with publish permission.
+1. Create an npm [access token](https://www.npmjs.com/settings/~youruser/tokens) with publish permission (All packages, Read and write, Bypass 2FA if enabled).
 2. Add GitHub repository secret **`NPM_TOKEN`** (Settings → Secrets and variables → Actions).
-3. Create a GitHub Release with tag `v0.1.0` — the publish workflow runs automatically.
+3. Bump `version` in `packages/cli/package.json`, push to **`main`** — the publish workflow runs automatically.
 
 Manual first publish:
 
