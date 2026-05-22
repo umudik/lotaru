@@ -65,7 +65,6 @@ export function createOrchestrator(
           info.handle.cancel();
         }
       } else {
-        // drop — explicit no-op, but emit a log-like event so UI knows
         bus.emit({
           kind: 'execution.log',
           executionId: `drop-${nanoid(6)}`,
@@ -281,8 +280,6 @@ export function createOrchestrator(
           trigger(t, { source: 'startup', detail: 'boot' });
         }
       }
-      // wire watch events
-      // NOTE: watchers manager is created with callback in main.ts, no rebinding here
     },
 
     onTaskCreated(task: Task): void {

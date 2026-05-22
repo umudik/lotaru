@@ -109,7 +109,6 @@ export function runShell(opts: ExecutorOptions): ExecutionHandle {
         try {
           child.kill('SIGKILL');
         } catch (_e: unknown) {
-          // process already gone
         }
       }, 1500);
     },

@@ -138,9 +138,7 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
       if (container === null) {
         return;
       }
-      container.kill().catch(() => {
-        // already dead
-      });
+      container.kill().catch(() => {});
     },
   };
 }
