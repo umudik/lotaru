@@ -2,10 +2,12 @@ import Docker from 'dockerode';
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { envToDockerList } from './env.js';
 import type { ExecutionHandle, ExecutorOptions } from './shell.js';
 
 export interface DockerOptions extends ExecutorOptions {
   image: string;
+  platform: string | null;
 }
 
 export function runDocker(opts: DockerOptions): ExecutionHandle {
@@ -39,8 +41,16 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
       try {
         await docker.getImage(opts.image).inspect();
       } catch (_e: unknown) {
-        write(`pulling ${opts.image}...`, 'out');
-        const stream = await docker.pull(opts.image);
+        let pullLine = `pulling ${opts.image}`;
+        if (opts.platform !== null) {
+          pullLine = `${pullLine} (${opts.platform})`;
+        }
+        write(`${pullLine}...`, 'out');
+        const pullOpts: { platform?: string } = {};
+        if (opts.platform !== null) {
+          pullOpts.platform = opts.platform;
+        }
+        const stream = await docker.pull(opts.image, pullOpts);
         await new Promise<void>((resolve, reject) => {
           docker.modem.followProgress(stream, (err: Error | null) => {
             if (err === null) {
@@ -52,16 +62,21 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
         });
       }
 
-      container = await docker.createContainer({
+      const createOpts: Docker.ContainerCreateOptions = {
         Image: opts.image,
         Cmd: ['/bin/sh', '-c', opts.command],
         WorkingDir: '/workspace',
+        Env: envToDockerList(opts.env),
         HostConfig: {
           AutoRemove: true,
-          Binds: [`${opts.cwd}:/workspace`],
+          Binds: [`${opts.cwd}:/workspace:rw`],
         },
         Tty: false,
-      });
+      };
+      if (opts.platform !== null) {
+        createOpts.platform = opts.platform;
+      }
+      container = await docker.createContainer(createOpts);
 
       const logStream = await container.attach({
         stream: true,

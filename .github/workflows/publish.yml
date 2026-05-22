@@ -1,0 +1,34 @@
+name: Publish npm
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Set version from release tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          npm pkg set version="${VERSION}" -w lotaru
+
+      - run: npm run build:publish
+
+      - run: npm test
+
+      - run: npm publish -w lotaru --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

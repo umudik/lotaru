@@ -47,5 +47,5 @@ export function collectRunDots(
 
   const list = Array.from(byId.values());
   list.sort((a, b) => b.startedAt - a.startedAt);
-  return list.slice(0, 16);
+  return list.slice(0, 50);
 }

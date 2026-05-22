@@ -13,6 +13,7 @@ export interface ExecutorOptions {
   command: string;
   cwd: string;
   logPath: string;
+  env: Record<string, string>;
   onLine(line: string, stream: LogStream): void;
   onExit(exitCode: number | null, cancelled: boolean): void;
 }
@@ -34,7 +35,7 @@ export function runShell(opts: ExecutorOptions): ExecutionHandle {
   const shell = pickShell();
   const child: ChildProcess = spawn(shell.cmd, [...shell.args, opts.command], {
     cwd: opts.cwd,
-    env: process.env,
+    env: opts.env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });

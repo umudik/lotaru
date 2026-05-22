@@ -4,9 +4,11 @@ import type { FastifyInstance } from 'fastify';
 import type { Store } from '../db/index.js';
 import type { Orchestrator } from '../orchestrator.js';
 import type { EventBus } from '../events/bus.js';
+import { parseDockerPlatformInput } from '../executor/platform.js';
 import type {
   Task,
   Workspace,
+  Environment,
   RuntimeKind,
   TriggerKind,
   ConcurrencyKind,
@@ -17,11 +19,31 @@ interface CreateWorkspaceBody {
   path: string;
 }
 
+interface UpdateWorkspaceBody {
+  name?: string;
+  path?: string;
+}
+
+function validateWorkspacePath(path: string): string | null {
+  if (path.length === 0) {
+    return 'path required';
+  }
+  if (!existsSync(path)) {
+    return 'path does not exist';
+  }
+  const st = statSync(path);
+  if (!st.isDirectory()) {
+    return 'path is not a directory';
+  }
+  return null;
+}
+
 interface CreateTaskBody {
   name: string;
   command: string;
   runtime: RuntimeKind;
   docker_image: string | null;
+  docker_platform: string | null;
   trigger_type: TriggerKind;
   trigger_glob: string | null;
   trigger_cron: string | null;
@@ -37,6 +59,28 @@ function isTrigger(v: unknown): v is TriggerKind {
 }
 function isConcurrency(v: unknown): v is ConcurrencyKind {
   return v === 'restart' || v === 'queue' || v === 'ignore' || v === 'parallel';
+}
+
+function parseEnvVarsBody(raw: unknown): Record<string, string> | string {
+  if (raw === undefined) {
+    return {};
+  }
+  if (typeof raw !== 'object' || raw === null) {
+    return 'vars must be object';
+  }
+  const out: Record<string, string> = {};
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (key.length === 0) {
+      return 'env key cannot be empty';
+    }
+    const val = obj[key];
+    if (typeof val !== 'string') {
+      return `env value for ${key} must be string`;
+    }
+    out[key] = val;
+  }
+  return out;
 }
 
 function validateCreateTask(body: unknown): CreateTaskBody | string {
@@ -87,11 +131,20 @@ function validateCreateTask(body: unknown): CreateTaskBody | string {
     }
     enabled = b['enabled'];
   }
+  const platformParsed = parseDockerPlatformInput(b['docker_platform']);
+  if (platformParsed === 'invalid docker_platform') {
+    return platformParsed;
+  }
+  let dockerPlatform: string | null = null;
+  if (typeof platformParsed === 'string') {
+    dockerPlatform = platformParsed;
+  }
   return {
     name: b['name'],
     command: b['command'],
     runtime: b['runtime'],
     docker_image: dockerImage,
+    docker_platform: dockerPlatform,
     trigger_type: b['trigger_type'],
     trigger_glob: triggerGlob,
     trigger_cron: triggerCron,
@@ -121,17 +174,13 @@ export function registerRoutes(
       await reply.code(400).send({ error: 'name required' });
       return;
     }
-    if (typeof body.path !== 'string' || body.path.length === 0) {
+    if (typeof body.path !== 'string') {
       await reply.code(400).send({ error: 'path required' });
       return;
     }
-    if (!existsSync(body.path)) {
-      await reply.code(400).send({ error: 'path does not exist' });
-      return;
-    }
-    const st = statSync(body.path);
-    if (!st.isDirectory()) {
-      await reply.code(400).send({ error: 'path is not a directory' });
+    const pathErr = validateWorkspacePath(body.path);
+    if (pathErr !== null) {
+      await reply.code(400).send({ error: pathErr });
       return;
     }
     const w: Workspace = {
@@ -139,12 +188,53 @@ export function registerRoutes(
       name: body.name,
       path: body.path,
       paused: false,
+      active_environment_id: null,
       created_at: Date.now(),
     };
     store.insertWorkspace(w);
     orch.onWorkspaceCreated(w);
     bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
     await reply.send({ workspace: w });
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/workspaces/:id', async (req, reply) => {
+    const w = store.getWorkspace(req.params.id);
+    if (w === null) {
+      await reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    const raw = req.body;
+    if (typeof raw !== 'object' || raw === null) {
+      await reply.code(400).send({ error: 'body required' });
+      return;
+    }
+    const body = raw as Partial<UpdateWorkspaceBody>;
+    let nextName = w.name;
+    let nextPath = w.path;
+    if (typeof body.name === 'string') {
+      if (body.name.length === 0) {
+        await reply.code(400).send({ error: 'name required' });
+        return;
+      }
+      nextName = body.name;
+    }
+    if (typeof body.path === 'string') {
+      const pathErr = validateWorkspacePath(body.path);
+      if (pathErr !== null) {
+        await reply.code(400).send({ error: pathErr });
+        return;
+      }
+      nextPath = body.path;
+    }
+    if (nextName === w.name && nextPath === w.path) {
+      await reply.send({ workspace: w });
+      return;
+    }
+    store.updateWorkspace(w.id, nextName, nextPath);
+    const updated: Workspace = { ...w, name: nextName, path: nextPath };
+    orch.onWorkspaceUpdated(updated);
+    bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
+    await reply.send({ workspace: updated });
   });
 
   app.post<{ Params: { id: string } }>('/api/v1/workspaces/:id/pause', async (req, reply) => {
@@ -189,14 +279,173 @@ export function registerRoutes(
     await reply.send({ ok: true });
   });
 
-  app.get<{ Params: { id: string } }>('/api/v1/workspaces/:id/tasks', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/workspaces/:id/environments', async (req, reply) => {
     const w = store.getWorkspace(req.params.id);
     if (w === null) {
       await reply.code(404).send({ error: 'not found' });
       return;
     }
-    await reply.send({ tasks: store.listTasks(w.id) });
+    await reply.send({ environments: store.listEnvironments(w.id) });
   });
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/workspaces/:id/environments',
+    async (req, reply) => {
+      const w = store.getWorkspace(req.params.id);
+      if (w === null) {
+        await reply.code(404).send({ error: 'not found' });
+        return;
+      }
+      const raw = req.body;
+      if (typeof raw !== 'object' || raw === null) {
+        await reply.code(400).send({ error: 'body required' });
+        return;
+      }
+      const body = raw as Record<string, unknown>;
+      if (typeof body['name'] !== 'string' || body['name'].length === 0) {
+        await reply.code(400).send({ error: 'name required' });
+        return;
+      }
+      const varsParsed = parseEnvVarsBody(body['vars']);
+      if (typeof varsParsed === 'string') {
+        await reply.code(400).send({ error: varsParsed });
+        return;
+      }
+      const env: Environment = {
+        id: nanoid(12),
+        workspace_id: w.id,
+        name: body['name'],
+        vars: varsParsed,
+        created_at: Date.now(),
+      };
+      try {
+        store.insertEnvironment(env);
+      } catch (e: unknown) {
+        await reply.code(409).send({ error: 'environment name already exists' });
+        return;
+      }
+      await reply.send({ environment: env });
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/environments/:id',
+    async (req, reply) => {
+      const existing = store.getEnvironment(req.params.id);
+      if (existing === null) {
+        await reply.code(404).send({ error: 'not found' });
+        return;
+      }
+      const raw = req.body;
+      if (typeof raw !== 'object' || raw === null) {
+        await reply.code(400).send({ error: 'body required' });
+        return;
+      }
+      const body = raw as Record<string, unknown>;
+      let nextName = existing.name;
+      if (body['name'] !== undefined) {
+        if (typeof body['name'] !== 'string' || body['name'].length === 0) {
+          await reply.code(400).send({ error: 'name required' });
+          return;
+        }
+        nextName = body['name'];
+      }
+      let nextVars = existing.vars;
+      if (body['vars'] !== undefined) {
+        const varsParsed = parseEnvVarsBody(body['vars']);
+        if (typeof varsParsed === 'string') {
+          await reply.code(400).send({ error: varsParsed });
+          return;
+        }
+        nextVars = varsParsed;
+      }
+      try {
+        store.updateEnvironment(existing.id, nextName, nextVars);
+      } catch (e: unknown) {
+        await reply.code(409).send({ error: 'environment name already exists' });
+        return;
+      }
+      const updated: Environment = {
+        ...existing,
+        name: nextName,
+        vars: nextVars,
+      };
+      await reply.send({ environment: updated });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/v1/environments/:id', async (req, reply) => {
+    const env = store.getEnvironment(req.params.id);
+    if (env === null) {
+      await reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    const w = store.getWorkspace(env.workspace_id);
+    if (w !== null && w.active_environment_id === env.id) {
+      store.setActiveEnvironment(w.id, null);
+      bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
+    }
+    store.deleteEnvironment(env.id);
+    await reply.send({ ok: true });
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/workspaces/:id/active-environment',
+    async (req, reply) => {
+      const w = store.getWorkspace(req.params.id);
+      if (w === null) {
+        await reply.code(404).send({ error: 'not found' });
+        return;
+      }
+      const raw = req.body;
+      if (typeof raw !== 'object' || raw === null) {
+        await reply.code(400).send({ error: 'body required' });
+        return;
+      }
+      const body = raw as Record<string, unknown>;
+      let environmentId: string | null = null;
+      if (body['environment_id'] !== undefined && body['environment_id'] !== null) {
+        if (typeof body['environment_id'] !== 'string') {
+          await reply.code(400).send({ error: 'environment_id must be string or null' });
+          return;
+        }
+        const env = store.getEnvironment(body['environment_id']);
+        if (env === null || env.workspace_id !== w.id) {
+          await reply.code(404).send({ error: 'environment not found' });
+          return;
+        }
+        environmentId = env.id;
+      }
+      store.setActiveEnvironment(w.id, environmentId);
+      const updated: Workspace = { ...w, active_environment_id: environmentId };
+      bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
+      await reply.send({ workspace: updated });
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string; limit?: string } }>(
+    '/api/v1/workspaces/:id/tasks',
+    async (req, reply) => {
+      const w = store.getWorkspace(req.params.id);
+      if (w === null) {
+        await reply.code(404).send({ error: 'not found' });
+        return;
+      }
+      let limit = 24;
+      if (req.query.limit !== undefined) {
+        const n = Number(req.query.limit);
+        if (!Number.isNaN(n) && n > 0 && n <= 100) {
+          limit = Math.floor(n);
+        }
+      }
+      let cursor: string | null = null;
+      if (req.query.cursor !== undefined && req.query.cursor.length > 0) {
+        cursor = req.query.cursor;
+      }
+      const page = store.listTasksPage(w.id, cursor, limit);
+      await reply.send({ tasks: page.tasks, nextCursor: page.nextCursor });
+    },
+  );
 
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/v1/workspaces/:id/tasks',
@@ -218,6 +467,7 @@ export function registerRoutes(
         command: v.command,
         runtime: v.runtime,
         docker_image: v.docker_image,
+        docker_platform: v.docker_platform,
         trigger_type: v.trigger_type,
         trigger_glob: v.trigger_glob,
         trigger_cron: v.trigger_cron,
@@ -231,6 +481,15 @@ export function registerRoutes(
       await reply.send({ task: t });
     },
   );
+
+  app.get<{ Params: { id: string } }>('/api/v1/tasks/:id', async (req, reply) => {
+    const t = store.getTask(req.params.id);
+    if (t === null) {
+      await reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    await reply.send({ task: t });
+  });
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
     '/api/v1/tasks/:id',
@@ -251,6 +510,7 @@ export function registerRoutes(
         command: v.command,
         runtime: v.runtime,
         docker_image: v.docker_image,
+        docker_platform: v.docker_platform,
         trigger_type: v.trigger_type,
         trigger_glob: v.trigger_glob,
         trigger_cron: v.trigger_cron,

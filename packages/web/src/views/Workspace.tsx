@@ -1,15 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Pause, PlayCircle, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { TaskCard } from '@/components/task-card';
+import { Switch } from '@/components/ui/switch';
+import { TaskTile } from '@/components/task-tile';
+import { TaskDetailPanel } from '@/components/task-detail-panel';
 import { LogPanel } from '@/components/log-panel';
+import { LogShell } from '@/components/log-shell';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { WorkspaceEnvironmentDialog } from '@/components/workspace-environment-dialog';
 import type { InspectTarget } from '@/components/run-dots';
 import { actions, useStore, selectTasksOf } from '@/state/store';
 import { api } from '@/api/client';
 import { navigate } from '@/app';
+import type { Task } from '@/types';
+
+const TASK_PAGE_SIZE = 24;
 
 interface Props {
   workspaceId: string;
@@ -24,31 +32,76 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
     return null;
   });
-  const tasks = useStore((s) => selectTasksOf(s, props.workspaceId));
   const liveExec = useStore((s) => s.liveExecutions);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingTasks, setLoadingTasks] = useState(false);
   const [creating, setCreating] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
 
-  useEffect(() => {
-    void actions.refreshTasks(props.workspaceId);
+  const loadFirstPage = useCallback(async (): Promise<void> => {
+    setLoadingTasks(true);
+    try {
+      const r = await api.listTasksPage(props.workspaceId, null, TASK_PAGE_SIZE);
+      setTasks(r.tasks);
+      actions.mergeWorkspaceTasks(props.workspaceId, r.tasks);
+      setNextCursor(r.nextCursor);
+      const ids: string[] = [];
+      for (const t of r.tasks) {
+        ids.push(t.id);
+      }
+      void actions.prefetchExecutionsForTasks(ids, 20);
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setLoadingTasks(false);
+    }
   }, [props.workspaceId]);
 
   useEffect(() => {
-    void actions.refreshExecutionsForWorkspace(props.workspaceId);
-  }, [props.workspaceId, tasks.length]);
+    void loadFirstPage();
+    setSelectedId(null);
+    setInspect(null);
+  }, [loadFirstPage]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void actions.refreshExecutionsForWorkspace(props.workspaceId);
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [props.workspaceId, tasks.length]);
+    if (selectedId === null) {
+      return;
+    }
+    void actions.refreshExecutionsForTask(selectedId, 50);
+  }, [selectedId]);
+
+  const storeTasks = useStore((s) => selectTasksOf(s, props.workspaceId));
+
+  useEffect(() => {
+    setTasks((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const freshById = new Map<string, Task>();
+      for (const row of storeTasks) {
+        freshById.set(row.id, row);
+      }
+      const next: Task[] = [];
+      for (const row of prev) {
+        const fresh = freshById.get(row.id);
+        if (fresh !== undefined) {
+          next.push(fresh);
+        } else {
+          next.push(row);
+        }
+      }
+      return next;
+    });
+  }, [storeTasks]);
 
   if (workspace === null) {
     return <div className="text-sm text-muted-foreground">Project not found.</div>;
   }
+
+  const ws = workspace;
 
   let running = 0;
   for (const t of tasks) {
@@ -63,8 +116,45 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
+  let selectedTask: Task | null = null;
+  if (selectedId !== null) {
+    for (const t of tasks) {
+      if (t.id === selectedId) {
+        selectedTask = t;
+      }
+    }
+    if (selectedTask === null) {
+      for (const key of Object.keys(liveExec)) {
+        const e = liveExec[key];
+        if (e === undefined) {
+          continue;
+        }
+        if (e.taskId === selectedId) {
+          selectedTask = {
+            id: selectedId,
+            workspace_id: props.workspaceId,
+            name: 'Task',
+            command: '',
+            runtime: 'shell',
+            docker_image: null,
+            docker_platform: null,
+            trigger_type: 'manual',
+            trigger_glob: null,
+            trigger_cron: null,
+            concurrency: 'restart',
+            enabled: true,
+            created_at: Date.now(),
+          };
+        }
+      }
+    }
+  }
+
   let inspectTaskName = '';
-  if (inspect !== null) {
+  if (inspect !== null && selectedTask !== null && inspect.taskId === selectedTask.id) {
+    inspectTaskName = selectedTask.name;
+  }
+  if (inspect !== null && inspectTaskName.length === 0) {
     for (const t of tasks) {
       if (t.id === inspect.taskId) {
         inspectTaskName = t.name;
@@ -72,15 +162,68 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
-  async function togglePause(): Promise<void> {
-    if (workspace === null) {
+  let inspectId: string | null = null;
+  if (inspect !== null) {
+    inspectId = inspect.executionId;
+  }
+
+  function selectTask(taskId: string): void {
+    if (selectedId === taskId) {
+      setSelectedId(null);
+      setInspect(null);
       return;
     }
+    setSelectedId(taskId);
+    setInspect(null);
+  }
+
+  function onInspect(target: InspectTarget): void {
+    setSelectedId(target.taskId);
+    setInspect(target);
+  }
+
+  async function loadMore(): Promise<void> {
+    if (nextCursor === null) {
+      return;
+    }
+    setLoadingTasks(true);
     try {
-      if (workspace.paused) {
-        await api.resumeWorkspace(workspace.id);
+      const r = await api.listTasksPage(props.workspaceId, nextCursor, TASK_PAGE_SIZE);
+      setTasks((prev) => {
+        const merged = [...prev];
+        for (const t of r.tasks) {
+          let found = false;
+          for (const existing of merged) {
+            if (existing.id === t.id) {
+              found = true;
+            }
+          }
+          if (!found) {
+            merged.push(t);
+          }
+        }
+        return merged;
+      });
+      setNextCursor(r.nextCursor);
+      actions.mergeWorkspaceTasks(props.workspaceId, r.tasks);
+      const ids: string[] = [];
+      for (const t of r.tasks) {
+        ids.push(t.id);
+      }
+      void actions.prefetchExecutionsForTasks(ids, 20);
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setLoadingTasks(false);
+    }
+  }
+
+  async function setProjectLive(live: boolean): Promise<void> {
+    try {
+      if (live) {
+        await api.resumeWorkspace(ws.id);
       } else {
-        await api.pauseWorkspace(workspace.id);
+        await api.pauseWorkspace(ws.id);
       }
       await actions.refreshWorkspaces();
       toast.success('Saved');
@@ -89,41 +232,36 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
-  async function remove(): Promise<void> {
-    if (workspace === null) {
-      return;
-    }
-    if (!window.confirm(`Delete project "${workspace.name}"?`)) {
-      return;
-    }
+  async function removeWorkspace(): Promise<void> {
     try {
-      await api.deleteWorkspace(workspace.id);
-      await actions.refreshWorkspaces();
+      await api.deleteWorkspace(ws.id);
       toast.success('Deleted');
       navigate('/');
     } catch (e: unknown) {
       toast.error(String(e));
+      throw e;
     }
   }
 
   async function createTask(): Promise<void> {
-    if (workspace === null) {
-      return;
-    }
     setCreating(true);
     try {
-      await api.createTask(workspace.id, {
+      const r = await api.createTask(ws.id, {
         name: 'New task',
         command: 'echo hello',
         runtime: 'shell',
         docker_image: null,
+        docker_platform: null,
         trigger_type: 'manual',
         trigger_glob: null,
         trigger_cron: null,
         concurrency: 'restart',
         enabled: true,
       });
-      await actions.refreshTasks(workspace.id);
+      setTasks((prev) => [r.task, ...prev]);
+      actions.upsertTask(r.task);
+      setSelectedId(r.task.id);
+      setInspect(null);
       toast.success('Task created');
     } catch (e: unknown) {
       toast.error(String(e));
@@ -133,7 +271,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   }
 
   let stateBadge: React.JSX.Element;
-  if (workspace.paused) {
+  if (ws.paused) {
     stateBadge = <Badge variant="warn">Paused</Badge>;
   } else if (running > 0) {
     stateBadge = <Badge>{`${String(running)} running`}</Badge>;
@@ -141,31 +279,67 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     stateBadge = <Badge variant="success">Live</Badge>;
   }
 
-  let pauseIcon = <Pause className="w-3.5 h-3.5" />;
-  let pauseLabelStr = 'Pause';
-  if (workspace.paused) {
-    pauseIcon = <PlayCircle className="w-3.5 h-3.5" />;
-    pauseLabelStr = 'Resume';
+  let detailOpen = false;
+  if (selectedId !== null && selectedTask !== null) {
+    detailOpen = true;
+  }
+
+  let detailWidth = 'w-0 opacity-0 overflow-hidden';
+  if (detailOpen) {
+    detailWidth = 'w-[min(440px,36vw)] opacity-100';
+  }
+
+  let detailBody: React.JSX.Element;
+  if (selectedTask !== null) {
+    detailBody = (
+      <TaskDetailPanel
+        task={selectedTask}
+        inspectId={inspectId}
+        onInspect={onInspect}
+        onClosePanel={() => {
+          setSelectedId(null);
+          setInspect(null);
+        }}
+        onDeleted={() => {
+          setSelectedId(null);
+          setInspect(null);
+          void loadFirstPage();
+        }}
+      />
+    );
+  } else {
+    detailBody = (
+      <div className="flex items-center justify-center h-full p-6 text-sm text-muted-foreground text-center">
+        Select a task tile to edit and browse run history.
+      </div>
+    );
   }
 
   return (
-    <div className="flex gap-0 -mx-8 min-h-[calc(100vh-4rem)]">
-      <div className="flex-1 min-w-0 px-8 py-0 flex flex-col gap-6">
-        <header className="flex items-end justify-between gap-6 flex-wrap pb-4 border-b">
-          <div className="flex flex-col gap-1 min-w-0">
+    <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col px-6 border-r">
+        <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Project</span>
               {stateBadge}
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">{workspace.name}</h1>
-            <p className="text-xs text-muted-foreground font-mono truncate">{workspace.path}</p>
+            <h1 className="text-lg font-semibold truncate">{ws.name}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Button type="button" onClick={() => { void togglePause(); }} variant="outline" size="sm">
-              {pauseIcon} {pauseLabelStr}
-            </Button>
-            <Button type="button" onClick={() => { void remove(); }} variant="ghost" size="sm">
-              <Trash2 className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2 shrink-0">
+            <WorkspaceEnvironmentDialog
+              workspaceId={ws.id}
+              activeEnvironmentId={ws.active_environment_id}
+            />
+            <div className="flex items-center gap-2 px-2">
+              <Switch
+                checked={!ws.paused}
+                onCheckedChange={(v) => { void setProjectLive(v); }}
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
+            </div>
+            <Button type="button" onClick={() => { setDeleteProjectOpen(true); }} variant="ghost" size="icon" className="h-8 w-8">
+              <Trash2 className="w-4 h-4" />
             </Button>
             <Button type="button" onClick={() => { void createTask(); }} disabled={creating} size="sm">
               New task
@@ -173,33 +347,56 @@ export function WorkspaceView(props: Props): React.JSX.Element {
           </div>
         </header>
 
-        {tasks.length === 0 && (
-          <Card className="border-dashed">
-            <div className="p-8 text-center text-sm text-muted-foreground">No tasks yet</div>
-          </Card>
-        )}
-
-        <div className="flex flex-col gap-2 pb-8">
-          {tasks.map((t) => (
-            <TaskCard
-              key={t.id}
-              task={t}
-              onInspect={(target) => { setInspect(target); }}
-            />
-          ))}
+        <div className="flex-1 min-h-0 overflow-y-auto py-3">
+          {tasks.length === 0 && !loadingTasks && (
+            <Card className="border-dashed">
+              <div className="p-8 text-center text-sm text-muted-foreground">No tasks yet</div>
+            </Card>
+          )}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            {tasks.map((t) => (
+              <TaskTile
+                key={t.id}
+                task={t}
+                selected={selectedId === t.id}
+                onSelect={() => { selectTask(t.id); }}
+              />
+            ))}
+          </div>
+          {nextCursor !== null && (
+            <div className="flex justify-center pt-4">
+              <Button type="button" variant="outline" size="sm" onClick={() => { void loadMore(); }} disabled={loadingTasks}>
+                Load more
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
+      <div
+        className={`shrink-0 border-r bg-card/20 transition-all duration-200 ease-out flex flex-col ${detailWidth}`}
+      >
+        {detailBody}
+      </div>
+
       {inspect !== null && (
-        <div className="w-[min(420px,40vw)] shrink-0 sticky top-0 self-start h-[calc(100vh-2rem)]">
-          <LogPanel
-            target={inspect}
-            taskName={inspectTaskName}
-            onClose={() => { setInspect(null); }}
-            onCancel={(id) => { void api.cancelExecution(id); }}
-          />
+        <div className="w-[min(400px,34vw)] shrink-0 h-full">
+          <LogShell taskName={inspectTaskName} onClear={() => { setInspect(null); }}>
+            <LogPanel
+              target={inspect}
+              onCancel={(id) => { void api.cancelExecution(id); }}
+            />
+          </LogShell>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteProjectOpen}
+        kind="project"
+        name={ws.name}
+        onOpenChange={setDeleteProjectOpen}
+        onConfirm={removeWorkspace}
+      />
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,8 +38,6 @@ function parseHistoryLog(raw: string): { stream: 'out' | 'err'; line: string }[]
 
 interface Props {
   target: InspectTarget;
-  taskName: string;
-  onClose(): void;
   onCancel(executionId: string): void;
 }
 
@@ -126,18 +123,7 @@ export function LogPanel(props: Props): React.JSX.Element {
   }, [logLines, loading]);
 
   return (
-    <div className="flex flex-col h-full border-l bg-card/50">
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b shrink-0">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold truncate">{props.taskName}</div>
-          <div className="text-[10px] text-muted-foreground font-mono truncate">
-            {props.target.executionId.slice(0, 12)}
-          </div>
-        </div>
-        <Button type="button" variant="ghost" size="icon" onClick={props.onClose}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
+    <div className="flex flex-col h-full min-h-0">
       <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-xs border-b shrink-0">
         <Badge variant={statusBadgeVariant(metaStatus)}>{statusLabel(metaStatus)}</Badge>
         {isLive && <Badge variant="outline">Live</Badge>}

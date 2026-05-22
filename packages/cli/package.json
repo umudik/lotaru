@@ -1,23 +1,43 @@
 {
   "name": "lotaru",
   "version": "0.1.0",
+  "description": "Local-first task orchestration — run shell tasks on your projects from the browser",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umudik/lotaru.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "lotaru": "dist/index.js"
   },
   "files": [
     "dist",
+    "dist-server",
     "public"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ../../scripts/cp-public.mjs",
+    "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "node ../../scripts/build-publish.mjs"
   },
   "dependencies": {
-    "@lotaru/server": "0.1.0"
+    "@fastify/static": "^7.0.4",
+    "@fastify/websocket": "^10.0.1",
+    "better-sqlite3": "^11.5.0",
+    "chokidar": "^4.0.1",
+    "dockerode": "^4.0.2",
+    "fastify": "^4.28.1",
+    "micromatch": "^4.0.8",
+    "nanoid": "^5.0.9",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
+    "@lotaru/server": "0.1.0",
     "@types/node": "^22.9.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"

@@ -9,6 +9,15 @@ export interface Workspace {
   name: string;
   path: string;
   paused: boolean;
+  active_environment_id: string | null;
+  created_at: number;
+}
+
+export interface Environment {
+  id: string;
+  workspace_id: string;
+  name: string;
+  vars: Record<string, string>;
   created_at: number;
 }
 
@@ -19,6 +28,7 @@ export interface Task {
   command: string;
   runtime: RuntimeKind;
   docker_image: string | null;
+  docker_platform: string | null;
   trigger_type: TriggerKind;
   trigger_glob: string | null;
   trigger_cron: string | null;

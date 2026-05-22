@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { start } from '@lotaru/server';
+import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_PORT = 4317;
+
+interface StartOptions {
+  port: number;
+  dataDir: string;
+  staticDir: string | null;
+}
+
+type StartFn = (opts: StartOptions) => Promise<void>;
 
 function resolvePort(): number {
   const envPort = process.env['LOTARU_PORT'];
@@ -30,12 +38,43 @@ function resolveStaticDir(): string | null {
   return null;
 }
 
+async function loadStart(): Promise<StartFn> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const bundled = join(here, '..', 'dist-server', 'main.js');
+  if (existsSync(bundled)) {
+    const mod = (await import(pathToFileURL(bundled).href)) as { start: StartFn };
+    return mod.start;
+  }
+  const mod = await import('@lotaru/server');
+  return mod.start;
+}
+
+function openBrowser(url: string): void {
+  if (process.env['LOTARU_NO_OPEN'] === '1') {
+    return;
+  }
+  let child: ReturnType<typeof spawn> | null = null;
+  if (process.platform === 'win32') {
+    child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true });
+  } else if (process.platform === 'darwin') {
+    child = spawn('open', [url], { detached: true, stdio: 'ignore' });
+  } else {
+    child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+  }
+  if (child !== null) {
+    child.unref();
+  }
+}
+
 async function main(): Promise<void> {
   const port = resolvePort();
   const dataDir = join(homedir(), '.lotaru');
   const staticDir = resolveStaticDir();
+  const start = await loadStart();
+  const url = `http://127.0.0.1:${String(port)}`;
   await start({ port, dataDir, staticDir });
-  console.log(`\n  lotaru ready — open http://127.0.0.1:${String(port)}\n`);
+  console.log(`\n  lotaru ready — ${url}\n`);
+  openBrowser(url);
 }
 
 main().catch((err: unknown) => {

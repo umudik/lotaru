@@ -107,22 +107,111 @@ export const actions = {
     const r = await api.listTasks(workspaceId);
     set((s) => ({ ...s, tasksByWorkspace: { ...s.tasksByWorkspace, [workspaceId]: r.tasks } }));
   },
+  upsertTask(task: Task): void {
+    set((s) => {
+      const list = s.tasksByWorkspace[task.workspace_id];
+      if (list === undefined) {
+        const tasksByWorkspace = { ...s.tasksByWorkspace, [task.workspace_id]: [task] };
+        return { ...s, tasksByWorkspace };
+      }
+      const next: Task[] = [];
+      let found = false;
+      for (const row of list) {
+        if (row.id === task.id) {
+          next.push(task);
+          found = true;
+        } else {
+          next.push(row);
+        }
+      }
+      if (!found) {
+        next.push(task);
+      }
+      const tasksByWorkspace = { ...s.tasksByWorkspace, [task.workspace_id]: next };
+      return { ...s, tasksByWorkspace };
+    });
+  },
+  async syncTask(taskId: string): Promise<void> {
+    try {
+      const r = await api.getTask(taskId);
+      actions.upsertTask(r.task);
+    } catch (_e: unknown) {
+    }
+  },
+  removeTask(taskId: string): void {
+    set((s) => {
+      const tasksByWorkspace: Record<string, Task[]> = { ...s.tasksByWorkspace };
+      for (const key of Object.keys(tasksByWorkspace)) {
+        const list = tasksByWorkspace[key];
+        if (list === undefined) {
+          continue;
+        }
+        const next: Task[] = [];
+        for (const row of list) {
+          if (row.id !== taskId) {
+            next.push(row);
+          }
+        }
+        if (next.length !== list.length) {
+          tasksByWorkspace[key] = next;
+        }
+      }
+      return { ...s, tasksByWorkspace };
+    });
+  },
+  mergeWorkspaceTasks(workspaceId: string, pageTasks: readonly Task[]): void {
+    set((s) => {
+      const list = s.tasksByWorkspace[workspaceId];
+      const byId = new Map<string, Task>();
+      if (list !== undefined) {
+        for (const row of list) {
+          byId.set(row.id, row);
+        }
+      }
+      for (const row of pageTasks) {
+        byId.set(row.id, row);
+      }
+      const merged: Task[] = [];
+      for (const row of byId.values()) {
+        merged.push(row);
+      }
+      const tasksByWorkspace = { ...s.tasksByWorkspace, [workspaceId]: merged };
+      return { ...s, tasksByWorkspace };
+    });
+  },
   async refreshRecentExecutions(): Promise<void> {
     const r = await api.listExecutions(null, 30);
     set((s) => ({ ...s, recentExecutions: r.executions }));
   },
-  async refreshExecutionsForTask(taskId: string): Promise<void> {
-    const r = await api.listExecutions(taskId, 20);
+  async refreshExecutionsForTask(taskId: string, limit = 20): Promise<void> {
+    const r = await api.listExecutions(taskId, limit);
     set((s) => ({ ...s, executionsByTask: { ...s.executionsByTask, [taskId]: r.executions } }));
+  },
+  async prefetchExecutionsForTasks(taskIds: readonly string[], limit = 20): Promise<void> {
+    if (taskIds.length === 0) {
+      return;
+    }
+    const rows = await Promise.all(
+      taskIds.map(async (taskId) => {
+        const r = await api.listExecutions(taskId, limit);
+        return { taskId, executions: r.executions };
+      }),
+    );
+    set((s) => {
+      const executionsByTask = { ...s.executionsByTask };
+      for (const row of rows) {
+        executionsByTask[row.taskId] = row.executions;
+      }
+      return { ...s, executionsByTask };
+    });
   },
   async refreshExecutionsForWorkspace(workspaceId: string): Promise<void> {
     const tasks = selectTasksOf(state, workspaceId);
-    await Promise.all(
-      tasks.map(async (t) => {
-        const r = await api.listExecutions(t.id, 20);
-        set((s) => ({ ...s, executionsByTask: { ...s.executionsByTask, [t.id]: r.executions } }));
-      }),
-    );
+    const ids: string[] = [];
+    for (const t of tasks) {
+      ids.push(t.id);
+    }
+    await actions.prefetchExecutionsForTasks(ids, 20);
   },
 };
 
@@ -260,11 +349,12 @@ function handleMessage(msg: ServerMessage): void {
     void actions.refreshWorkspaces();
     return;
   }
-  if (msg.kind === 'task.updated' || msg.kind === 'task.deleted') {
-    const all = state.workspaces;
-    for (const w of all) {
-      void actions.refreshTasks(w.id);
-    }
+  if (msg.kind === 'task.updated') {
+    void actions.syncTask(msg.taskId);
+    return;
+  }
+  if (msg.kind === 'task.deleted') {
+    actions.removeTask(msg.taskId);
     return;
   }
 }
@@ -279,6 +369,12 @@ export function useBootstrap(): { ready: boolean } {
       const ws = state.workspaces;
       for (const w of ws) {
         await actions.refreshTasks(w.id);
+        const taskList = selectTasksOf(state, w.id);
+        const ids: string[] = [];
+        for (const t of taskList) {
+          ids.push(t.id);
+        }
+        await actions.prefetchExecutionsForTasks(ids, 20);
       }
       await actions.refreshRecentExecutions();
       setReady(true);

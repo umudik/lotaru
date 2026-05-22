@@ -111,8 +111,8 @@ export function App(): React.JSX.Element {
     return (
       <div className="min-h-screen">
         <Sidebar activeWorkspaceId={route.id} />
-        <main className="pl-60 min-h-screen">
-          <div className="max-w-[1600px] mx-auto px-8 py-8">{renderRoute(route)}</div>
+        <main className="pl-60 min-h-screen pr-0">
+          <div className="w-full px-8 py-6">{renderRoute(route)}</div>
         </main>
       </div>
     );

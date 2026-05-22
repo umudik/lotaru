@@ -1,0 +1,340 @@
+import { useEffect, useState } from 'react';
+import { Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { patchTask } from '@/lib/task-patch';
+import { CRON_PRESETS, resolveCronExpression } from '@/lib/cron-presets';
+import { DOCKER_PLATFORM_OPTIONS, platformSelectValue } from '@/lib/docker-platform';
+import { nullToEmpty } from '@/lib/format';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { TaskHistory } from '@/components/task-history';
+import type { InspectTarget } from '@/components/run-dots';
+import { api } from '@/api/client';
+import { actions, useStore, selectTasksOf } from '@/state/store';
+import type { Task, RuntimeKind, TriggerKind, ConcurrencyKind } from '@/types';
+
+const runtimeOptions: readonly { value: RuntimeKind; label: string }[] = [
+  { value: 'shell', label: 'Shell (isolated)' },
+  { value: 'docker', label: 'Docker' },
+];
+const triggerOptions: readonly { value: TriggerKind; label: string }[] = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'save', label: 'On save' },
+  { value: 'startup', label: 'Startup' },
+  { value: 'scheduled', label: 'Scheduled' },
+];
+const concurrencyOptions: readonly { value: ConcurrencyKind; label: string }[] = [
+  { value: 'restart', label: 'Restart' },
+  { value: 'queue', label: 'Queue' },
+  { value: 'ignore', label: 'Ignore' },
+  { value: 'parallel', label: 'Parallel' },
+];
+
+function enabledLabel(enabled: boolean): string {
+  if (enabled) {
+    return 'On';
+  }
+  return 'Off';
+}
+
+function emptyToNull(v: string): string | null {
+  if (v === '') {
+    return null;
+  }
+  return v;
+}
+
+interface Props {
+  task: Task;
+  inspectId: string | null;
+  onInspect(target: InspectTarget): void;
+  onClosePanel(): void;
+  onDeleted(): void;
+}
+
+export function TaskDetailPanel(props: Props): React.JSX.Element {
+  const t = useStore((s) => {
+    const list = selectTasksOf(s, props.task.workspace_id);
+    for (const row of list) {
+      if (row.id === props.task.id) {
+        return row;
+      }
+    }
+    return props.task;
+  });
+  const [name, setName] = useState(t.name);
+  const [command, setCommand] = useState(t.command);
+  const [glob, setGlob] = useState(nullToEmpty(t.trigger_glob));
+  const [dockerImage, setDockerImage] = useState(nullToEmpty(t.docker_image));
+  const [enabled, setEnabled] = useState(t.enabled);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  useEffect(() => {
+    setName(t.name);
+    setCommand(t.command);
+    setGlob(nullToEmpty(t.trigger_glob));
+    setDockerImage(nullToEmpty(t.docker_image));
+    setEnabled(t.enabled);
+  }, [t.id, t.name, t.command, t.trigger_glob, t.trigger_cron, t.docker_image, t.enabled]);
+
+  async function saveField(partial: Partial<Task>): Promise<void> {
+    try {
+      await patchTask(t, partial);
+    } catch (e: unknown) {
+      toast.error(String(e));
+    }
+  }
+
+  async function setTaskEnabled(next: boolean): Promise<void> {
+    if (next === t.enabled) {
+      return;
+    }
+    setEnabled(next);
+    try {
+      await patchTask(t, { enabled: next });
+    } catch (e: unknown) {
+      setEnabled(t.enabled);
+      toast.error(String(e));
+    }
+  }
+
+  async function remove(): Promise<void> {
+    try {
+      await api.deleteTask(t.id);
+      await actions.refreshTasks(t.workspace_id);
+      toast.success('Deleted');
+      props.onDeleted();
+    } catch (e: unknown) {
+      toast.error(String(e));
+      throw e;
+    }
+  }
+
+  const scheduleValue = resolveCronExpression(t.trigger_cron);
+
+  let platformInput: React.JSX.Element | null = null;
+  if (t.runtime === 'docker' || t.runtime === 'shell') {
+    platformInput = (
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <Label className="text-xs text-muted-foreground">Architecture</Label>
+        <Select
+          value={platformSelectValue(t.docker_platform)}
+          onValueChange={(v) => {
+            let next: string | null = null;
+            if (v !== 'auto') {
+              next = v;
+            }
+            void saveField({ docker_platform: next });
+          }}
+        >
+          <SelectTrigger className="h-9 text-xs w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DOCKER_PLATFORM_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  let dockerImageInput: React.JSX.Element | null = null;
+  if (t.runtime === 'docker') {
+    dockerImageInput = (
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <Label className="text-xs text-muted-foreground">Docker image</Label>
+        <Input
+          value={dockerImage}
+          onChange={(e) => { setDockerImage(e.target.value); }}
+          onBlur={() => { void saveField({ docker_image: emptyToNull(dockerImage) }); }}
+          placeholder="node:22-alpine"
+          className="font-mono h-9 text-xs w-full"
+        />
+      </div>
+    );
+  }
+
+  let globInput: React.JSX.Element | null = null;
+  if (t.trigger_type === 'save') {
+    globInput = (
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <Label className="text-xs text-muted-foreground">Path filter</Label>
+        <Input
+          value={glob}
+          onChange={(e) => { setGlob(e.target.value); }}
+          onBlur={() => { void saveField({ trigger_glob: emptyToNull(glob) }); }}
+          placeholder="**/*.ts"
+          className="font-mono h-9 text-xs w-full"
+        />
+      </div>
+    );
+  }
+
+  let cronInput: React.JSX.Element | null = null;
+  if (t.trigger_type === 'scheduled') {
+    cronInput = (
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <Label className="text-xs text-muted-foreground">Schedule</Label>
+        <Select value={scheduleValue} onValueChange={(v) => { void saveField({ trigger_cron: v }); }}>
+          <SelectTrigger className="h-9 text-xs w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CRON_PRESETS.map((p) => (
+              <SelectItem key={p.expression} value={p.expression}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col gap-4 p-4 min-h-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 shrink-0">
+        <span className="text-sm font-semibold">Task</span>
+        <div className="flex items-center gap-1">
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setDeleteOpen(true); }}>
+            <Trash2 className="w-4 h-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={props.onClosePanel}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 shrink-0">
+        <Input
+          value={name}
+          onChange={(e) => { setName(e.target.value); }}
+          onBlur={() => {
+            if (name !== t.name) {
+              void saveField({ name });
+            }
+          }}
+          className="h-9 font-medium flex-1"
+        />
+        <div className="flex items-center gap-2 shrink-0">
+          <Switch checked={enabled} onCheckedChange={(v) => { void setTaskEnabled(v); }} />
+          <span className="text-xs text-muted-foreground">{enabledLabel(enabled)}</span>
+        </div>
+      </div>
+
+      <Textarea
+        value={command}
+        onChange={(e) => { setCommand(e.target.value); }}
+        onBlur={() => {
+          if (command !== t.command) {
+            void saveField({ command });
+          }
+        }}
+        rows={2}
+        className="font-mono text-xs shrink-0"
+      />
+
+      <div className="rounded-lg border bg-muted/20 p-3 flex flex-col gap-3 shrink-0">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <Label className="text-xs text-muted-foreground">Trigger</Label>
+            <Select
+              value={t.trigger_type}
+              onValueChange={(v) => {
+                const kind = v as TriggerKind;
+                if (kind === 'scheduled') {
+                  void saveField({
+                    trigger_type: kind,
+                    trigger_cron: resolveCronExpression(t.trigger_cron),
+                  });
+                  return;
+                }
+                void saveField({ trigger_type: kind });
+              }}
+            >
+              <SelectTrigger className="h-9 text-xs w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {triggerOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <Label className="text-xs text-muted-foreground">Concurrency</Label>
+            <Select
+              value={t.concurrency}
+              onValueChange={(v) => { void saveField({ concurrency: v as ConcurrencyKind }); }}
+            >
+              <SelectTrigger className="h-9 text-xs w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {concurrencyOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <Label className="text-xs text-muted-foreground">Runtime</Label>
+          <Select
+            value={t.runtime}
+            onValueChange={(v) => { void saveField({ runtime: v as RuntimeKind }); }}
+          >
+            <SelectTrigger className="h-9 text-xs w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {runtimeOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {platformInput}
+        {globInput}
+        {cronInput}
+        {dockerImageInput}
+      </div>
+
+      <TaskHistory
+        taskId={t.id}
+        selectedId={props.inspectId}
+        onInspect={props.onInspect}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        kind="task"
+        name={t.name}
+        onOpenChange={setDeleteOpen}
+        onConfirm={remove}
+      />
+    </div>
+  );
+}

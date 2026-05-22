@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   Workspace,
+  Environment,
   Task,
   Execution,
   RuntimeKind,
@@ -11,6 +12,7 @@ import type {
   ConcurrencyKind,
   ExecutionStatus,
 } from '../types.js';
+import { parseEnvVars, stringifyEnvVars } from '../executor/env.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
@@ -19,6 +21,15 @@ interface WorkspaceRow {
   name: string;
   path: string;
   paused: number;
+  active_environment_id: string | null;
+  created_at: number;
+}
+
+interface EnvironmentRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  vars_json: string;
   created_at: number;
 }
 
@@ -29,6 +40,7 @@ interface TaskRow {
   command: string;
   runtime: string;
   docker_image: string | null;
+  docker_platform: string | null;
   trigger_type: string;
   trigger_glob: string | null;
   trigger_cron: string | null;
@@ -54,6 +66,17 @@ function rowToWorkspace(row: WorkspaceRow): Workspace {
     name: row.name,
     path: row.path,
     paused: row.paused === 1,
+    active_environment_id: row.active_environment_id,
+    created_at: row.created_at,
+  };
+}
+
+function rowToEnvironment(row: EnvironmentRow): Environment {
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    name: row.name,
+    vars: parseEnvVars(row.vars_json),
     created_at: row.created_at,
   };
 }
@@ -66,6 +89,7 @@ function rowToTask(row: TaskRow): Task {
     command: row.command,
     runtime: row.runtime as RuntimeKind,
     docker_image: row.docker_image,
+    docker_platform: row.docker_platform,
     trigger_type: row.trigger_type as TriggerKind,
     trigger_glob: row.trigger_glob,
     trigger_cron: row.trigger_cron,
@@ -93,9 +117,21 @@ export interface Store {
   getWorkspace(id: string): Workspace | null;
   insertWorkspace(w: Workspace): void;
   setWorkspacePaused(id: string, paused: boolean): void;
+  updateWorkspace(id: string, name: string, path: string): void;
   deleteWorkspace(id: string): void;
 
+  deleteWorkspace(id: string): void;
+
+  listEnvironments(workspaceId: string): Environment[];
+  getEnvironment(id: string): Environment | null;
+  insertEnvironment(env: Environment): void;
+  updateEnvironment(id: string, name: string, vars: Record<string, string>): void;
+  deleteEnvironment(id: string): void;
+  setActiveEnvironment(workspaceId: string, environmentId: string | null): void;
+  resolveActiveEnvVars(workspaceId: string): Record<string, string>;
+
   listTasks(workspaceId: string): Task[];
+  listTasksPage(workspaceId: string, cursor: string | null, limit: number): { tasks: Task[]; nextCursor: string | null };
   listAllEnabledTasks(): Task[];
   getTask(id: string): Task | null;
   insertTask(t: Task): void;
@@ -120,28 +156,80 @@ export function openStore(dbPath: string): Store {
   const schema = readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
 
+  const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
+  let hasDockerPlatform = false;
+  for (const col of taskCols) {
+    if (col.name === 'docker_platform') {
+      hasDockerPlatform = true;
+    }
+  }
+  if (!hasDockerPlatform) {
+    db.exec('ALTER TABLE tasks ADD COLUMN docker_platform TEXT');
+  }
+
+  const wsCols = db.prepare('PRAGMA table_info(workspaces)').all() as { name: string }[];
+  let hasActiveEnv = false;
+  for (const col of wsCols) {
+    if (col.name === 'active_environment_id') {
+      hasActiveEnv = true;
+    }
+  }
+  if (!hasActiveEnv) {
+    db.exec('ALTER TABLE workspaces ADD COLUMN active_environment_id TEXT');
+  }
+
+  db.exec(`CREATE TABLE IF NOT EXISTS environments (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    vars_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    UNIQUE(workspace_id, name)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_environments_workspace ON environments(workspace_id)');
+
   const stmts = {
     listWorkspaces: db.prepare<[], WorkspaceRow>('SELECT * FROM workspaces ORDER BY created_at ASC'),
     getWorkspace: db.prepare<[string], WorkspaceRow>('SELECT * FROM workspaces WHERE id = ?'),
     insertWorkspace: db.prepare(
-      'INSERT INTO workspaces (id, name, path, paused, created_at) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO workspaces (id, name, path, paused, active_environment_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ),
     setWorkspacePaused: db.prepare('UPDATE workspaces SET paused = ? WHERE id = ?'),
+    updateWorkspace: db.prepare('UPDATE workspaces SET name = ?, path = ? WHERE id = ?'),
+    setActiveEnvironment: db.prepare('UPDATE workspaces SET active_environment_id = ? WHERE id = ?'),
     deleteWorkspace: db.prepare('DELETE FROM workspaces WHERE id = ?'),
 
+    listEnvironmentsByWorkspace: db.prepare<[string], EnvironmentRow>(
+      'SELECT * FROM environments WHERE workspace_id = ? ORDER BY created_at ASC',
+    ),
+    getEnvironment: db.prepare<[string], EnvironmentRow>('SELECT * FROM environments WHERE id = ?'),
+    insertEnvironment: db.prepare(
+      'INSERT INTO environments (id, workspace_id, name, vars_json, created_at) VALUES (?, ?, ?, ?, ?)',
+    ),
+    updateEnvironment: db.prepare('UPDATE environments SET name = ?, vars_json = ? WHERE id = ?'),
+    deleteEnvironment: db.prepare('DELETE FROM environments WHERE id = ?'),
+
     listTasksByWorkspace: db.prepare<[string], TaskRow>(
-      'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC, id ASC',
+    ),
+    listTasksPageFirst: db.prepare<[string, number], TaskRow>(
+      'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC, id ASC LIMIT ?',
+    ),
+    listTasksPageAfter: db.prepare<[string, number, number, string, number], TaskRow>(
+      `SELECT * FROM tasks WHERE workspace_id = ?
+       AND (created_at > ? OR (created_at = ? AND id > ?))
+       ORDER BY created_at ASC, id ASC LIMIT ?`,
     ),
     listAllEnabledTasks: db.prepare<[], TaskRow>('SELECT * FROM tasks WHERE enabled = 1'),
     getTask: db.prepare<[string], TaskRow>('SELECT * FROM tasks WHERE id = ?'),
     insertTask: db.prepare(
       `INSERT INTO tasks
-        (id, workspace_id, name, command, runtime, docker_image, trigger_type, trigger_glob, trigger_cron, concurrency, enabled, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, workspace_id, name, command, runtime, docker_image, docker_platform, trigger_type, trigger_glob, trigger_cron, concurrency, enabled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     updateTask: db.prepare(
       `UPDATE tasks SET
-        name = ?, command = ?, runtime = ?, docker_image = ?,
+        name = ?, command = ?, runtime = ?, docker_image = ?, docker_platform = ?,
         trigger_type = ?, trigger_glob = ?, trigger_cron = ?,
         concurrency = ?, enabled = ?
        WHERE id = ?`,
@@ -187,18 +275,93 @@ export function openStore(dbPath: string): Store {
       return rowToWorkspace(row);
     },
     insertWorkspace(w: Workspace): void {
-      stmts.insertWorkspace.run(w.id, w.name, w.path, boolToInt(w.paused), w.created_at);
+      stmts.insertWorkspace.run(
+        w.id,
+        w.name,
+        w.path,
+        boolToInt(w.paused),
+        w.active_environment_id,
+        w.created_at,
+      );
     },
     setWorkspacePaused(id: string, paused: boolean): void {
       stmts.setWorkspacePaused.run(boolToInt(paused), id);
+    },
+    updateWorkspace(id: string, name: string, path: string): void {
+      stmts.updateWorkspace.run(name, path, id);
     },
     deleteWorkspace(id: string): void {
       stmts.deleteWorkspace.run(id);
     },
 
+    listEnvironments(workspaceId: string): Environment[] {
+      const rows = stmts.listEnvironmentsByWorkspace.all(workspaceId);
+      return rows.map(rowToEnvironment);
+    },
+    getEnvironment(id: string): Environment | null {
+      const row = stmts.getEnvironment.get(id);
+      if (row === undefined) {
+        return null;
+      }
+      return rowToEnvironment(row);
+    },
+    insertEnvironment(env: Environment): void {
+      stmts.insertEnvironment.run(
+        env.id,
+        env.workspace_id,
+        env.name,
+        stringifyEnvVars(env.vars),
+        env.created_at,
+      );
+    },
+    updateEnvironment(id: string, name: string, vars: Record<string, string>): void {
+      stmts.updateEnvironment.run(name, stringifyEnvVars(vars), id);
+    },
+    deleteEnvironment(id: string): void {
+      stmts.deleteEnvironment.run(id);
+    },
+    setActiveEnvironment(workspaceId: string, environmentId: string | null): void {
+      stmts.setActiveEnvironment.run(environmentId, workspaceId);
+    },
+    resolveActiveEnvVars(workspaceId: string): Record<string, string> {
+      const w = stmts.getWorkspace.get(workspaceId);
+      if (w === undefined || w.active_environment_id === null) {
+        return {};
+      }
+      const env = stmts.getEnvironment.get(w.active_environment_id);
+      if (env === undefined) {
+        return {};
+      }
+      return parseEnvVars(env.vars_json);
+    },
+
     listTasks(workspaceId: string): Task[] {
       const rows = stmts.listTasksByWorkspace.all(workspaceId);
       return rows.map(rowToTask);
+    },
+    listTasksPage(workspaceId: string, cursor: string | null, limit: number): { tasks: Task[]; nextCursor: string | null } {
+      const fetchLimit = limit + 1;
+      let rows: TaskRow[];
+      if (cursor === null) {
+        rows = stmts.listTasksPageFirst.all(workspaceId, fetchLimit);
+      } else {
+        const cur = stmts.getTask.get(cursor);
+        if (cur === undefined) {
+          rows = stmts.listTasksPageFirst.all(workspaceId, fetchLimit);
+        } else {
+          rows = stmts.listTasksPageAfter.all(workspaceId, cur.created_at, cur.created_at, cur.id, fetchLimit);
+        }
+      }
+      let nextCursor: string | null = null;
+      let pageRows = rows;
+      if (rows.length > limit) {
+        pageRows = rows.slice(0, limit);
+        const last = pageRows[pageRows.length - 1];
+        if (last !== undefined) {
+          nextCursor = last.id;
+        }
+      }
+      return { tasks: pageRows.map(rowToTask), nextCursor };
     },
     listAllEnabledTasks(): Task[] {
       const rows = stmts.listAllEnabledTasks.all();
@@ -219,6 +382,7 @@ export function openStore(dbPath: string): Store {
         t.command,
         t.runtime,
         t.docker_image,
+        t.docker_platform,
         t.trigger_type,
         t.trigger_glob,
         t.trigger_cron,
@@ -233,6 +397,7 @@ export function openStore(dbPath: string): Store {
         t.command,
         t.runtime,
         t.docker_image,
+        t.docker_platform,
         t.trigger_type,
         t.trigger_glob,
         t.trigger_cron,

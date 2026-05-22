@@ -1,6 +1,9 @@
 import { nanoid } from 'nanoid';
 import { join } from 'node:path';
 import { initialState, step } from './concurrency/policy.js';
+import { defaultShellImage, shellRunsOnHost } from './executor/config.js';
+import { buildExecEnv, envKeySummary } from './executor/env.js';
+import { resolveTaskPlatform } from './executor/platform.js';
 import { runShell } from './executor/shell.js';
 import { runDocker } from './executor/docker.js';
 import { matchesGlob } from './watcher/index.js';
@@ -20,6 +23,7 @@ export interface Orchestrator {
   onWorkspaceCreated(workspace: Workspace): void;
   onWorkspaceDeleted(workspaceId: string): void;
   onWorkspacePausedChanged(workspace: Workspace): void;
+  onWorkspaceUpdated(workspace: Workspace): void;
   triggerManual(taskId: string): void;
   cancelExecution(executionId: string): void;
   handleWatchEvent(e: WatchEvent): void;
@@ -139,6 +143,22 @@ export function createOrchestrator(
       applyCommands(currentTask, result.commands, reason);
     };
 
+    const platform = resolveTaskPlatform(task.docker_platform);
+
+    const customEnv = store.resolveActiveEnvVars(task.workspace_id);
+    const envSummary = envKeySummary(customEnv);
+    if (envSummary.length > 0) {
+      onLine(`[lotaru] env keys=${envSummary}`, 'out');
+    }
+
+    let isolated = false;
+    if (task.runtime === 'docker') {
+      isolated = true;
+    } else if (!shellRunsOnHost()) {
+      isolated = true;
+    }
+    const execEnv = buildExecEnv(customEnv, isolated);
+
     let handle: ExecutionHandle;
     if (task.runtime === 'docker') {
       const image = task.docker_image;
@@ -147,19 +167,45 @@ export function createOrchestrator(
         onExit(null, false);
         return;
       }
+      let platformNote = '';
+      if (platform !== null) {
+        platformNote = ` platform=${platform}`;
+      }
+      onLine(`[lotaru] docker image=${image}${platformNote}`, 'out');
       handle = runDocker({
         command: task.command,
         cwd: workspace.path,
         logPath,
+        env: execEnv,
         image,
+        platform,
         onLine,
         onExit,
       });
-    } else {
+    } else if (shellRunsOnHost()) {
+      onLine(`[lotaru] shell on host cwd=${workspace.path}`, 'out');
       handle = runShell({
         command: task.command,
         cwd: workspace.path,
         logPath,
+        env: execEnv,
+        onLine,
+        onExit,
+      });
+    } else {
+      const image = defaultShellImage();
+      let platformNote = '';
+      if (platform !== null) {
+        platformNote = ` platform=${platform}`;
+      }
+      onLine(`[lotaru] isolated shell image=${image} mount=/workspace${platformNote}`, 'out');
+      handle = runDocker({
+        command: task.command,
+        cwd: workspace.path,
+        logPath,
+        env: execEnv,
+        image,
+        platform,
         onLine,
         onExit,
       });
@@ -282,6 +328,13 @@ export function createOrchestrator(
         return;
       }
       watchers.watch(workspace.id, workspace.path);
+    },
+
+    onWorkspaceUpdated(workspace: Workspace): void {
+      watchers.unwatch(workspace.id);
+      if (!workspace.paused) {
+        watchers.watch(workspace.id, workspace.path);
+      }
     },
 
     triggerManual(taskId: string): void {

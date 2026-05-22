@@ -145,3 +145,4 @@ vite.config.ts.timestamp-*
 # Lotaru runtime
 .lotaru/
 packages/server/public/
+packages/cli/dist-server/

@@ -1,4 +1,4 @@
-import type { Workspace, Task, Execution } from '../types.js';
+import type { Workspace, Task, Execution, Environment } from '../types.js';
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -20,6 +20,16 @@ export const api = {
       body: JSON.stringify({ name, path }),
     });
   },
+  updateWorkspace(
+    id: string,
+    body: { name?: string; path?: string },
+  ): Promise<{ workspace: Workspace }> {
+    return jsonFetch(`/api/v1/workspaces/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
   pauseWorkspace(id: string): Promise<{ workspace: Workspace }> {
     return jsonFetch(`/api/v1/workspaces/${id}/pause`, { method: 'POST' });
   },
@@ -29,8 +39,56 @@ export const api = {
   deleteWorkspace(id: string): Promise<{ ok: boolean }> {
     return jsonFetch(`/api/v1/workspaces/${id}`, { method: 'DELETE' });
   },
+  listEnvironments(workspaceId: string): Promise<{ environments: Environment[] }> {
+    return jsonFetch(`/api/v1/workspaces/${workspaceId}/environments`);
+  },
+  createEnvironment(
+    workspaceId: string,
+    body: { name: string; vars?: Record<string, string> },
+  ): Promise<{ environment: Environment }> {
+    return jsonFetch(`/api/v1/workspaces/${workspaceId}/environments`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+  updateEnvironment(
+    id: string,
+    body: { name?: string; vars?: Record<string, string> },
+  ): Promise<{ environment: Environment }> {
+    return jsonFetch(`/api/v1/environments/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+  deleteEnvironment(id: string): Promise<{ ok: boolean }> {
+    return jsonFetch(`/api/v1/environments/${id}`, { method: 'DELETE' });
+  },
+  setActiveEnvironment(
+    workspaceId: string,
+    environmentId: string | null,
+  ): Promise<{ workspace: Workspace }> {
+    return jsonFetch(`/api/v1/workspaces/${workspaceId}/active-environment`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ environment_id: environmentId }),
+    });
+  },
   listTasks(workspaceId: string): Promise<{ tasks: Task[] }> {
     return jsonFetch(`/api/v1/workspaces/${workspaceId}/tasks`);
+  },
+  listTasksPage(
+    workspaceId: string,
+    cursor: string | null,
+    limit: number,
+  ): Promise<{ tasks: Task[]; nextCursor: string | null }> {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (cursor !== null) {
+      params.set('cursor', cursor);
+    }
+    return jsonFetch(`/api/v1/workspaces/${workspaceId}/tasks?${params.toString()}`);
   },
   createTask(workspaceId: string, body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>): Promise<{ task: Task }> {
     return jsonFetch(`/api/v1/workspaces/${workspaceId}/tasks`, {
@@ -38,6 +96,9 @@ export const api = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
+  },
+  getTask(id: string): Promise<{ task: Task }> {
+    return jsonFetch(`/api/v1/tasks/${id}`);
   },
   updateTask(id: string, body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>): Promise<{ task: Task }> {
     return jsonFetch(`/api/v1/tasks/${id}`, {

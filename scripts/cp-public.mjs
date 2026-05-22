@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,6 +12,9 @@ if (!existsSync(src)) {
   process.exit(0);
 }
 
+if (existsSync(dest)) {
+  rmSync(dest, { recursive: true, force: true });
+}
 mkdirSync(dest, { recursive: true });
 cpSync(src, dest, { recursive: true });
 console.log('[cp-public] copied web dist -> cli/public');

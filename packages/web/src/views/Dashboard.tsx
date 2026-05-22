@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Folder, FolderInput } from 'lucide-react';
+import { useState, type MouseEvent } from 'react';
+import { Folder, FolderInput, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { statusDotClass, tsOrZero } from '@/lib/format';
 import { actions, useStore } from '@/state/store';
 import { api } from '@/api/client';
+import { ProjectSettingsDialog } from '@/components/project-settings';
 import { navigate } from '@/app';
 import type { Workspace, Execution, ExecutionStatus } from '@/types';
 
@@ -86,7 +87,13 @@ interface ProjectCardProps {
   workspace: Workspace;
 }
 
+function stopCardNav(e: MouseEvent): void {
+  e.stopPropagation();
+  e.preventDefault();
+}
+
 function ProjectCard(props: ProjectCardProps): React.JSX.Element {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const tasksByWorkspace = useStore((s) => s.tasksByWorkspace);
   const liveExec = useStore((s) => s.liveExecutions);
   const executionsByTask = useStore((s) => s.executionsByTask);
@@ -107,21 +114,34 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => { navigate(`/workspace/${w.id}`); }}
-      className="text-left w-full"
-    >
-      <Card className="hover:bg-secondary/30 transition-colors h-full">
+    <>
+      <Card
+        className="hover:bg-secondary/30 transition-colors h-full cursor-pointer"
+        onClick={() => { navigate(`/workspace/${w.id}`); }}
+      >
         <CardContent className="p-5 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <div className="w-9 h-9 rounded-lg bg-secondary border grid place-items-center text-sm font-semibold shrink-0">
                 {w.name.charAt(0).toUpperCase()}
               </div>
               <span className="font-semibold truncate">{w.name}</span>
             </div>
-            {badge}
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={(e) => {
+                  stopCardNav(e);
+                  setSettingsOpen(true);
+                }}
+              >
+                <Settings2 className="w-4 h-4" />
+              </Button>
+              {badge}
+            </div>
           </div>
           <p className="text-xs text-muted-foreground font-mono truncate">{w.path}</p>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -142,7 +162,12 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
           </div>
         </CardContent>
       </Card>
-    </button>
+      <ProjectSettingsDialog
+        workspace={w}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
+    </>
   );
 }
 

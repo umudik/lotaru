@@ -25,6 +25,7 @@ export function buildTaskPatchBody(task: Task, partial: Partial<Task>): UpdateTa
     command: merged.command,
     runtime: merged.runtime,
     docker_image: dockerImage,
+    docker_platform: merged.docker_platform,
     trigger_type: merged.trigger_type,
     trigger_glob: glob,
     trigger_cron: cron,
@@ -36,7 +37,7 @@ export function buildTaskPatchBody(task: Task, partial: Partial<Task>): UpdateTa
 export async function patchTask(task: Task, partial: Partial<Task>): Promise<Task> {
   const body = buildTaskPatchBody(task, partial);
   const r = await api.updateTask(task.id, body);
-  await actions.refreshTasks(task.workspace_id);
+  actions.upsertTask(r.task);
   toast.success('Saved');
   return r.task;
 }

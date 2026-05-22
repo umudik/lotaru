@@ -3,8 +3,20 @@ CREATE TABLE IF NOT EXISTS workspaces (
   name TEXT NOT NULL,
   path TEXT NOT NULL,
   paused INTEGER NOT NULL DEFAULT 0,
+  active_environment_id TEXT,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS environments (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  vars_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  UNIQUE(workspace_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_environments_workspace ON environments(workspace_id);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -13,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   command TEXT NOT NULL,
   runtime TEXT NOT NULL,
   docker_image TEXT,
+  docker_platform TEXT,
   trigger_type TEXT NOT NULL,
   trigger_glob TEXT,
   trigger_cron TEXT,

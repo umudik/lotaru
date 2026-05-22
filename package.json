@@ -11,7 +11,8 @@
     "dev": "npm-run-all --parallel dev:server dev:web",
     "dev:server": "npm --workspace @lotaru/server run dev",
     "dev:web": "npm --workspace @lotaru/web run dev",
-    "build": "npm --workspace @lotaru/web run build && npm --workspace @lotaru/server run build && npm --workspace lotaru run build",
+    "build": "npm --workspace @lotaru/web run build && npm --workspace @lotaru/server run build && node scripts/cp-public.mjs && npm --workspace lotaru run build",
+    "build:publish": "node scripts/build-publish.mjs",
     "lint": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
     "typecheck": "npm --workspace @lotaru/server run typecheck && npm --workspace @lotaru/web run typecheck",
     "test": "npm --workspace @lotaru/server run test"
