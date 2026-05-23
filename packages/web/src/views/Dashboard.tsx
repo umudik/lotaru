@@ -373,6 +373,9 @@ export function DashboardView(): React.JSX.Element {
       return;
     }
     const file = files[0];
+    if (file === undefined) {
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {

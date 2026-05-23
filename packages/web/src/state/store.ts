@@ -319,7 +319,7 @@ function handleMessage(msg: ServerMessage): void {
       if (existing !== undefined) {
         startedAt = existing.startedAt;
       }
-      let logLines: string[] = [];
+      let logLines: ExecutionRuntime['logLines'] = [];
       if (existing !== undefined) {
         logLines = existing.logLines;
       }
@@ -337,7 +337,11 @@ function handleMessage(msg: ServerMessage): void {
       if (taskLogs !== undefined) {
         let matchIndex = -1;
         for (let i = 0; i < taskLogs.length; i++) {
-          if (taskLogs[i].id === msg.executionId) {
+          const row = taskLogs[i];
+          if (row === undefined) {
+            continue;
+          }
+          if (row.id === msg.executionId) {
             matchIndex = i;
             break;
           }
