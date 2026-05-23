@@ -39,8 +39,8 @@ export function ProductPreview(props: Props): React.JSX.Element {
               dots={['success', 'success', 'cancelled', 'success']}
             />
             <DemoTaskTile
-              name="deploy"
-              trigger="every hour"
+              name="scan"
+              trigger="on save"
               status="running"
               running
               dots={['success', 'running', 'success', 'success']}
