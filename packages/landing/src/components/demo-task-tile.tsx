@@ -12,21 +12,16 @@ interface Props {
 }
 
 export function DemoTaskTile(props: Props): React.JSX.Element {
-  let ringCls = '';
-  if (props.running === true) {
-    ringCls = 'ring-1 ring-primary/40';
-  }
-  if (props.selected === true) {
-    ringCls = 'ring-1 ring-primary/50 bg-secondary/20';
-  }
-
   return (
     <div
       className={cn(
-        'rounded-xl border border-border/70 bg-card/80 p-2.5 flex flex-col gap-2 h-full',
-        ringCls,
+        'rounded-xl border border-border/70 bg-card/80 p-2.5 flex flex-col gap-2 h-full relative overflow-hidden',
+        props.selected === true && 'bg-secondary/20',
       )}
     >
+      {props.selected === true && (
+        <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
+      )}
       <div className="flex items-start gap-2 min-w-0">
         <span
           className={cn(

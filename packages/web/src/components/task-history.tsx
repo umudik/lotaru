@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { api } from '@/api/client';
 import {
   formatDuration,
   formatRelative,
@@ -46,6 +47,7 @@ export function TaskHistory(props: Props): React.JSX.Element {
   const liveLogs = useStore((s) => selectLiveLogsOf(s, props.taskId));
   const liveExec = useStore((s) => s.liveExecutions);
   const [loading, setLoading] = useState(false);
+  const [cancellingAll, setCancellingAll] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -84,6 +86,53 @@ export function TaskHistory(props: Props): React.JSX.Element {
     });
   }
 
+  const runningIds: string[] = [];
+  const runningSeen = new Set<string>();
+  for (const d of dots) {
+    if (d.status !== 'running') {
+      continue;
+    }
+    if (runningSeen.has(d.id)) {
+      continue;
+    }
+    runningSeen.add(d.id);
+    runningIds.push(d.id);
+  }
+  for (const key of Object.keys(liveExec)) {
+    const row = liveExec[key];
+    if (row === undefined) {
+      continue;
+    }
+    if (row.taskId !== props.taskId) {
+      continue;
+    }
+    if (row.status !== 'running') {
+      continue;
+    }
+    if (runningSeen.has(key)) {
+      continue;
+    }
+    runningSeen.add(key);
+    runningIds.push(key);
+  }
+
+  async function cancelAll(): Promise<void> {
+    if (runningIds.length === 0) {
+      return;
+    }
+    setCancellingAll(true);
+    try {
+      for (const id of runningIds) {
+        await api.cancelExecution(id);
+      }
+      toast.success(`Cancelled ${String(runningIds.length)} run${runningIds.length === 1 ? '' : 's'}`);
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setCancellingAll(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2 min-h-0 flex-1">
       <div className="flex items-center justify-between gap-2 shrink-0">
@@ -93,9 +142,23 @@ export function TaskHistory(props: Props): React.JSX.Element {
           </span>
           <div className="text-[10px] text-muted-foreground/70">Newest first</div>
         </div>
-        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={reload} disabled={loading}>
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {runningIds.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[10px] px-2 text-destructive/90 border-destructive/30 hover:bg-destructive/10"
+              onClick={() => { void cancelAll(); }}
+              disabled={cancellingAll}
+            >
+              Cancel all
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={reload} disabled={loading}>
+            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          </Button>
+        </div>
       </div>
 
       {loading && dots.length === 0 && (

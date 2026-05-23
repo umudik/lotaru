@@ -1,5 +1,5 @@
-import { useState, type MouseEvent } from 'react';
-import { Folder, FolderInput, Settings2, Trash2 } from 'lucide-react';
+import { useRef, useState, type MouseEvent } from 'react';
+import { Folder, FolderInput, Settings2, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,7 +25,10 @@ import { statusDotClass, tsOrZero } from '@/lib/format';
 import { actions, useStore } from '@/state/store';
 import { api } from '@/api/client';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { ProjectImportDialog } from '@/components/project-import-dialog';
 import { ProjectSettingsDialog } from '@/components/project-settings';
+import { isProjectExportBundle } from '@/lib/project-export';
+import type { ProjectExportBundle } from '@/lib/project-export';
 import { navigate } from '@/app';
 import type { Workspace, Execution, ExecutionStatus } from '@/types';
 
@@ -321,6 +324,38 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
 export function DashboardView(): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces);
   const [adding, setAdding] = useState(false);
+  const [importBundle, setImportBundle] = useState<ProjectExportBundle | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  function openImportPicker(): void {
+    if (fileRef.current !== null) {
+      fileRef.current.value = '';
+      fileRef.current.click();
+    }
+  }
+
+  function onImportFileSelected(e: React.ChangeEvent<HTMLInputElement>): void {
+    const file = e.target.files?.[0];
+    if (file === undefined) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw: unknown = JSON.parse(String(reader.result));
+        if (!isProjectExportBundle(raw)) {
+          toast.error('Invalid Lotaru project file');
+          return;
+        }
+        setImportBundle(raw);
+        setImportOpen(true);
+      } catch {
+        toast.error('Could not parse JSON file');
+      }
+    };
+    reader.readAsText(file);
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -330,9 +365,31 @@ export function DashboardView(): React.JSX.Element {
           <p className="text-sm text-muted-foreground mt-1">Local workspaces and task orchestration.</p>
         </div>
         {!adding && (
-          <Button type="button" onClick={() => { setAdding(true); }}>Add project</Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button type="button" variant="outline" onClick={openImportPicker}>
+              <Upload className="w-4 h-4" />
+              Import JSON
+            </Button>
+            <Button type="button" onClick={() => { setAdding(true); }}>Add project</Button>
+          </div>
         )}
       </header>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={onImportFileSelected}
+      />
+      <ProjectImportDialog
+        open={importOpen}
+        bundle={importBundle}
+        onOpenChange={setImportOpen}
+        onImported={(workspaceId) => {
+          void actions.refreshWorkspaces();
+          navigate(`/workspace/${workspaceId}`);
+        }}
+      />
 
       {adding && <AddWorkspace onDone={() => { setAdding(false); }} />}
 

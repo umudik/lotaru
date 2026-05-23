@@ -8,9 +8,10 @@ on:
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -18,6 +19,55 @@ jobs:
         with:
           node-version: '20'
           registry-url: https://registry.npmjs.org
+
+      - name: Bump publish version
+        id: bump
+        run: |
+          node <<'NODE'
+          const { execSync } = require('node:child_process');
+          const { readFileSync, writeFileSync, appendFileSync } = require('node:fs');
+          let published = '0.0.0';
+          try {
+            published = execSync('npm view @umudik/lotaru version', { encoding: 'utf8' }).trim();
+          } catch {}
+          const cliPath = 'packages/cli/package.json';
+          const rootPath = 'package.json';
+          const local = JSON.parse(readFileSync(cliPath, 'utf8')).version;
+          const parse = (v) => v.split('.').map((n) => Number(n));
+          const cmp = (a, b) => {
+            for (let i = 0; i < 3; i += 1) {
+              if (a[i] > b[i]) return 1;
+              if (a[i] < b[i]) return -1;
+            }
+            return 0;
+          };
+          const inc = (v) => {
+            const p = parse(v);
+            p[2] += 1;
+            return p.join('.');
+          };
+          let next;
+          if (cmp(parse(local), parse(published)) > 0) next = local;
+          else {
+            const base = cmp(parse(published), parse(local)) > 0 ? published : local;
+            next = inc(base);
+          }
+          if (next === local && cmp(parse(local), parse(published)) <= 0) {
+            console.error(`::error::${local} already on npm; no newer version to publish`);
+            process.exit(1);
+          }
+          const cli = JSON.parse(readFileSync(cliPath, 'utf8'));
+          cli.version = next;
+          writeFileSync(cliPath, `${JSON.stringify(cli, null, 2)}\n`);
+          const root = JSON.parse(readFileSync(rootPath, 'utf8'));
+          root.version = next;
+          writeFileSync(rootPath, `${JSON.stringify(root, null, 2)}\n`);
+          execSync('npm install --package-lock-only', { stdio: 'inherit' });
+          console.log(`npm=${published} local=${local} -> ${next}`);
+          if (process.env.GITHUB_OUTPUT) {
+            appendFileSync(process.env.GITHUB_OUTPUT, `version=${next}\n`);
+          }
+          NODE
 
       - run: npm ci
 
@@ -28,3 +78,12 @@ jobs:
       - run: npm publish -w @umudik/lotaru --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json packages/cli/package.json
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(release): v${{ steps.bump.outputs.version }} [skip ci]"
+          git push

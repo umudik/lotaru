@@ -1,3 +1,4 @@
+import type { ProjectExportBundle } from '../lib/project-export.js';
 import type { Workspace, Task, Execution, Environment } from '../types.js';
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -41,6 +42,20 @@ export const api = {
   },
   deleteWorkspace(id: string): Promise<{ ok: boolean }> {
     return jsonFetch(`/api/v1/workspaces/${id}`, { method: 'DELETE' });
+  },
+  exportProject(workspaceId: string): Promise<ProjectExportBundle> {
+    return jsonFetch(`/api/v1/workspaces/${workspaceId}/export`);
+  },
+  importProject(body: {
+    bundle: ProjectExportBundle;
+    name: string;
+    path: string;
+  }): Promise<{ workspace: Workspace; taskCount: number }> {
+    return jsonFetch('/api/v1/workspaces/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
   },
   listEnvironments(workspaceId: string): Promise<{ environments: Environment[] }> {
     return jsonFetch(`/api/v1/workspaces/${workspaceId}/environments`);

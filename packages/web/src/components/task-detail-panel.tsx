@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, X } from 'lucide-react';
+import { Copy, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,8 @@ import { duplicateTaskBody } from '@/lib/project-templates';
 import { CRON_PRESETS, resolveCronExpression } from '@/lib/cron-presets';
 import { DOCKER_PLATFORM_OPTIONS, platformSelectValue } from '@/lib/docker-platform';
 import { nullToEmpty } from '@/lib/format';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { ConfirmDuplicateDialog } from '@/components/confirm-duplicate-dialog';
 import { TaskHistory } from '@/components/task-history';
 import type { InspectTarget } from '@/components/run-dots';
 import { api } from '@/api/client';
@@ -62,6 +64,7 @@ interface Props {
   onInspect(target: InspectTarget): void;
   onClosePanel(): void;
   onDuplicated(task: Task): void;
+  onDeleted(taskId: string): void;
 }
 
 export function TaskDetailPanel(props: Props): React.JSX.Element {
@@ -79,7 +82,8 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
   const [glob, setGlob] = useState(nullToEmpty(t.trigger_glob));
   const [dockerImage, setDockerImage] = useState(nullToEmpty(t.docker_image));
   const [enabled, setEnabled] = useState(t.enabled);
-  const [duplicating, setDuplicating] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     setName(t.name);
@@ -110,22 +114,21 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
     }
   }
 
+  const duplicatePreview = duplicateTaskBody(t, props.existingTaskNames);
+
   async function duplicate(): Promise<void> {
-    if (duplicating) {
-      return;
-    }
-    setDuplicating(true);
-    try {
-      const body = duplicateTaskBody(t, props.existingTaskNames);
-      const r = await api.createTask(t.workspace_id, body);
-      actions.upsertTask(r.task);
-      toast.success('Task duplicated');
-      props.onDuplicated(r.task);
-    } catch (e: unknown) {
-      toast.error(String(e));
-    } finally {
-      setDuplicating(false);
-    }
+    const body = duplicateTaskBody(t, props.existingTaskNames);
+    const r = await api.createTask(t.workspace_id, body);
+    actions.upsertTask(r.task);
+    toast.success('Task duplicated');
+    props.onDuplicated(r.task);
+  }
+
+  async function removeTask(): Promise<void> {
+    await api.deleteTask(t.id);
+    actions.removeTask(t.id);
+    toast.success('Task deleted');
+    props.onDeleted(t.id);
   }
 
   const scheduleValue = resolveCronExpression(t.trigger_cron);
@@ -223,16 +226,38 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            disabled={duplicating}
-            onClick={() => { void duplicate(); }}
+            onClick={() => { setDuplicateOpen(true); }}
           >
             <Copy className="w-4 h-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            onClick={() => { setDeleteOpen(true); }}
+          >
+            <Trash2 className="w-4 h-4" />
           </Button>
           <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={props.onClosePanel}>
             <X className="w-4 h-4" />
           </Button>
         </div>
       </div>
+      <ConfirmDuplicateDialog
+        open={duplicateOpen}
+        name={t.name}
+        copyName={duplicatePreview.name}
+        onOpenChange={setDuplicateOpen}
+        onConfirm={duplicate}
+      />
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        kind="task"
+        name={t.name}
+        onOpenChange={setDeleteOpen}
+        onConfirm={removeTask}
+      />
 
       <div className="flex items-center gap-3 shrink-0">
         <Input

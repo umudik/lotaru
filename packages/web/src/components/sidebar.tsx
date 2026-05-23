@@ -1,6 +1,7 @@
-import type { MouseEvent } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
 import { useStore } from '@/state/store';
 import { navigate } from '@/app';
 
@@ -9,13 +10,14 @@ interface NavItemProps {
   active: boolean;
   icon: React.ReactNode;
   label: string;
+  trailing?: ReactNode;
 }
 
 function navItemClass(active: boolean): string {
   if (active) {
-    return 'flex items-center gap-2.5 h-8 px-2.5 rounded-md text-sm font-medium transition-colors bg-secondary text-foreground';
+    return 'flex items-center gap-2 h-9 px-2.5 rounded-md text-sm font-medium transition-colors bg-secondary text-foreground';
   }
-  return 'flex items-center gap-2.5 h-8 px-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/60';
+  return 'flex items-center gap-2 h-9 px-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/60';
 }
 
 function NavItem(props: NavItemProps): React.JSX.Element {
@@ -30,7 +32,8 @@ function NavItem(props: NavItemProps): React.JSX.Element {
       className={navItemClass(props.active)}
     >
       <span className="w-4 h-4 flex items-center justify-center shrink-0">{props.icon}</span>
-      <span className="flex-1 truncate">{props.label}</span>
+      <span className="flex-1 min-w-0 truncate">{props.label}</span>
+      {props.trailing}
     </a>
   );
 }
@@ -85,6 +88,7 @@ export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Elemen
                   active={props.activeWorkspaceId === w.id}
                   icon={<span className={cn('w-1.5 h-1.5 rounded-full', dotCls)} />}
                   label={w.name}
+                  trailing={<WorkspaceTaskDots workspaceId={w.id} max={8} />}
                 />
               );
             })}

@@ -23,7 +23,7 @@ export interface Orchestrator {
   onWorkspaceDeleted(workspaceId: string): void;
   onWorkspacePausedChanged(workspace: Workspace): void;
   onWorkspaceUpdated(workspace: Workspace): void;
-  triggerManual(taskId: string): void;
+  triggerManual(taskId: string): boolean;
   cancelExecution(executionId: string): boolean;
   handleWatchEvent(e: WatchEvent): void;
   shutdown(): Promise<void>;
@@ -43,6 +43,15 @@ export function createOrchestrator(
 ): Orchestrator {
   const slots = new Map<string, SlotState>();
   const running = new Map<string, RunningInfo>();
+
+  function isTaskRunning(taskId: string): boolean {
+    for (const info of running.values()) {
+      if (info.taskId === taskId) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   function getSlot(task: Task): SlotState {
     const s = slots.get(task.id);
@@ -349,12 +358,16 @@ export function createOrchestrator(
       }
     },
 
-    triggerManual(taskId: string): void {
+    triggerManual(taskId: string): boolean {
       const task = store.getTask(taskId);
       if (task === null) {
-        return;
+        return false;
+      }
+      if (isTaskRunning(taskId)) {
+        return false;
       }
       trigger(task, { source: 'manual', detail: 'user' });
+      return true;
     },
 
     cancelExecution,

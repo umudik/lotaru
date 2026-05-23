@@ -73,23 +73,20 @@ export function statusLabel(s: ExecutionStatus): string {
   return 'Pending';
 }
 
-export function statusRingClass(s: ExecutionStatus | 'idle', running: boolean): string {
+export function statusCaptionClass(s: ExecutionStatus | 'idle', running: boolean): string {
   if (running) {
-    return 'ring-2 ring-running/60 shadow-[0_0_14px_-2px_hsl(var(--running)/0.4)]';
+    return 'text-muted-foreground';
   }
   if (s === 'success') {
-    return 'ring-1 ring-success/45';
+    return 'text-muted-foreground/85';
   }
   if (s === 'failed') {
-    return 'ring-1 ring-destructive/50';
+    return 'text-destructive/75';
   }
   if (s === 'cancelled') {
-    return 'ring-1 ring-warn/45';
+    return 'text-warn/70';
   }
-  if (s === 'pending') {
-    return 'ring-1 ring-muted-foreground/30';
-  }
-  return 'ring-1 ring-border/80';
+  return 'text-muted-foreground';
 }
 
 export function statusDotClass(s: ExecutionStatus | 'idle'): string {

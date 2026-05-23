@@ -1,16 +1,17 @@
-import { type MouseEvent } from 'react';
+import { type MouseEvent, useState } from 'react';
+import { useStatusFlash } from '@/hooks/use-status-flash';
 import { Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { cronPresetLabel, resolveCronExpression } from '@/lib/cron-presets';
-import { statusDotClass, statusLabel, statusRingClass } from '@/lib/format';
+import { statusCaptionClass, statusDotClass, statusLabel } from '@/lib/format';
 import { RunDotsPreview } from '@/components/run-dots-preview';
 import { TaskScheduleBar } from '@/components/task-schedule-bar';
 import { useStableRunning } from '@/hooks/use-stable-running';
 import { useTick } from '@/hooks/use-tick';
 import { api } from '@/api/client';
-import { taskHasLiveRunning } from '@/lib/task-running';
+import { taskHasLiveRunning, taskIsBusy } from '@/lib/task-running';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
 import type { Execution, Task, ExecutionStatus } from '@/types';
 
@@ -59,14 +60,24 @@ export function TaskTile(props: Props): React.JSX.Element {
   const liveExec = useStore((s) => s.liveExecutions);
   const live = useStore((s) => selectLiveLogsOf(s, t.id));
   const isRunning = taskHasLiveRunning(t.id, liveExec, history);
+  const busy = taskIsBusy(t.id, liveExec, history, live);
   const stableRunning = useStableRunning(isRunning, 500);
+  const [runPending, setRunPending] = useState(false);
   const status = lastStatus(t.id, liveExec, history);
   const isScheduled = t.trigger_type === 'scheduled' && t.enabled;
   const nowMs = useTick(250, isScheduled);
 
   async function run(e: MouseEvent): Promise<void> {
     stopBubble(e);
-    await api.runTask(t.id);
+    if (busy || runPending) {
+      return;
+    }
+    setRunPending(true);
+    try {
+      await api.runTask(t.id);
+    } finally {
+      setRunPending(false);
+    }
   }
 
   async function cancel(e: MouseEvent): Promise<void> {
@@ -79,8 +90,10 @@ export function TaskTile(props: Props): React.JSX.Element {
     }
   }
 
+  const showCancel = busy || runPending;
+
   let runBtn: React.JSX.Element;
-  if (stableRunning) {
+  if (showCancel) {
     runBtn = (
       <Button type="button" onClick={(e) => { void cancel(e); }} variant="destructive" size="sm" className="h-6 w-6 p-0 shrink-0">
         <X className="w-3 h-3" />
@@ -88,7 +101,13 @@ export function TaskTile(props: Props): React.JSX.Element {
     );
   } else {
     runBtn = (
-      <Button type="button" onClick={(e) => { void run(e); }} size="sm" className="h-6 w-6 p-0 shrink-0">
+      <Button
+        type="button"
+        onClick={(e) => { void run(e); }}
+        size="sm"
+        className="h-6 w-6 p-0 shrink-0"
+        disabled={!t.enabled || props.workspacePaused}
+      >
         <Play className="w-3 h-3" />
       </Button>
     );
@@ -101,17 +120,19 @@ export function TaskTile(props: Props): React.JSX.Element {
     statusCaption = statusLabel(status);
   }
 
-  const ringCls = statusRingClass(status, stableRunning);
+  const statusKey = stableRunning ? 'running' : status;
+  const flash = useStatusFlash(statusKey);
 
   return (
     <Card
       className={cn(
         'cursor-pointer hover:bg-secondary/20 transition-colors h-full overflow-hidden flex flex-col relative',
-        ringCls,
+        flash !== null && 'task-card-flash',
         props.selected && 'bg-secondary/20',
         !t.enabled && 'opacity-55',
         props.workspacePaused && 'opacity-70',
       )}
+      data-flash={flash ?? undefined}
       onClick={props.onSelect}
     >
       {props.selected && (
@@ -122,8 +143,7 @@ export function TaskTile(props: Props): React.JSX.Element {
           <span
             className={cn(
               'w-2 h-2 rounded-full shrink-0 mt-1',
-              statusDotClass(status),
-              stableRunning && 'animate-pulse',
+              stableRunning ? 'bg-running/45 animate-pulse' : statusDotClass(status),
             )}
           />
           <div className="flex-1 min-w-0">
@@ -133,10 +153,7 @@ export function TaskTile(props: Props): React.JSX.Element {
               <div
                 className={cn(
                   'text-[9px] font-medium mt-0.5 truncate',
-                  stableRunning && 'text-running',
-                  status === 'success' && !stableRunning && 'text-success',
-                  status === 'failed' && !stableRunning && 'text-destructive',
-                  status === 'cancelled' && !stableRunning && 'text-warn',
+                  statusCaptionClass(status, stableRunning),
                 )}
               >
                 {statusCaption}

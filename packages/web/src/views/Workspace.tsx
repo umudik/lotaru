@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Download, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -8,7 +9,9 @@ import { TaskTile } from '@/components/task-tile';
 import { TaskDetailPanel } from '@/components/task-detail-panel';
 import { LogPanel } from '@/components/log-panel';
 import { LogShell } from '@/components/log-shell';
+import { ProjectSettingsDialog } from '@/components/project-settings';
 import { WorkspaceEnvironmentDialog } from '@/components/workspace-environment-dialog';
+import { downloadProjectBundle, exportFileName } from '@/lib/project-export';
 import { BLANK_TASK_BODY } from '@/lib/project-templates';
 import type { InspectTarget } from '@/components/run-dots';
 import { actions, useStore, selectTasksOf } from '@/state/store';
@@ -36,7 +39,10 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [creating, setCreating] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
+  const [logHold, setLogHold] = useState<InspectTarget | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const loadFirstPage = useCallback(async (): Promise<void> => {
     setLoadingTasks(true);
     try {
@@ -68,6 +74,19 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
     void actions.refreshExecutionsForTask(selectedId, 50);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (inspect !== null) {
+      setLogHold(inspect);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setLogHold(null);
+    }, 200);
+    return () => {
+      window.clearTimeout(t);
+    };
+  }, [inspect]);
 
   const storeTasks = useStore((s) => selectTasksOf(s, props.workspaceId));
 
@@ -214,6 +233,19 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
+  async function exportProject(): Promise<void> {
+    setExporting(true);
+    try {
+      const bundle = await api.exportProject(ws.id);
+      downloadProjectBundle(bundle, exportFileName(ws.name));
+      toast.success('Project exported');
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function setProjectLive(live: boolean): Promise<void> {
     try {
       if (live) {
@@ -262,9 +294,16 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     detailOpen = true;
   }
 
-  let detailWidth = 'w-0 opacity-0 overflow-hidden';
+  let detailWidth = 'w-0 opacity-0 overflow-hidden pointer-events-none';
   if (detailOpen) {
     detailWidth = 'w-[min(440px,36vw)] opacity-100';
+  }
+
+  const logTarget = inspect ?? logHold;
+  const logVisible = inspect !== null;
+  let logWidth = 'w-0 opacity-0 overflow-hidden pointer-events-none';
+  if (logVisible) {
+    logWidth = 'w-[min(400px,34vw)] opacity-100';
   }
 
   let detailBody: React.JSX.Element;
@@ -282,6 +321,19 @@ export function WorkspaceView(props: Props): React.JSX.Element {
         onDuplicated={(task) => {
           adoptCreatedTask(task);
         }}
+        onDeleted={(taskId) => {
+          setSelectedId(null);
+          setInspect(null);
+          setTasks((prev) => {
+            const next: Task[] = [];
+            for (const row of prev) {
+              if (row.id !== taskId) {
+                next.push(row);
+              }
+            }
+            return next;
+          });
+        }}
       />
     );
   } else {
@@ -293,6 +345,12 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   }
 
   return (
+    <>
+    <ProjectSettingsDialog
+      workspace={ws}
+      open={settingsOpen}
+      onOpenChange={setSettingsOpen}
+    />
     <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
       <div className="flex-1 min-w-0 flex flex-col px-6 border-r">
         <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
@@ -315,6 +373,25 @@ export function WorkspaceView(props: Props): React.JSX.Element {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exporting}
+              onClick={() => { void exportProject(); }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export JSON
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => { setSettingsOpen(true); }}
+            >
+              <Settings2 className="w-4 h-4" />
+            </Button>
             <Button type="button" onClick={() => { void createTask(); }} disabled={creating} size="sm">
               New task
             </Button>
@@ -354,16 +431,19 @@ export function WorkspaceView(props: Props): React.JSX.Element {
         {detailBody}
       </div>
 
-      {inspect !== null && (
-        <div className="w-[min(400px,34vw)] shrink-0 h-full">
+      <div
+        className={`shrink-0 h-full transition-all duration-200 ease-out flex flex-col ${logWidth}`}
+      >
+        {logTarget !== null && (
           <LogShell taskName={inspectTaskName} onClear={() => { setInspect(null); }}>
             <LogPanel
-              target={inspect}
+              target={logTarget}
               onCancel={(id) => { void api.cancelExecution(id); }}
             />
           </LogShell>
-        </div>
-      )}
+        )}
+      </div>
     </div>
+    </>
   );
 }

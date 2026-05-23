@@ -6,6 +6,11 @@ import type { Orchestrator } from '../orchestrator.js';
 import type { EventBus } from '../events/bus.js';
 import { parseDockerPlatformInput } from '../executor/platform.js';
 import { pickFolder } from '../system/pickFolder.js';
+import {
+  buildProjectExportBundle,
+  parseProjectImportBundle,
+  resolveImportProjectMeta,
+} from '../project-export.js';
 import type {
   Task,
   Workspace,
@@ -289,6 +294,112 @@ export function registerRoutes(
     await reply.send({ ok: true });
   });
 
+  app.get<{ Params: { id: string } }>('/api/v1/workspaces/:id/export', async (req, reply) => {
+    const bundle = buildProjectExportBundle(store, req.params.id);
+    if (bundle === null) {
+      await reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    await reply.send(bundle);
+  });
+
+  app.post<{ Body: unknown }>('/api/v1/workspaces/import', async (req, reply) => {
+    const raw = req.body;
+    if (typeof raw !== 'object' || raw === null) {
+      await reply.code(400).send({ error: 'body required' });
+      return;
+    }
+    const body = raw as Record<string, unknown>;
+    if (body['bundle'] === undefined) {
+      await reply.code(400).send({ error: 'bundle required' });
+      return;
+    }
+    if (typeof body['path'] !== 'string' || body['path'].length === 0) {
+      await reply.code(400).send({ error: 'path required' });
+      return;
+    }
+    const pathErr = validateWorkspacePath(body['path']);
+    if (pathErr !== null) {
+      await reply.code(400).send({ error: pathErr });
+      return;
+    }
+    let nameOverride: string | undefined;
+    if (body['name'] !== undefined) {
+      if (typeof body['name'] !== 'string' || body['name'].length === 0) {
+        await reply.code(400).send({ error: 'name must be non-empty string' });
+        return;
+      }
+      nameOverride = body['name'];
+    }
+    const parsed = parseProjectImportBundle(body['bundle'], validateCreateTask);
+    if (typeof parsed === 'string') {
+      await reply.code(400).send({ error: parsed });
+      return;
+    }
+    const meta = resolveImportProjectMeta(parsed, nameOverride, body['path']);
+    const w: Workspace = {
+      id: nanoid(12),
+      name: meta.name,
+      path: meta.path,
+      paused: meta.paused,
+      active_environment_id: null,
+      created_at: Date.now(),
+    };
+    store.insertWorkspace(w);
+    orch.onWorkspaceCreated(w);
+    const envIds = new Map<string, string>();
+    for (const envRow of parsed.environments) {
+      const env: Environment = {
+        id: nanoid(12),
+        workspace_id: w.id,
+        name: envRow.name,
+        vars: envRow.vars,
+        created_at: Date.now(),
+      };
+      try {
+        store.insertEnvironment(env);
+        envIds.set(envRow.name, env.id);
+      } catch (_e: unknown) {
+        continue;
+      }
+    }
+    if (meta.active_environment_name !== null) {
+      const activeId = envIds.get(meta.active_environment_name);
+      if (activeId !== undefined) {
+        store.setActiveEnvironment(w.id, activeId);
+      }
+    }
+    let taskCount = 0;
+    for (const v of parsed.tasks) {
+      const t: Task = {
+        id: nanoid(12),
+        workspace_id: w.id,
+        name: v.name,
+        command: v.command,
+        runtime: v.runtime,
+        docker_image: v.docker_image,
+        docker_platform: v.docker_platform,
+        trigger_type: v.trigger_type,
+        trigger_glob: v.trigger_glob,
+        trigger_cron: v.trigger_cron,
+        concurrency: v.concurrency,
+        enabled: v.enabled,
+        created_at: Date.now(),
+      };
+      store.insertTask(t);
+      orch.onTaskCreated(t);
+      bus.emit({ kind: 'task.updated', taskId: t.id });
+      taskCount += 1;
+    }
+    const created = store.getWorkspace(w.id);
+    if (created === null) {
+      await reply.code(500).send({ error: 'import failed' });
+      return;
+    }
+    bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
+    await reply.send({ workspace: created, taskCount });
+  });
+
   app.get<{ Params: { id: string } }>('/api/v1/workspaces/:id/environments', async (req, reply) => {
     const w = store.getWorkspace(req.params.id);
     if (w === null) {
@@ -552,7 +663,11 @@ export function registerRoutes(
       await reply.code(404).send({ error: 'not found' });
       return;
     }
-    orch.triggerManual(t.id);
+    const started = orch.triggerManual(t.id);
+    if (!started) {
+      await reply.code(409).send({ error: 'task already running' });
+      return;
+    }
     await reply.send({ ok: true });
   });
 

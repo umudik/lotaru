@@ -35,3 +35,20 @@ export function taskHasLiveRunning(
 
   return false;
 }
+
+export function taskIsBusy(
+  taskId: string,
+  liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
+  history: readonly Execution[],
+  liveLogs: readonly { status: ExecutionStatus }[],
+): boolean {
+  if (taskHasLiveRunning(taskId, liveExec, history)) {
+    return true;
+  }
+  for (const rt of liveLogs) {
+    if (rt.status === 'running') {
+      return true;
+    }
+  }
+  return false;
+}
