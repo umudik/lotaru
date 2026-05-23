@@ -1,4 +1,5 @@
 import { tsOrZero } from '@/lib/format';
+import { taskHasLiveRunning } from '@/lib/task-running';
 import type { Execution, ExecutionStatus } from '@/types';
 import type { ExecutionRuntime } from '@/state/store';
 
@@ -16,6 +17,8 @@ export function collectRunDots(
 ): RunDot[] {
   const byId = new Map<string, RunDot>();
 
+  const stillRunning = taskHasLiveRunning(taskId, liveExec, history);
+
   for (const key of Object.keys(liveExec)) {
     const e = liveExec[key];
     if (e === undefined) {
@@ -25,16 +28,26 @@ export function collectRunDots(
       continue;
     }
     let st: ExecutionStatus | 'running' = e.status;
-    if (e.status === 'running') {
+    if (stillRunning && e.status === 'running') {
       st = 'running';
+    } else if (e.status === 'running') {
+      const hist = history.find((row) => row.id === e.id);
+      if (hist !== undefined) {
+        st = hist.status;
+      }
     }
     byId.set(e.id, { id: e.id, status: st, startedAt: e.startedAt });
   }
 
   for (const rt of liveLogs) {
     let st: ExecutionStatus | 'running' = rt.status;
-    if (rt.status === 'running') {
+    if (stillRunning && rt.status === 'running') {
       st = 'running';
+    } else if (rt.status === 'running') {
+      const hist = history.find((row) => row.id === rt.id);
+      if (hist !== undefined) {
+        st = hist.status;
+      }
     }
     byId.set(rt.id, { id: rt.id, status: st, startedAt: rt.startedAt });
   }

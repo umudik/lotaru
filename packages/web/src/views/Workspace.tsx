@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -9,12 +8,11 @@ import { TaskTile } from '@/components/task-tile';
 import { TaskDetailPanel } from '@/components/task-detail-panel';
 import { LogPanel } from '@/components/log-panel';
 import { LogShell } from '@/components/log-shell';
-import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { WorkspaceEnvironmentDialog } from '@/components/workspace-environment-dialog';
+import { BLANK_TASK_BODY } from '@/lib/project-templates';
 import type { InspectTarget } from '@/components/run-dots';
 import { actions, useStore, selectTasksOf } from '@/state/store';
 import { api } from '@/api/client';
-import { navigate } from '@/app';
 import type { Task } from '@/types';
 
 const TASK_PAGE_SIZE = 24;
@@ -39,8 +37,6 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   const [creating, setCreating] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
-
   const loadFirstPage = useCallback(async (): Promise<void> => {
     setLoadingTasks(true);
     try {
@@ -232,36 +228,18 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
-  async function removeWorkspace(): Promise<void> {
-    try {
-      await api.deleteWorkspace(ws.id);
-      toast.success('Deleted');
-      navigate('/');
-    } catch (e: unknown) {
-      toast.error(String(e));
-      throw e;
-    }
+  function adoptCreatedTask(task: Task): void {
+    setTasks((prev) => [task, ...prev]);
+    actions.upsertTask(task);
+    setSelectedId(task.id);
+    setInspect(null);
   }
 
   async function createTask(): Promise<void> {
     setCreating(true);
     try {
-      const r = await api.createTask(ws.id, {
-        name: 'New task',
-        command: 'echo hello',
-        runtime: 'shell',
-        docker_image: null,
-        docker_platform: null,
-        trigger_type: 'manual',
-        trigger_glob: null,
-        trigger_cron: null,
-        concurrency: 'restart',
-        enabled: true,
-      });
-      setTasks((prev) => [r.task, ...prev]);
-      actions.upsertTask(r.task);
-      setSelectedId(r.task.id);
-      setInspect(null);
+      const r = await api.createTask(ws.id, BLANK_TASK_BODY);
+      adoptCreatedTask(r.task);
       toast.success('Task created');
     } catch (e: unknown) {
       toast.error(String(e));
@@ -274,7 +252,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   if (ws.paused) {
     stateBadge = <Badge variant="warn">Paused</Badge>;
   } else if (running > 0) {
-    stateBadge = <Badge>{`${String(running)} running`}</Badge>;
+    stateBadge = <Badge variant="running">{`${String(running)} running`}</Badge>;
   } else {
     stateBadge = <Badge variant="success">Live</Badge>;
   }
@@ -295,15 +273,14 @@ export function WorkspaceView(props: Props): React.JSX.Element {
       <TaskDetailPanel
         task={selectedTask}
         inspectId={inspectId}
+        existingTaskNames={tasks.map((row) => row.name)}
         onInspect={onInspect}
         onClosePanel={() => {
           setSelectedId(null);
           setInspect(null);
         }}
-        onDeleted={() => {
-          setSelectedId(null);
-          setInspect(null);
-          void loadFirstPage();
+        onDuplicated={(task) => {
+          adoptCreatedTask(task);
         }}
       />
     );
@@ -338,9 +315,6 @@ export function WorkspaceView(props: Props): React.JSX.Element {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
             </div>
-            <Button type="button" onClick={() => { setDeleteProjectOpen(true); }} variant="ghost" size="icon" className="h-8 w-8">
-              <Trash2 className="w-4 h-4" />
-            </Button>
             <Button type="button" onClick={() => { void createTask(); }} disabled={creating} size="sm">
               New task
             </Button>
@@ -359,6 +333,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
                 key={t.id}
                 task={t}
                 selected={selectedId === t.id}
+                workspacePaused={ws.paused}
                 onSelect={() => { selectTask(t.id); }}
               />
             ))}
@@ -389,14 +364,6 @@ export function WorkspaceView(props: Props): React.JSX.Element {
           </LogShell>
         </div>
       )}
-
-      <ConfirmDeleteDialog
-        open={deleteProjectOpen}
-        kind="project"
-        name={ws.name}
-        onOpenChange={setDeleteProjectOpen}
-        onConfirm={removeWorkspace}
-      />
     </div>
   );
 }

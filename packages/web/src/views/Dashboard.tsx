@@ -1,15 +1,30 @@
 import { useState, type MouseEvent } from 'react';
-import { Folder, FolderInput, Settings2 } from 'lucide-react';
+import { Folder, FolderInput, Settings2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { folderBaseName } from '@/lib/path';
+import {
+  EMPTY_PROJECT_TEMPLATE_ID,
+  PROJECT_TEMPLATES,
+  projectTemplateTasks,
+  seedWorkspaceTasks,
+} from '@/lib/project-templates';
 import { statusDotClass, tsOrZero } from '@/lib/format';
 import { actions, useStore } from '@/state/store';
 import { api } from '@/api/client';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { ProjectSettingsDialog } from '@/components/project-settings';
 import { navigate } from '@/app';
 import type { Workspace, Execution, ExecutionStatus } from '@/types';
@@ -95,6 +110,7 @@ function stopCardNav(e: MouseEvent): void {
 
 function ProjectCard(props: ProjectCardProps): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const tasksByWorkspace = useStore((s) => s.tasksByWorkspace);
   const liveExec = useStore((s) => s.liveExecutions);
   const executionsByTask = useStore((s) => s.executionsByTask);
@@ -112,6 +128,12 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
   let badge: React.JSX.Element = <Badge variant="success">Live</Badge>;
   if (w.paused) {
     badge = <Badge variant="warn">Paused</Badge>;
+  }
+
+  async function removeProject(): Promise<void> {
+    await api.deleteWorkspace(w.id);
+    await actions.refreshWorkspaces();
+    toast.success('Project deleted');
   }
 
   return (
@@ -141,13 +163,25 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
               >
                 <Settings2 className="w-4 h-4" />
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  stopCardNav(e);
+                  setDeleteOpen(true);
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
               {badge}
             </div>
           </div>
           <p className="text-xs text-muted-foreground font-mono truncate">{w.path}</p>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span>{`${String(taskCount)} tasks`}</span>
-            {running > 0 && <span className="text-primary">{`${String(running)} running`}</span>}
+            {running > 0 && <span className="text-running">{`${String(running)} running`}</span>}
           </div>
           <div className="flex items-center gap-1.5">
             {dots.map((e) => (
@@ -168,6 +202,13 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
       />
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        kind="project"
+        name={w.name}
+        onOpenChange={setDeleteOpen}
+        onConfirm={removeProject}
+      />
     </>
   );
 }
@@ -179,6 +220,7 @@ interface AddWorkspaceProps {
 function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
+  const [templateId, setTemplateId] = useState(EMPTY_PROJECT_TEMPLATE_ID);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -206,12 +248,19 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
     }
     setBusy(true);
     try {
-      await api.createWorkspace(name, path);
+      const { workspace } = await api.createWorkspace(name, path);
+      const taskBodies = projectTemplateTasks(templateId);
+      await seedWorkspaceTasks(workspace.id, taskBodies);
       await actions.refreshWorkspaces();
+      await actions.refreshTasks(workspace.id);
       setName('');
       setPath('');
+      setTemplateId(EMPTY_PROJECT_TEMPLATE_ID);
       props.onDone();
-      toast.success('Project created');
+      const taskNote =
+        taskBodies.length > 0 ? ` with ${String(taskBodies.length)} tasks` : '';
+      toast.success(`Project created${taskNote}`);
+      navigate(`/workspace/${workspace.id}`);
     } catch (e: unknown) {
       setError(String(e));
       toast.error(String(e));
@@ -225,11 +274,11 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
       <CardContent className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium" htmlFor="ws-name">Name</label>
+            <Label className="text-xs" htmlFor="ws-name">Name</Label>
             <Input id="ws-name" value={name} onChange={(e) => { setName(e.target.value); }} placeholder="frontend" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium" htmlFor="ws-path">Absolute path</label>
+            <Label className="text-xs" htmlFor="ws-path">Absolute path</Label>
             <Input
               id="ws-path"
               value={path}
@@ -238,6 +287,21 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
               className="font-mono"
             />
           </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs">Template</Label>
+          <Select value={templateId} onValueChange={setTemplateId}>
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROJECT_TEMPLATES.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.label} — {t.description}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {error !== null && <div className="text-xs text-destructive">{error}</div>}
         <div className="flex justify-end gap-2">

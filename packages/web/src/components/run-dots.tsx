@@ -100,7 +100,7 @@ export function RunDots(props: Props): React.JSX.Element {
         {dots.map((d) => {
           let pulse = '';
           if (d.status === 'running') {
-            pulse = 'animate-pulse ring-1 ring-primary/50';
+            pulse = 'animate-pulse ring-1 ring-running/50';
           }
           let sizeCls = 'w-2 h-2';
           if (isCompact) {

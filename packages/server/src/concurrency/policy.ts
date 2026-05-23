@@ -91,7 +91,10 @@ function stepRestart(state: SlotState, event: PolicyEvent): PolicyResult {
     }
     return { state, commands: [] };
   }
-  if (state.kind === 'cancelling_then_start') {
+  if (event.kind !== 'ended') {
+    return { state, commands: [] };
+  }
+  if (state.kind === 'cancelling_then_start' && state.executionId === event.executionId) {
     return {
       state: { kind: 'idle' },
       commands: [{ kind: 'start', reason: state.next }],

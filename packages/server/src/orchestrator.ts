@@ -24,7 +24,7 @@ export interface Orchestrator {
   onWorkspacePausedChanged(workspace: Workspace): void;
   onWorkspaceUpdated(workspace: Workspace): void;
   triggerManual(taskId: string): void;
-  cancelExecution(executionId: string): void;
+  cancelExecution(executionId: string): boolean;
   handleWatchEvent(e: WatchEvent): void;
   shutdown(): Promise<void>;
 }
@@ -54,15 +54,76 @@ export function createOrchestrator(
     return init;
   }
 
+  function finalizeExecution(
+    executionId: string,
+    status: Execution['status'],
+    exitCode: number | null,
+    reason: TriggerReason,
+  ): void {
+    const exec = store.getExecution(executionId);
+    if (exec === null) {
+      return;
+    }
+    if (exec.status !== 'running' && exec.status !== 'pending') {
+      running.delete(executionId);
+      return;
+    }
+    const endedAt = Date.now();
+    const updated: Execution = {
+      ...exec,
+      status,
+      ended_at: endedAt,
+      exit_code: exitCode,
+    };
+    store.updateExecution(updated);
+    running.delete(executionId);
+    bus.emit({
+      kind: 'execution.ended',
+      executionId,
+      status,
+      exitCode,
+      ts: endedAt,
+    });
+    const currentTask = store.getTask(exec.task_id);
+    if (currentTask === null) {
+      return;
+    }
+    const slot = getSlot(currentTask);
+    const result = step(currentTask.concurrency, slot, { kind: 'ended', executionId });
+    slots.set(currentTask.id, result.state);
+    applyCommands(currentTask, result.commands, reason);
+  }
+
+  function cancelExecution(executionId: string): boolean {
+    const info = running.get(executionId);
+    if (info !== undefined) {
+      info.handle.cancel();
+      return true;
+    }
+    const exec = store.getExecution(executionId);
+    if (exec === null) {
+      return false;
+    }
+    if (exec.status !== 'running' && exec.status !== 'pending') {
+      return true;
+    }
+    bus.emit({
+      kind: 'execution.log',
+      executionId,
+      line: '[lotaru] marked cancelled (no live process)',
+      stream: 'out',
+      ts: Date.now(),
+    });
+    finalizeExecution(executionId, 'cancelled', null, { source: 'manual', detail: 'force-cancel' });
+    return true;
+  }
+
   function applyCommands(task: Task, commands: readonly Command[], reason: TriggerReason): void {
     for (const cmd of commands) {
       if (cmd.kind === 'start') {
         startExecution(task, cmd.reason);
       } else if (cmd.kind === 'cancel') {
-        const info = running.get(cmd.executionId);
-        if (info !== undefined) {
-          info.handle.cancel();
-        }
+        cancelExecution(cmd.executionId);
       } else {
         bus.emit({
           kind: 'execution.log',
@@ -109,36 +170,13 @@ export function createOrchestrator(
     };
 
     const onExit = (exitCode: number | null, cancelled: boolean): void => {
-      const endedAt = Date.now();
       let status: Execution['status'] = 'success';
       if (cancelled) {
         status = 'cancelled';
       } else if (exitCode === null || exitCode !== 0) {
         status = 'failed';
       }
-      const updated: Execution = {
-        ...exec,
-        status,
-        ended_at: endedAt,
-        exit_code: exitCode,
-      };
-      store.updateExecution(updated);
-      running.delete(execId);
-      bus.emit({
-        kind: 'execution.ended',
-        executionId: execId,
-        status,
-        exitCode,
-        ts: endedAt,
-      });
-      const currentTask = store.getTask(task.id);
-      if (currentTask === null) {
-        return;
-      }
-      const slot = getSlot(currentTask);
-      const result = step(currentTask.concurrency, slot, { kind: 'ended', executionId: execId });
-      slots.set(currentTask.id, result.state);
-      applyCommands(currentTask, result.commands, reason);
+      finalizeExecution(execId, status, exitCode, reason);
     };
 
     const platform = resolveTaskPlatform(task.docker_platform);
@@ -319,13 +357,7 @@ export function createOrchestrator(
       trigger(task, { source: 'manual', detail: 'user' });
     },
 
-    cancelExecution(executionId: string): void {
-      const info = running.get(executionId);
-      if (info === undefined) {
-        return;
-      }
-      info.handle.cancel();
-    },
+    cancelExecution,
 
     handleWatchEvent(e: WatchEvent): void {
       onWatchEvent(e);

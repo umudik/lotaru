@@ -4,35 +4,22 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { cronPresetLabel, resolveCronExpression } from '@/lib/cron-presets';
-import { statusDotClass } from '@/lib/format';
+import { statusDotClass, statusLabel, statusRingClass } from '@/lib/format';
 import { RunDotsPreview } from '@/components/run-dots-preview';
+import { TaskScheduleBar } from '@/components/task-schedule-bar';
 import { useStableRunning } from '@/hooks/use-stable-running';
+import { useTick } from '@/hooks/use-tick';
 import { api } from '@/api/client';
+import { taskHasLiveRunning } from '@/lib/task-running';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
-import type { Task, ExecutionStatus } from '@/types';
-
-function taskIsRunning(
-  taskId: string,
-  liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
-): boolean {
-  for (const key of Object.keys(liveExec)) {
-    const e = liveExec[key];
-    if (e === undefined) {
-      continue;
-    }
-    if (e.taskId === taskId && e.status === 'running') {
-      return true;
-    }
-  }
-  return false;
-}
+import type { Execution, Task, ExecutionStatus } from '@/types';
 
 function lastStatus(
   taskId: string,
   liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
-  history: readonly { status: ExecutionStatus }[],
+  history: readonly Execution[],
 ): ExecutionStatus | 'idle' {
-  if (taskIsRunning(taskId, liveExec)) {
+  if (taskHasLiveRunning(taskId, liveExec, history)) {
     return 'running';
   }
   const last = history[0];
@@ -44,7 +31,7 @@ function lastStatus(
 
 function triggerSummary(t: Task): string {
   if (t.trigger_type === 'save') {
-    return 'save';
+    return 'on save';
   }
   if (t.trigger_type === 'startup') {
     return 'startup';
@@ -62,6 +49,7 @@ function stopBubble(e: MouseEvent): void {
 interface Props {
   task: Task;
   selected: boolean;
+  workspacePaused: boolean;
   onSelect(): void;
 }
 
@@ -70,9 +58,11 @@ export function TaskTile(props: Props): React.JSX.Element {
   const history = useStore((s) => selectExecutionsOf(s, t.id));
   const liveExec = useStore((s) => s.liveExecutions);
   const live = useStore((s) => selectLiveLogsOf(s, t.id));
-  const isRunning = taskIsRunning(t.id, liveExec);
+  const isRunning = taskHasLiveRunning(t.id, liveExec, history);
   const stableRunning = useStableRunning(isRunning, 500);
   const status = lastStatus(t.id, liveExec, history);
+  const isScheduled = t.trigger_type === 'scheduled' && t.enabled;
+  const nowMs = useTick(250, isScheduled);
 
   async function run(e: MouseEvent): Promise<void> {
     stopBubble(e);
@@ -87,15 +77,6 @@ export function TaskTile(props: Props): React.JSX.Element {
         return;
       }
     }
-  }
-
-  let ringCls = '';
-  if (stableRunning) {
-    ringCls = 'ring-1 ring-primary/40';
-  }
-  let selectedCls = '';
-  if (props.selected) {
-    selectedCls = 'ring-1 ring-ring bg-secondary/30';
   }
 
   let runBtn: React.JSX.Element;
@@ -113,16 +94,30 @@ export function TaskTile(props: Props): React.JSX.Element {
     );
   }
 
+  let statusCaption: string | null = null;
+  if (stableRunning) {
+    statusCaption = 'Running';
+  } else if (status !== 'idle') {
+    statusCaption = statusLabel(status);
+  }
+
+  const ringCls = statusRingClass(status, stableRunning);
+
   return (
     <Card
       className={cn(
-        'cursor-pointer hover:bg-secondary/25 transition-colors h-full',
+        'cursor-pointer hover:bg-secondary/20 transition-colors h-full overflow-hidden flex flex-col relative',
         ringCls,
-        selectedCls,
+        props.selected && 'bg-secondary/20',
+        !t.enabled && 'opacity-55',
+        props.workspacePaused && 'opacity-70',
       )}
       onClick={props.onSelect}
     >
-      <div className="p-2.5 flex flex-col gap-2 h-full">
+      {props.selected && (
+        <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
+      )}
+      <div className="p-2.5 flex flex-col gap-2 flex-1 min-h-0">
         <div className="flex items-start gap-2 min-w-0">
           <span
             className={cn(
@@ -133,12 +128,31 @@ export function TaskTile(props: Props): React.JSX.Element {
           />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{t.name}</div>
-            <div className="text-[10px] text-muted-foreground font-mono truncate">{t.command}</div>
-            <div className="text-[10px] text-muted-foreground truncate">{triggerSummary(t)}</div>
+            <div className="text-[10px] text-muted-foreground truncate mt-0.5">{triggerSummary(t)}</div>
+            {statusCaption !== null && (
+              <div
+                className={cn(
+                  'text-[9px] font-medium mt-0.5 truncate',
+                  stableRunning && 'text-running',
+                  status === 'success' && !stableRunning && 'text-success',
+                  status === 'failed' && !stableRunning && 'text-destructive',
+                  status === 'cancelled' && !stableRunning && 'text-warn',
+                )}
+              >
+                {statusCaption}
+              </div>
+            )}
           </div>
           <div onClick={stopBubble}>{runBtn}</div>
         </div>
         <RunDotsPreview taskId={t.id} max={14} />
+        {isScheduled && (
+          <TaskScheduleBar
+            triggerCron={t.trigger_cron}
+            nowMs={nowMs}
+            paused={props.workspacePaused || !t.enabled}
+          />
+        )}
       </div>
     </Card>
   );

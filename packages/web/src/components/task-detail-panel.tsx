@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,10 +14,10 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { CommandField } from '@/components/command-editor-dialog';
 import { patchTask } from '@/lib/task-patch';
+import { duplicateTaskBody } from '@/lib/project-templates';
 import { CRON_PRESETS, resolveCronExpression } from '@/lib/cron-presets';
 import { DOCKER_PLATFORM_OPTIONS, platformSelectValue } from '@/lib/docker-platform';
 import { nullToEmpty } from '@/lib/format';
-import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { TaskHistory } from '@/components/task-history';
 import type { InspectTarget } from '@/components/run-dots';
 import { api } from '@/api/client';
@@ -58,9 +58,10 @@ function emptyToNull(v: string): string | null {
 interface Props {
   task: Task;
   inspectId: string | null;
+  existingTaskNames: readonly string[];
   onInspect(target: InspectTarget): void;
   onClosePanel(): void;
-  onDeleted(): void;
+  onDuplicated(task: Task): void;
 }
 
 export function TaskDetailPanel(props: Props): React.JSX.Element {
@@ -78,7 +79,7 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
   const [glob, setGlob] = useState(nullToEmpty(t.trigger_glob));
   const [dockerImage, setDockerImage] = useState(nullToEmpty(t.docker_image));
   const [enabled, setEnabled] = useState(t.enabled);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   useEffect(() => {
     setName(t.name);
@@ -109,15 +110,21 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
     }
   }
 
-  async function remove(): Promise<void> {
+  async function duplicate(): Promise<void> {
+    if (duplicating) {
+      return;
+    }
+    setDuplicating(true);
     try {
-      await api.deleteTask(t.id);
-      await actions.refreshTasks(t.workspace_id);
-      toast.success('Deleted');
-      props.onDeleted();
+      const body = duplicateTaskBody(t, props.existingTaskNames);
+      const r = await api.createTask(t.workspace_id, body);
+      actions.upsertTask(r.task);
+      toast.success('Task duplicated');
+      props.onDuplicated(r.task);
     } catch (e: unknown) {
       toast.error(String(e));
-      throw e;
+    } finally {
+      setDuplicating(false);
     }
   }
 
@@ -211,8 +218,15 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
       <div className="flex items-center justify-between gap-2 shrink-0">
         <span className="text-sm font-semibold">Task</span>
         <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setDeleteOpen(true); }}>
-            <Trash2 className="w-4 h-4" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={duplicating}
+            onClick={() => { void duplicate(); }}
+          >
+            <Copy className="w-4 h-4" />
           </Button>
           <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={props.onClosePanel}>
             <X className="w-4 h-4" />
@@ -327,13 +341,6 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         onInspect={props.onInspect}
       />
 
-      <ConfirmDeleteDialog
-        open={deleteOpen}
-        kind="task"
-        name={t.name}
-        onOpenChange={setDeleteOpen}
-        onConfirm={remove}
-      />
     </div>
   );
 }

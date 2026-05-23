@@ -132,7 +132,7 @@ export function TaskHistory(props: Props): React.JSX.Element {
             }
             let borderCls = 'border-border/60 hover:bg-muted/40';
             if (selected) {
-              borderCls = 'border-primary ring-1 ring-primary/40 bg-primary/5';
+              borderCls = 'border-border bg-secondary/30';
             }
             const st: ExecutionStatus | 'running' = d.status;
             return (

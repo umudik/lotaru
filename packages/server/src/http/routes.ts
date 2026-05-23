@@ -557,7 +557,11 @@ export function registerRoutes(
   });
 
   app.post<{ Params: { id: string } }>('/api/v1/executions/:id/cancel', async (req, reply) => {
-    orch.cancelExecution(req.params.id);
+    const ok = orch.cancelExecution(req.params.id);
+    if (!ok) {
+      await reply.code(404).send({ error: 'execution not found' });
+      return;
+    }
     await reply.send({ ok: true });
   });
 

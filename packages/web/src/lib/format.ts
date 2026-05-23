@@ -73,9 +73,28 @@ export function statusLabel(s: ExecutionStatus): string {
   return 'Pending';
 }
 
+export function statusRingClass(s: ExecutionStatus | 'idle', running: boolean): string {
+  if (running) {
+    return 'ring-2 ring-running/60 shadow-[0_0_14px_-2px_hsl(var(--running)/0.4)]';
+  }
+  if (s === 'success') {
+    return 'ring-1 ring-success/45';
+  }
+  if (s === 'failed') {
+    return 'ring-1 ring-destructive/50';
+  }
+  if (s === 'cancelled') {
+    return 'ring-1 ring-warn/45';
+  }
+  if (s === 'pending') {
+    return 'ring-1 ring-muted-foreground/30';
+  }
+  return 'ring-1 ring-border/80';
+}
+
 export function statusDotClass(s: ExecutionStatus | 'idle'): string {
   if (s === 'running') {
-    return 'bg-primary';
+    return 'bg-running';
   }
   if (s === 'success') {
     return 'bg-success';
@@ -94,9 +113,9 @@ export function statusDotClass(s: ExecutionStatus | 'idle'): string {
 
 export function statusBadgeVariant(
   s: ExecutionStatus,
-): 'default' | 'success' | 'destructive' | 'warn' | 'secondary' {
+): 'running' | 'success' | 'destructive' | 'warn' | 'secondary' {
   if (s === 'running') {
-    return 'default';
+    return 'running';
   }
   if (s === 'success') {
     return 'success';

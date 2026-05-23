@@ -275,42 +275,81 @@ function handleMessage(msg: ServerMessage): void {
   if (msg.kind === 'execution.ended') {
     set((s) => {
       const existing = s.liveExecutions[msg.executionId];
-      if (existing === undefined) {
-        return s;
+      let taskId = existing?.taskId;
+      if (taskId === undefined) {
+        for (const key of Object.keys(s.liveLogsByTask)) {
+          const logs = s.liveLogsByTask[key];
+          if (logs === undefined) {
+            continue;
+          }
+          for (const row of logs) {
+            if (row.id === msg.executionId) {
+              taskId = key;
+              break;
+            }
+          }
+          if (taskId !== undefined) {
+            break;
+          }
+        }
       }
+      if (taskId === undefined) {
+        const liveExecNext: Record<string, ExecutionRuntime> = {};
+        for (const key of Object.keys(s.liveExecutions)) {
+          if (key !== msg.executionId) {
+            const row = s.liveExecutions[key];
+            if (row !== undefined) {
+              liveExecNext[key] = row;
+            }
+          }
+        }
+        if (Object.keys(liveExecNext).length === Object.keys(s.liveExecutions).length) {
+          return s;
+        }
+        return { ...s, liveExecutions: liveExecNext };
+      }
+
+      const startedAt = existing?.startedAt ?? msg.ts;
       const updated: ExecutionRuntime = {
-        ...existing,
+        id: msg.executionId,
+        taskId,
         status: msg.status,
+        startedAt,
         endedAt: msg.ts,
         exitCode: msg.exitCode,
+        logLines: existing?.logLines ?? [],
       };
-      const taskLogs = s.liveLogsByTask[existing.taskId];
-      let nextList = taskLogs;
+      const taskLogs = s.liveLogsByTask[taskId];
+      let nextList: ExecutionRuntime[] | undefined = taskLogs;
       if (taskLogs !== undefined) {
+        let found = false;
         nextList = taskLogs.map((e) => {
-          if (e.id === existing.id) {
+          if (e.id === msg.executionId) {
+            found = true;
             return updated;
           }
           return e;
         });
+        if (!found) {
+          nextList = [updated, ...taskLogs].slice(0, 5);
+        }
+      } else {
+        nextList = [updated];
       }
-      const liveLogsByTask = { ...s.liveLogsByTask };
-      if (nextList !== undefined) {
-        liveLogsByTask[existing.taskId] = nextList;
-      }
+      const liveLogsByTask = { ...s.liveLogsByTask, [taskId]: nextList };
       void actions.refreshRecentExecutions();
-      scheduleExecutionRefresh(existing.taskId, 800);
+      scheduleExecutionRefresh(taskId, 800);
       const endedExec: Execution = {
         id: msg.executionId,
-        task_id: existing.taskId,
+        task_id: taskId,
         status: msg.status,
-        started_at: existing.startedAt,
+        started_at: startedAt,
         ended_at: msg.ts,
         exit_code: msg.exitCode,
         trigger_reason: 'live',
         log_path: '',
       };
-      const prev = s.executionsByTask[existing.taskId];
+      const prev = s.executionsByTask[taskId];
       let nextHist: Execution[] = [endedExec];
       if (prev !== undefined) {
         const filtered: Execution[] = [];
@@ -339,7 +378,7 @@ function handleMessage(msg: ServerMessage): void {
         liveLogsByTask,
         executionsByTask: {
           ...s.executionsByTask,
-          [existing.taskId]: nextHist,
+          [taskId]: nextHist,
         },
       };
     });
