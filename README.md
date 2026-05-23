@@ -10,50 +10,31 @@ npx -y @umudik/lotaru@latest
 
 Opens http://127.0.0.1:4317 and stores data in `~/.lotaru/`.
 
+### Landing page (dev)
+
+```bash
+npm run dev:landing
+```
+
+Serves the marketing site at http://localhost:5174 (`packages/landing`).
+
+### Landing deploy (S3)
+
+Pushes to `main` that touch `packages/landing/**` run [.github/workflows/landing-s3.yml](.github/workflows/landing-s3.yml).
+
+**Config (in workflow):** `eu-central-1`, bucket `lotaru-landing` — created on first deploy if missing.
+
+**Repository variable (optional):** `AWS_ROLE_ARN` (OIDC). **Secrets (if not using OIDC):** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+
 ### Requirements
 
 - Node.js 20+
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (default shell tasks run in an isolated container)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (only for **Docker** runtime tasks)
 
-### Host shell (optional)
-
-To use tools installed on your machine (`gh`, `kubectl`, Claude Code, etc.):
-
-```bash
-set LOTARU_SHELL_HOST=1
-npx @umudik/lotaru
-```
-
-On macOS/Linux use `export LOTARU_SHELL_HOST=1`.
+Shell tasks run on your machine (`gh`, `ollama`, `npm`, etc.). Use **Docker** runtime in a task for an isolated container.
 
 ### Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `LOTARU_PORT` | `4317` | HTTP port |
-| `LOTARU_NO_OPEN` | — | Set to `1` to skip opening the browser |
-| `LOTARU_SHELL_HOST` | — | Set to `1` to run shell tasks on the host |
-| `LOTARU_SHELL_IMAGE` | `node:22-alpine` | Docker image for isolated shell tasks |
-
-## Development
-
-```bash
-git clone https://github.com/umudik/lotaru.git
-cd lotaru
-npm install
-npm run dev
-```
-
-UI: http://localhost:5173 (proxied to server on 4317)
-
-```bash
-npm run build:publish   # production artifact (same as npm publish prep)
-npm run typecheck
-npm run lint
-npm test
-```
-
-## Stack
-
-- Backend: Fastify, WebSocket, SQLite, chokidar, node-cron, dockerode
-- Frontend: React, Vite, Tailwind

@@ -31,3 +31,21 @@
   html, body, #root { @apply h-full; }
   body { @apply bg-background text-foreground antialiased; font-feature-settings: 'cv11', 'ss01'; }
 }
+
+.command-editor-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.command-editor-surface .cm-editor {
+  height: 100%;
+}
+
+.command-editor-surface .cm-scroller {
+  min-height: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.command-shell-editor .cm-gutters {
+  border-right: 1px solid hsl(var(--border) / 0.5);
+}

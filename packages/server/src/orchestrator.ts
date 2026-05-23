@@ -1,7 +1,6 @@
 import { nanoid } from 'nanoid';
 import { join } from 'node:path';
 import { initialState, step } from './concurrency/policy.js';
-import { defaultShellImage, shellRunsOnHost } from './executor/config.js';
 import { buildExecEnv, envKeySummary } from './executor/env.js';
 import { resolveTaskPlatform } from './executor/platform.js';
 import { runShell } from './executor/shell.js';
@@ -150,12 +149,7 @@ export function createOrchestrator(
       onLine(`[lotaru] env keys=${envSummary}`, 'out');
     }
 
-    let isolated = false;
-    if (task.runtime === 'docker') {
-      isolated = true;
-    } else if (!shellRunsOnHost()) {
-      isolated = true;
-    }
+    const isolated = task.runtime === 'docker';
     const execEnv = buildExecEnv(customEnv, isolated);
 
     let handle: ExecutionHandle;
@@ -181,30 +175,13 @@ export function createOrchestrator(
         onLine,
         onExit,
       });
-    } else if (shellRunsOnHost()) {
-      onLine(`[lotaru] shell on host cwd=${workspace.path}`, 'out');
+    } else {
+      onLine(`[lotaru] shell cwd=${workspace.path}`, 'out');
       handle = runShell({
         command: task.command,
         cwd: workspace.path,
         logPath,
         env: execEnv,
-        onLine,
-        onExit,
-      });
-    } else {
-      const image = defaultShellImage();
-      let platformNote = '';
-      if (platform !== null) {
-        platformNote = ` platform=${platform}`;
-      }
-      onLine(`[lotaru] isolated shell image=${image} mount=/workspace${platformNote}`, 'out');
-      handle = runDocker({
-        command: task.command,
-        cwd: workspace.path,
-        logPath,
-        env: execEnv,
-        image,
-        platform,
         onLine,
         onExit,
       });

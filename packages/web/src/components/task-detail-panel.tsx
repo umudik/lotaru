@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
+import { CommandField } from '@/components/command-editor-dialog';
 import { patchTask } from '@/lib/task-patch';
 import { CRON_PRESETS, resolveCronExpression } from '@/lib/cron-presets';
 import { DOCKER_PLATFORM_OPTIONS, platformSelectValue } from '@/lib/docker-platform';
@@ -25,7 +25,7 @@ import { actions, useStore, selectTasksOf } from '@/state/store';
 import type { Task, RuntimeKind, TriggerKind, ConcurrencyKind } from '@/types';
 
 const runtimeOptions: readonly { value: RuntimeKind; label: string }[] = [
-  { value: 'shell', label: 'Shell (isolated)' },
+  { value: 'shell', label: 'Shell' },
   { value: 'docker', label: 'Docker' },
 ];
 const triggerOptions: readonly { value: TriggerKind; label: string }[] = [
@@ -237,16 +237,15 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         </div>
       </div>
 
-      <Textarea
+      <CommandField
         value={command}
-        onChange={(e) => { setCommand(e.target.value); }}
-        onBlur={() => {
-          if (command !== t.command) {
-            void saveField({ command });
+        runtime={t.runtime}
+        onSave={(next) => {
+          setCommand(next);
+          if (next !== t.command) {
+            void saveField({ command: next });
           }
         }}
-        rows={2}
-        className="font-mono text-xs shrink-0"
       />
 
       <div className="rounded-lg border bg-muted/20 p-3 flex flex-col gap-3 shrink-0">

@@ -50,9 +50,6 @@ async function loadStart(): Promise<StartFn> {
 }
 
 function openBrowser(url: string): void {
-  if (process.env['LOTARU_NO_OPEN'] === '1') {
-    return;
-  }
   let child: ReturnType<typeof spawn> | null = null;
   if (process.platform === 'win32') {
     child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true });

@@ -18,9 +18,10 @@
     "lotaru": "dist/index.js"
   },
   "files": [
-    "dist",
-    "dist-server",
-    "public"
+    "dist/index.js",
+    "dist-server/**/*.js",
+    "dist-server/**/*.sql",
+    "public/**"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
