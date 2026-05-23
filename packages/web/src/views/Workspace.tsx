@@ -299,7 +299,10 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     detailWidth = 'w-[min(440px,36vw)] opacity-100';
   }
 
-  const logTarget = inspect ?? logHold;
+  let logTarget = logHold;
+  if (inspect !== null) {
+    logTarget = inspect;
+  }
   const logVisible = inspect !== null;
   let logWidth = 'w-0 opacity-0 overflow-hidden pointer-events-none';
   if (logVisible) {
@@ -346,104 +349,130 @@ export function WorkspaceView(props: Props): React.JSX.Element {
 
   return (
     <>
-    <ProjectSettingsDialog
-      workspace={ws}
-      open={settingsOpen}
-      onOpenChange={setSettingsOpen}
-    />
-    <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
-      <div className="flex-1 min-w-0 flex flex-col px-6 border-r">
-        <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Project</span>
-              {stateBadge}
+      <ProjectSettingsDialog workspace={ws} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col px-6 border-r">
+          <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Project</span>
+                {stateBadge}
+              </div>
+              <h1 className="text-lg font-semibold truncate">{ws.name}</h1>
             </div>
-            <h1 className="text-lg font-semibold truncate">{ws.name}</h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <WorkspaceEnvironmentDialog
-              workspaceId={ws.id}
-              activeEnvironmentId={ws.active_environment_id}
-            />
-            <div className="flex items-center gap-2 px-2">
-              <Switch
-                checked={!ws.paused}
-                onCheckedChange={(v) => { void setProjectLive(v); }}
+            <div className="flex items-center gap-2 shrink-0">
+              <WorkspaceEnvironmentDialog
+                workspaceId={ws.id}
+                activeEnvironmentId={ws.active_environment_id}
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={exporting}
-              onClick={() => { void exportProject(); }}
-            >
-              <Download className="w-3.5 h-3.5" />
-              Export JSON
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => { setSettingsOpen(true); }}
-            >
-              <Settings2 className="w-4 h-4" />
-            </Button>
-            <Button type="button" onClick={() => { void createTask(); }} disabled={creating} size="sm">
-              New task
-            </Button>
-          </div>
-        </header>
-
-        <div className="flex-1 min-h-0 overflow-y-auto py-3">
-          {tasks.length === 0 && !loadingTasks && (
-            <Card className="border-dashed">
-              <div className="p-8 text-center text-sm text-muted-foreground">No tasks yet</div>
-            </Card>
-          )}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-            {tasks.map((t) => (
-              <TaskTile
-                key={t.id}
-                task={t}
-                selected={selectedId === t.id}
-                workspacePaused={ws.paused}
-                onSelect={() => { selectTask(t.id); }}
-              />
-            ))}
-          </div>
-          {nextCursor !== null && (
-            <div className="flex justify-center pt-4">
-              <Button type="button" variant="outline" size="sm" onClick={() => { void loadMore(); }} disabled={loadingTasks}>
-                Load more
+              <div className="flex items-center gap-2 px-2">
+                <Switch
+                  checked={!ws.paused}
+                  onCheckedChange={(v) => {
+                    void setProjectLive(v);
+                  }}
+                />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exporting}
+                onClick={() => {
+                  void exportProject();
+                }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export JSON
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => {
+                  setSettingsOpen(true);
+                }}
+              >
+                <Settings2 className="w-4 h-4" />
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  void createTask();
+                }}
+                disabled={creating}
+                size="sm"
+              >
+                New task
               </Button>
             </div>
+          </header>
+
+          <div className="flex-1 min-h-0 overflow-y-auto py-3">
+            {tasks.length === 0 && !loadingTasks && (
+              <Card className="border-dashed">
+                <div className="p-8 text-center text-sm text-muted-foreground">No tasks yet</div>
+              </Card>
+            )}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+              {tasks.map((t) => (
+                <TaskTile
+                  key={t.id}
+                  task={t}
+                  selected={selectedId === t.id}
+                  workspacePaused={ws.paused}
+                  onSelect={() => {
+                    selectTask(t.id);
+                  }}
+                />
+              ))}
+            </div>
+            {nextCursor !== null && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void loadMore();
+                  }}
+                  disabled={loadingTasks}
+                >
+                  Load more
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div
+          className={`shrink-0 border-r bg-card/20 transition-all duration-200 ease-out flex flex-col ${detailWidth}`}
+        >
+          {detailBody}
+        </div>
+
+        <div
+          className={`shrink-0 h-full transition-all duration-200 ease-out flex flex-col ${logWidth}`}
+        >
+          {logTarget !== null && (
+            <LogShell
+              taskName={inspectTaskName}
+              onClear={() => {
+                setInspect(null);
+              }}
+            >
+              <LogPanel
+                target={logTarget}
+                onCancel={(id) => {
+                  void api.cancelExecution(id);
+                }}
+              />
+            </LogShell>
           )}
         </div>
       </div>
-
-      <div
-        className={`shrink-0 border-r bg-card/20 transition-all duration-200 ease-out flex flex-col ${detailWidth}`}
-      >
-        {detailBody}
-      </div>
-
-      <div
-        className={`shrink-0 h-full transition-all duration-200 ease-out flex flex-col ${logWidth}`}
-      >
-        {logTarget !== null && (
-          <LogShell taskName={inspectTaskName} onClear={() => { setInspect(null); }}>
-            <LogPanel
-              target={logTarget}
-              onCancel={(id) => { void api.cancelExecution(id); }}
-            />
-          </LogShell>
-        )}
-      </div>
-    </div>
     </>
   );
 }

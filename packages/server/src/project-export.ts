@@ -83,7 +83,10 @@ function taskToExport(task: {
   };
 }
 
-export function buildProjectExportBundle(store: Store, workspaceId: string): ProjectExportBundle | null {
+export function buildProjectExportBundle(
+  store: Store,
+  workspaceId: string,
+): ProjectExportBundle | null {
   const w = store.getWorkspace(workspaceId);
   if (w === null) {
     return null;
@@ -179,7 +182,10 @@ export function parseProjectImportBundle(
     paused = projectRaw['paused'];
   }
   let activeName: string | null = null;
-  if (projectRaw['active_environment_name'] !== undefined && projectRaw['active_environment_name'] !== null) {
+  if (
+    projectRaw['active_environment_name'] !== undefined &&
+    projectRaw['active_environment_name'] !== null
+  ) {
     if (typeof projectRaw['active_environment_name'] !== 'string') {
       return 'active_environment_name must be string or null';
     }

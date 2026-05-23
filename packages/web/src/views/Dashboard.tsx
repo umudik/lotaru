@@ -32,6 +32,13 @@ import type { ProjectExportBundle } from '@/lib/project-export';
 import { navigate } from '@/app';
 import type { Workspace, Execution, ExecutionStatus } from '@/types';
 
+function projectCreatedTaskNote(taskCount: number): string {
+  if (taskCount > 0) {
+    return ` with ${String(taskCount)} tasks`;
+  }
+  return '';
+}
+
 function workspaceRunningCount(
   workspaceId: string,
   tasksByWorkspace: Record<string, { id: string }[]>,
@@ -143,7 +150,9 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
     <>
       <Card
         className="hover:bg-secondary/30 transition-colors h-full cursor-pointer"
-        onClick={() => { navigate(`/workspace/${w.id}`); }}
+        onClick={() => {
+          navigate(`/workspace/${w.id}`);
+        }}
       >
         <CardContent className="p-5 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-2">
@@ -200,11 +209,7 @@ function ProjectCard(props: ProjectCardProps): React.JSX.Element {
           </div>
         </CardContent>
       </Card>
-      <ProjectSettingsDialog
-        workspace={w}
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-      />
+      <ProjectSettingsDialog workspace={w} open={settingsOpen} onOpenChange={setSettingsOpen} />
       <ConfirmDeleteDialog
         open={deleteOpen}
         kind="project"
@@ -260,9 +265,7 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
       setPath('');
       setTemplateId(EMPTY_PROJECT_TEMPLATE_ID);
       props.onDone();
-      const taskNote =
-        taskBodies.length > 0 ? ` with ${String(taskBodies.length)} tasks` : '';
-      toast.success(`Project created${taskNote}`);
+      toast.success(`Project created${projectCreatedTaskNote(taskBodies.length)}`);
       navigate(`/workspace/${workspace.id}`);
     } catch (e: unknown) {
       setError(String(e));
@@ -277,15 +280,28 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
       <CardContent className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs" htmlFor="ws-name">Name</Label>
-            <Input id="ws-name" value={name} onChange={(e) => { setName(e.target.value); }} placeholder="frontend" />
+            <Label className="text-xs" htmlFor="ws-name">
+              Name
+            </Label>
+            <Input
+              id="ws-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
+              placeholder="frontend"
+            />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs" htmlFor="ws-path">Absolute path</Label>
+            <Label className="text-xs" htmlFor="ws-path">
+              Absolute path
+            </Label>
             <Input
               id="ws-path"
               value={path}
-              onChange={(e) => { setPath(e.target.value); }}
+              onChange={(e) => {
+                setPath(e.target.value);
+              }}
               placeholder="C:\Users\you\projects\frontend"
               className="font-mono"
             />
@@ -308,11 +324,27 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
         </div>
         {error !== null && <div className="text-xs text-destructive">{error}</div>}
         <div className="flex justify-end gap-2">
-          <Button type="button" onClick={() => { void pickDir(); }} variant="ghost" size="sm">
+          <Button
+            type="button"
+            onClick={() => {
+              void pickDir();
+            }}
+            variant="ghost"
+            size="sm"
+          >
             <Folder className="w-3.5 h-3.5" /> Browse
           </Button>
-          <Button type="button" onClick={props.onDone} variant="outline" size="sm">Cancel</Button>
-          <Button type="button" onClick={() => { void submit(); }} disabled={busy} size="sm">
+          <Button type="button" onClick={props.onDone} variant="outline" size="sm">
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              void submit();
+            }}
+            disabled={busy}
+            size="sm"
+          >
             <FolderInput className="w-3.5 h-3.5" /> Create
           </Button>
         </div>
@@ -336,14 +368,20 @@ export function DashboardView(): React.JSX.Element {
   }
 
   function onImportFileSelected(e: React.ChangeEvent<HTMLInputElement>): void {
-    const file = e.target.files?.[0];
-    if (file === undefined) {
+    const files = e.target.files;
+    if (files === null || files.length === 0) {
       return;
     }
+    const file = files[0];
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const raw: unknown = JSON.parse(String(reader.result));
+        const text = reader.result;
+        if (typeof text !== 'string') {
+          toast.error('Could not read project file');
+          return;
+        }
+        const raw: unknown = JSON.parse(text);
         if (!isProjectExportBundle(raw)) {
           toast.error('Invalid Lotaru project file');
           return;
@@ -362,7 +400,9 @@ export function DashboardView(): React.JSX.Element {
       <header className="flex items-end justify-between gap-4 pb-6 border-b">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground mt-1">Local workspaces and task orchestration.</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Local workspaces and task orchestration.
+          </p>
         </div>
         {!adding && (
           <div className="flex items-center gap-2 shrink-0">
@@ -370,7 +410,14 @@ export function DashboardView(): React.JSX.Element {
               <Upload className="w-4 h-4" />
               Import JSON
             </Button>
-            <Button type="button" onClick={() => { setAdding(true); }}>Add project</Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setAdding(true);
+              }}
+            >
+              Add project
+            </Button>
           </div>
         )}
       </header>
@@ -391,10 +438,18 @@ export function DashboardView(): React.JSX.Element {
         }}
       />
 
-      {adding && <AddWorkspace onDone={() => { setAdding(false); }} />}
+      {adding && (
+        <AddWorkspace
+          onDone={() => {
+            setAdding(false);
+          }}
+        />
+      )}
 
       {workspaces.length === 0 && !adding && (
-        <div className="text-center py-16 text-muted-foreground text-sm">No projects yet. Add one to get started.</div>
+        <div className="text-center py-16 text-muted-foreground text-sm">
+          No projects yet. Add one to get started.
+        </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

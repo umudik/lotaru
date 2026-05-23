@@ -108,7 +108,10 @@ export const api = {
     }
     return jsonFetch(`/api/v1/workspaces/${workspaceId}/tasks?${params.toString()}`);
   },
-  createTask(workspaceId: string, body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>): Promise<{ task: Task }> {
+  createTask(
+    workspaceId: string,
+    body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>,
+  ): Promise<{ task: Task }> {
     return jsonFetch(`/api/v1/workspaces/${workspaceId}/tasks`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -118,7 +121,10 @@ export const api = {
   getTask(id: string): Promise<{ task: Task }> {
     return jsonFetch(`/api/v1/tasks/${id}`);
   },
-  updateTask(id: string, body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>): Promise<{ task: Task }> {
+  updateTask(
+    id: string,
+    body: Omit<Task, 'id' | 'workspace_id' | 'created_at'>,
+  ): Promise<{ task: Task }> {
     return jsonFetch(`/api/v1/tasks/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },

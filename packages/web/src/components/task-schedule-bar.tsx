@@ -21,9 +21,7 @@ export function TaskScheduleBar(props: Props): React.JSX.Element {
           style={{ width: `${String(Math.round(progress * 100))}%` }}
         />
       </div>
-      <div className="text-[9px] text-muted-foreground mt-1 tabular-nums">
-        Next in {countdown}
-      </div>
+      <div className="text-[9px] text-muted-foreground mt-1 tabular-nums">Next in {countdown}</div>
     </div>
   );
 }

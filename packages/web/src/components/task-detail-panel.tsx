@@ -134,7 +134,7 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
   const scheduleValue = resolveCronExpression(t.trigger_cron);
 
   let platformInput: React.JSX.Element | null = null;
-  if (t.runtime === 'docker' || t.runtime === 'shell') {
+  if (t.runtime === 'docker') {
     platformInput = (
       <div className="flex flex-col gap-1.5 min-w-0">
         <Label className="text-xs text-muted-foreground">Architecture</Label>
@@ -170,8 +170,12 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         <Label className="text-xs text-muted-foreground">Docker image</Label>
         <Input
           value={dockerImage}
-          onChange={(e) => { setDockerImage(e.target.value); }}
-          onBlur={() => { void saveField({ docker_image: emptyToNull(dockerImage) }); }}
+          onChange={(e) => {
+            setDockerImage(e.target.value);
+          }}
+          onBlur={() => {
+            void saveField({ docker_image: emptyToNull(dockerImage) });
+          }}
           placeholder="node:22-alpine"
           className="font-mono h-9 text-xs w-full"
         />
@@ -186,8 +190,12 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         <Label className="text-xs text-muted-foreground">Path filter</Label>
         <Input
           value={glob}
-          onChange={(e) => { setGlob(e.target.value); }}
-          onBlur={() => { void saveField({ trigger_glob: emptyToNull(glob) }); }}
+          onChange={(e) => {
+            setGlob(e.target.value);
+          }}
+          onBlur={() => {
+            void saveField({ trigger_glob: emptyToNull(glob) });
+          }}
           placeholder="**/*.ts"
           className="font-mono h-9 text-xs w-full"
         />
@@ -200,7 +208,12 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
     cronInput = (
       <div className="flex flex-col gap-1.5 min-w-0">
         <Label className="text-xs text-muted-foreground">Schedule</Label>
-        <Select value={scheduleValue} onValueChange={(v) => { void saveField({ trigger_cron: v }); }}>
+        <Select
+          value={scheduleValue}
+          onValueChange={(v) => {
+            void saveField({ trigger_cron: v });
+          }}
+        >
           <SelectTrigger className="h-9 text-xs w-full">
             <SelectValue />
           </SelectTrigger>
@@ -226,7 +239,9 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => { setDuplicateOpen(true); }}
+            onClick={() => {
+              setDuplicateOpen(true);
+            }}
           >
             <Copy className="w-4 h-4" />
           </Button>
@@ -235,11 +250,19 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-            onClick={() => { setDeleteOpen(true); }}
+            onClick={() => {
+              setDeleteOpen(true);
+            }}
           >
             <Trash2 className="w-4 h-4" />
           </Button>
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={props.onClosePanel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={props.onClosePanel}
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -262,7 +285,9 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
       <div className="flex items-center gap-3 shrink-0">
         <Input
           value={name}
-          onChange={(e) => { setName(e.target.value); }}
+          onChange={(e) => {
+            setName(e.target.value);
+          }}
           onBlur={() => {
             if (name !== t.name) {
               void saveField({ name });
@@ -271,7 +296,12 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
           className="h-9 font-medium flex-1"
         />
         <div className="flex items-center gap-2 shrink-0">
-          <Switch checked={enabled} onCheckedChange={(v) => { void setTaskEnabled(v); }} />
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              void setTaskEnabled(v);
+            }}
+          />
           <span className="text-xs text-muted-foreground">{enabledLabel(enabled)}</span>
         </div>
       </div>
@@ -321,7 +351,9 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
             <Label className="text-xs text-muted-foreground">Concurrency</Label>
             <Select
               value={t.concurrency}
-              onValueChange={(v) => { void saveField({ concurrency: v as ConcurrencyKind }); }}
+              onValueChange={(v) => {
+                void saveField({ concurrency: v as ConcurrencyKind });
+              }}
             >
               <SelectTrigger className="h-9 text-xs w-full">
                 <SelectValue />
@@ -340,7 +372,9 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
           <Label className="text-xs text-muted-foreground">Runtime</Label>
           <Select
             value={t.runtime}
-            onValueChange={(v) => { void saveField({ runtime: v as RuntimeKind }); }}
+            onValueChange={(v) => {
+              void saveField({ runtime: v as RuntimeKind });
+            }}
           >
             <SelectTrigger className="h-9 text-xs w-full">
               <SelectValue />
@@ -360,12 +394,7 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         {dockerImageInput}
       </div>
 
-      <TaskHistory
-        taskId={t.id}
-        selectedId={props.inspectId}
-        onInspect={props.onInspect}
-      />
-
+      <TaskHistory taskId={t.id} selectedId={props.inspectId} onInspect={props.onInspect} />
     </div>
   );
 }

@@ -38,9 +38,7 @@ export function RunDotsPreview(props: Props): React.JSX.Element {
           />
         );
       })}
-      {extra > 0 && (
-        <span className="text-[9px] text-muted-foreground">+{String(extra)}</span>
-      )}
+      {extra > 0 && <span className="text-[9px] text-muted-foreground">+{String(extra)}</span>}
     </div>
   );
 }

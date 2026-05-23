@@ -2,10 +2,45 @@ import { ChevronRight, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { statusBadgeClass, statusDotClass } from '@/lib/status';
 
+function runRowClass(selected: boolean): string {
+  if (selected) {
+    return 'border-primary/40 ring-1 ring-primary/30 bg-primary/5';
+  }
+  return 'border-border/60 bg-card/40';
+}
+
+function runStatusLabel(status: 'success' | 'failed'): string {
+  if (status === 'success') {
+    return 'Success';
+  }
+  return 'Failed';
+}
+
 const RUNS = [
-  { status: 'success' as const, trigger: 'on save', time: '14:32:01', duration: '2.41s', exit: '0', selected: true },
-  { status: 'success' as const, trigger: 'on save', time: '14:28:44', duration: '2.38s', exit: '0', selected: false },
-  { status: 'failed' as const, trigger: 'on save', time: '14:21:10', duration: '0.82s', exit: '1', selected: false },
+  {
+    status: 'success' as const,
+    trigger: 'on save',
+    time: '14:32:01',
+    duration: '2.41s',
+    exit: '0',
+    selected: true,
+  },
+  {
+    status: 'success' as const,
+    trigger: 'on save',
+    time: '14:28:44',
+    duration: '2.38s',
+    exit: '0',
+    selected: false,
+  },
+  {
+    status: 'failed' as const,
+    trigger: 'on save',
+    time: '14:21:10',
+    duration: '0.82s',
+    exit: '1',
+    selected: false,
+  },
 ];
 
 export function DemoTaskDetail(): React.JSX.Element {
@@ -40,17 +75,24 @@ export function DemoTaskDetail(): React.JSX.Element {
               key={r.time}
               className={cn(
                 'rounded-md border p-2 flex flex-col gap-1 shrink-0',
-                r.selected
-                  ? 'border-primary/40 ring-1 ring-primary/30 bg-primary/5'
-                  : 'border-border/60 bg-card/40',
+                runRowClass(r.selected),
               )}
             >
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusDotClass(r.status))} />
-                <span className={cn('text-[9px] rounded border px-1 py-0 font-medium', statusBadgeClass(r.status))}>
-                  {r.status === 'success' ? 'Success' : 'Failed'}
+                <span
+                  className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusDotClass(r.status))}
+                />
+                <span
+                  className={cn(
+                    'text-[9px] rounded border px-1 py-0 font-medium',
+                    statusBadgeClass(r.status),
+                  )}
+                >
+                  {runStatusLabel(r.status)}
                 </span>
-                <span className="text-[9px] font-mono text-muted-foreground truncate flex-1">{r.trigger}</span>
+                <span className="text-[9px] font-mono text-muted-foreground truncate flex-1">
+                  {r.trigger}
+                </span>
               </div>
               <div className="flex justify-between text-[9px] text-muted-foreground pl-3">
                 <span>{r.time}</span>

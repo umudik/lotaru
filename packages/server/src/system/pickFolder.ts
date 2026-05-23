@@ -61,7 +61,11 @@ async function pickFolderLinux(): Promise<PickFolderResult> {
     }
   }
   try {
-    const home = process.env['HOME'] ?? '/';
+    let home = '/';
+    const homeEnv = process.env['HOME'];
+    if (homeEnv !== undefined) {
+      home = homeEnv;
+    }
     const { stdout } = await execFileAsync('kdialog', ['--getexistingdirectory', home]);
     const path = stdout.trim();
     if (path.length === 0) {

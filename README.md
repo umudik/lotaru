@@ -35,6 +35,6 @@ Shell tasks run on your machine (`gh`, `ollama`, `npm`, etc.). Use **Docker** ru
 
 ### Environment variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `LOTARU_PORT` | `4317` | HTTP port |
+| Variable      | Default | Purpose   |
+| ------------- | ------- | --------- |
+| `LOTARU_PORT` | `4317`  | HTTP port |

@@ -26,11 +26,7 @@ function NavItem(props: NavItemProps): React.JSX.Element {
     navigate(props.href);
   }
   return (
-    <a
-      href={props.href}
-      onClick={onClick}
-      className={navItemClass(props.active)}
-    >
+    <a href={props.href} onClick={onClick} className={navItemClass(props.active)}>
       <span className="w-4 h-4 flex items-center justify-center shrink-0">{props.icon}</span>
       <span className="flex-1 min-w-0 truncate">{props.label}</span>
       {props.trailing}
@@ -45,7 +41,9 @@ export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Elemen
     <aside className="fixed top-0 left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col">
       <button
         type="button"
-        onClick={() => { navigate('/'); }}
+        onClick={() => {
+          navigate('/');
+        }}
         className="flex items-center gap-2.5 px-4 h-14 border-b hover:bg-secondary/40 transition-colors w-full text-left"
       >
         <div className="w-7 h-7 rounded-lg bg-primary grid place-items-center text-primary-foreground font-bold text-sm">
@@ -65,7 +63,9 @@ export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Elemen
             </span>
             <button
               type="button"
-              onClick={() => { navigate('/'); }}
+              onClick={() => {
+                navigate('/');
+              }}
               className="text-muted-foreground hover:text-foreground hover:bg-secondary rounded-sm w-5 h-5 grid place-items-center"
               title="Add project"
             >

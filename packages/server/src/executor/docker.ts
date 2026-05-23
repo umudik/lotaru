@@ -10,6 +10,10 @@ export interface DockerOptions extends ExecutorOptions {
   platform: string | null;
 }
 
+function ignoreKillError(): void {
+  return;
+}
+
 export function runDocker(opts: DockerOptions): ExecutionHandle {
   mkdirSync(dirname(opts.logPath), { recursive: true });
   const logFile = createWriteStream(opts.logPath, { flags: 'a' });
@@ -138,7 +142,7 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
       if (container === null) {
         return;
       }
-      container.kill().catch(() => {});
+      container.kill().catch(ignoreKillError);
     },
   };
 }

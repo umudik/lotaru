@@ -28,9 +28,18 @@
     --warn: 38 90% 60%;
     --radius: 0.75rem;
   }
-  * { @apply border-border; }
-  html, body, #root { @apply h-full; }
-  body { @apply bg-background text-foreground antialiased; font-feature-settings: 'cv11', 'ss01'; }
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
 }
 
 .command-editor-body {

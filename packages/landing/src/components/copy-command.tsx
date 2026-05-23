@@ -8,13 +8,22 @@ interface Props {
   className?: string;
 }
 
+function copyButtonIcon(copied: boolean): React.JSX.Element {
+  if (copied) {
+    return <Check className="h-4 w-4" />;
+  }
+  return <Copy className="h-4 w-4" />;
+}
+
 export function CopyCommand(props: Props): React.JSX.Element {
   const [copied, setCopied] = useState(false);
 
   async function copy(): Promise<void> {
     await navigator.clipboard.writeText(INSTALL_CMD);
     setCopied(true);
-    window.setTimeout(() => { setCopied(false); }, 2000);
+    window.setTimeout(() => {
+      setCopied(false);
+    }, 2000);
   }
 
   return (
@@ -28,11 +37,13 @@ export function CopyCommand(props: Props): React.JSX.Element {
       <code className="flex-1 truncate text-foreground/95">{INSTALL_CMD}</code>
       <button
         type="button"
-        onClick={() => { void copy(); }}
+        onClick={() => {
+          void copy();
+        }}
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
         aria-label="Copy install command"
       >
-        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        {copyButtonIcon(copied)}
       </button>
     </div>
   );

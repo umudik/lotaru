@@ -50,17 +50,19 @@ async function loadStart(): Promise<StartFn> {
 }
 
 function openBrowser(url: string): void {
-  let child: ReturnType<typeof spawn> | null = null;
+  let child: ReturnType<typeof spawn>;
   if (process.platform === 'win32') {
-    child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true });
+    child = spawn('cmd', ['/c', 'start', '', url], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
   } else if (process.platform === 'darwin') {
     child = spawn('open', [url], { detached: true, stdio: 'ignore' });
   } else {
     child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
   }
-  if (child !== null) {
-    child.unref();
-  }
+  child.unref();
 }
 
 async function main(): Promise<void> {

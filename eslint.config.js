@@ -1,3 +1,4 @@
+import eslintConfigPrettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 const restrictedSyntax = [
@@ -21,7 +22,13 @@ const restrictedSyntax = [
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.config.js', '**/*.config.ts'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.config.js',
+      '**/*.config.ts',
+      '**/*.test.ts',
+    ],
   },
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -49,11 +56,15 @@ export default tseslint.config(
       '@typescript-eslint/explicit-function-return-type': ['error', { allowExpressions: true }],
       '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
       '@typescript-eslint/no-unnecessary-condition': 'error',
-      '@typescript-eslint/strict-boolean-expressions': ['error', { allowString: false, allowNumber: false, allowNullableObject: false }],
+      '@typescript-eslint/strict-boolean-expressions': [
+        'error',
+        { allowString: false, allowNumber: false, allowNullableObject: false },
+      ],
       eqeqeq: ['error', 'always'],
       'prefer-const': 'error',
       'no-var': 'error',
       'no-console': 'off',
     },
   },
+  eslintConfigPrettier,
 );

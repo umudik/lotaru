@@ -23,7 +23,10 @@ export function stringifyEnvVars(vars: Record<string, string>): string {
   return JSON.stringify(vars);
 }
 
-export function buildExecEnv(custom: Record<string, string>, isolated: boolean): Record<string, string> {
+export function buildExecEnv(
+  custom: Record<string, string>,
+  isolated: boolean,
+): Record<string, string> {
   if (!isolated) {
     const merged: Record<string, string> = {};
     for (const key of Object.keys(process.env)) {
@@ -57,7 +60,11 @@ export function buildExecEnv(custom: Record<string, string>, isolated: boolean):
 export function envToDockerList(env: Record<string, string>): string[] {
   const list: string[] = [];
   for (const key of Object.keys(env)) {
-    list.push(`${key}=${env[key]}`);
+    const val = env[key];
+    if (val === undefined) {
+      continue;
+    }
+    list.push(`${key}=${val}`);
   }
   return list;
 }

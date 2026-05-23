@@ -4,11 +4,12 @@ import { useBootstrap, useStore } from '@/state/store';
 import { DashboardView } from '@/views/Dashboard';
 import { WorkspaceView } from '@/views/Workspace';
 
-type Route =
-  | { kind: 'list' }
-  | { kind: 'workspace'; id: string };
+type Route = { kind: 'list' } | { kind: 'workspace'; id: string };
 
-function parsePathWithTaskRedirect(pathname: string): { route: Route; taskRedirect: string | null } {
+function parsePathWithTaskRedirect(pathname: string): {
+  route: Route;
+  taskRedirect: string | null;
+} {
   const clean = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
   if (clean === '' || clean === 'dashboard') {
     return { route: { kind: 'list' }, taskRedirect: null };

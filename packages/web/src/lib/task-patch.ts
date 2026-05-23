@@ -9,11 +9,19 @@ export type UpdateTaskBody = Omit<Task, 'id' | 'workspace_id' | 'created_at'>;
 export function buildTaskPatchBody(task: Task, partial: Partial<Task>): UpdateTaskBody {
   const merged: Task = { ...task, ...partial };
   let dockerImage: string | null = null;
-  if (merged.runtime === 'docker' && merged.docker_image !== null && merged.docker_image.length > 0) {
+  if (
+    merged.runtime === 'docker' &&
+    merged.docker_image !== null &&
+    merged.docker_image.length > 0
+  ) {
     dockerImage = merged.docker_image;
   }
   let glob: string | null = null;
-  if (merged.trigger_type === 'save' && merged.trigger_glob !== null && merged.trigger_glob.length > 0) {
+  if (
+    merged.trigger_type === 'save' &&
+    merged.trigger_glob !== null &&
+    merged.trigger_glob.length > 0
+  ) {
     glob = merged.trigger_glob;
   }
   let cron: string | null = null;

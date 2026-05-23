@@ -112,7 +112,9 @@ export function ProjectSettingsDialog(props: Props): React.JSX.Element {
             <Input
               id={`edit-ws-name-${w.id}`}
               value={name}
-              onChange={(e) => { setName(e.target.value); }}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
               className="h-9"
             />
           </div>
@@ -122,10 +124,20 @@ export function ProjectSettingsDialog(props: Props): React.JSX.Element {
               <Input
                 id={`edit-ws-path-${w.id}`}
                 value={path}
-                onChange={(e) => { setPath(e.target.value); }}
+                onChange={(e) => {
+                  setPath(e.target.value);
+                }}
                 className="h-9 font-mono text-xs flex-1"
               />
-              <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => { void pickDir(); }}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => {
+                  void pickDir();
+                }}
+              >
                 <Folder className="w-4 h-4" />
               </Button>
             </div>
@@ -141,10 +153,23 @@ export function ProjectSettingsDialog(props: Props): React.JSX.Element {
           </div>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={saving} onClick={() => { props.onOpenChange(false); }}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={saving}
+            onClick={() => {
+              props.onOpenChange(false);
+            }}
+          >
             Cancel
           </Button>
-          <Button type="button" disabled={saving} onClick={() => { void save(); }}>
+          <Button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              void save();
+            }}
+          >
             {saveLabel}
           </Button>
         </DialogFooter>

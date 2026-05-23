@@ -108,8 +108,7 @@ export function runShell(opts: ExecutorOptions): ExecutionHandle {
       killTimer = setTimeout(() => {
         try {
           child.kill('SIGKILL');
-        } catch (_e: unknown) {
-        }
+        } catch (_e: unknown) {}
       }, 1500);
     },
   };

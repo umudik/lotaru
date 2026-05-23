@@ -24,6 +24,13 @@ interface Props {
   onInspect(target: InspectTarget): void;
 }
 
+function cancelledRunWord(count: number): string {
+  if (count === 1) {
+    return 'run';
+  }
+  return 'runs';
+}
+
 function dotToInspect(taskId: string, d: RunDot): InspectTarget {
   let isLive = false;
   if (d.status === 'running') {
@@ -125,7 +132,9 @@ export function TaskHistory(props: Props): React.JSX.Element {
       for (const id of runningIds) {
         await api.cancelExecution(id);
       }
-      toast.success(`Cancelled ${String(runningIds.length)} run${runningIds.length === 1 ? '' : 's'}`);
+      toast.success(
+        `Cancelled ${String(runningIds.length)} ${cancelledRunWord(runningIds.length)}`,
+      );
     } catch (e: unknown) {
       toast.error(String(e));
     } finally {
@@ -149,13 +158,22 @@ export function TaskHistory(props: Props): React.JSX.Element {
               variant="outline"
               size="sm"
               className="h-7 text-[10px] px-2 text-destructive/90 border-destructive/30 hover:bg-destructive/10"
-              onClick={() => { void cancelAll(); }}
+              onClick={() => {
+                void cancelAll();
+              }}
               disabled={cancellingAll}
             >
               Cancel all
             </Button>
           )}
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={reload} disabled={loading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={reload}
+            disabled={loading}
+          >
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
           </Button>
         </div>
@@ -174,10 +192,7 @@ export function TaskHistory(props: Props): React.JSX.Element {
       )}
 
       {dots.length > 0 && (
-        <div
-          ref={scrollRef}
-          className="flex flex-col gap-1.5 overflow-y-auto min-h-0 flex-1 pr-1"
-        >
+        <div ref={scrollRef} className="flex flex-col gap-1.5 overflow-y-auto min-h-0 flex-1 pr-1">
           {dots.map((d) => {
             const selected = props.selectedId === d.id;
             const exec = findExecution(history, d.id);
@@ -202,7 +217,9 @@ export function TaskHistory(props: Props): React.JSX.Element {
               <button
                 key={d.id}
                 type="button"
-                onClick={() => { props.onInspect(dotToInspect(props.taskId, d)); }}
+                onClick={() => {
+                  props.onInspect(dotToInspect(props.taskId, d));
+                }}
                 className={cn(
                   'w-full shrink-0 flex flex-col gap-1 p-2.5 rounded-md border text-left transition-colors',
                   borderCls,
@@ -210,13 +227,18 @@ export function TaskHistory(props: Props): React.JSX.Element {
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={cn('w-2 h-2 rounded-full shrink-0', statusDotClass(st))} />
-                  <Badge variant={statusBadgeVariant(st)} className="text-[10px] px-1.5 py-0 shrink-0">
+                  <Badge
+                    variant={statusBadgeVariant(st)}
+                    className="text-[10px] px-1.5 py-0 shrink-0"
+                  >
                     {statusLabel(st)}
                   </Badge>
                   <span className="text-[10px] font-mono text-muted-foreground truncate flex-1">
                     {triggerText}
                   </span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">{formatRelative(d.startedAt)}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatRelative(d.startedAt)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground pl-4">
                   <span>{timeText}</span>

@@ -16,6 +16,8 @@
     "build": "npm --workspace @lotaru/web run build && npm --workspace @lotaru/server run build && node scripts/cp-public.mjs && npm --workspace @umudik/lotaru run build",
     "build:publish": "node scripts/build-publish.mjs",
     "lint": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "npm --workspace @lotaru/server run typecheck && npm --workspace @lotaru/web run typecheck && npm --workspace @lotaru/landing run typecheck",
     "test": "npm --workspace @lotaru/server run test"
   },
@@ -23,6 +25,8 @@
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
     "eslint": "^9.15.0",
+    "eslint-config-prettier": "^10.1.5",
+    "prettier": "^3.5.3",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.15.0"

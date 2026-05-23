@@ -1,12 +1,4 @@
-import {
-  Box,
-  Clock,
-  FolderOpen,
-  Github,
-  Radio,
-  Terminal,
-  Zap,
-} from 'lucide-react';
+import { Box, Clock, FolderOpen, Github, Radio, Terminal, Zap } from 'lucide-react';
 import { CopyCommand } from '@/components/copy-command';
 import { SiteHeader } from '@/components/site-header';
 import { ProductPreview } from '@/components/product-preview';
@@ -92,10 +84,8 @@ export function App(): React.JSX.Element {
                 <CopyCommand />
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Opens{' '}
-                <code className="font-mono text-foreground/70">http://127.0.0.1:4317</code>
-                {' '}· data in{' '}
-                <code className="font-mono text-foreground/70">~/.lotaru/</code>
+                Opens <code className="font-mono text-foreground/70">http://127.0.0.1:4317</code> ·
+                data in <code className="font-mono text-foreground/70">~/.lotaru/</code>
               </p>
             </div>
             <ProductPreview className="lg:translate-y-2" />
@@ -105,7 +95,9 @@ export function App(): React.JSX.Element {
         <section id="features" className="border-t border-border/60 bg-card/20">
           <div className="max-w-6xl mx-auto px-6 py-20">
             <div className="max-w-2xl mb-12">
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Built for daily dev work</h2>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+                Built for daily dev work
+              </h2>
               <p className="mt-3 text-muted-foreground">
                 A small runtime that sits beside your editor not another CI platform in the cloud.
               </p>

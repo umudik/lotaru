@@ -131,7 +131,11 @@ export interface Store {
   resolveActiveEnvVars(workspaceId: string): Record<string, string>;
 
   listTasks(workspaceId: string): Task[];
-  listTasksPage(workspaceId: string, cursor: string | null, limit: number): { tasks: Task[]; nextCursor: string | null };
+  listTasksPage(
+    workspaceId: string,
+    cursor: string | null,
+    limit: number,
+  ): { tasks: Task[]; nextCursor: string | null };
   listAllEnabledTasks(): Task[];
   getTask(id: string): Task | null;
   insertTask(t: Task): void;
@@ -189,14 +193,18 @@ export function openStore(dbPath: string): Store {
   db.exec('CREATE INDEX IF NOT EXISTS idx_environments_workspace ON environments(workspace_id)');
 
   const stmts = {
-    listWorkspaces: db.prepare<[], WorkspaceRow>('SELECT * FROM workspaces ORDER BY created_at ASC'),
+    listWorkspaces: db.prepare<[], WorkspaceRow>(
+      'SELECT * FROM workspaces ORDER BY created_at ASC',
+    ),
     getWorkspace: db.prepare<[string], WorkspaceRow>('SELECT * FROM workspaces WHERE id = ?'),
     insertWorkspace: db.prepare(
       'INSERT INTO workspaces (id, name, path, paused, active_environment_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ),
     setWorkspacePaused: db.prepare('UPDATE workspaces SET paused = ? WHERE id = ?'),
     updateWorkspace: db.prepare('UPDATE workspaces SET name = ?, path = ? WHERE id = ?'),
-    setActiveEnvironment: db.prepare('UPDATE workspaces SET active_environment_id = ? WHERE id = ?'),
+    setActiveEnvironment: db.prepare(
+      'UPDATE workspaces SET active_environment_id = ? WHERE id = ?',
+    ),
     deleteWorkspace: db.prepare('DELETE FROM workspaces WHERE id = ?'),
 
     listEnvironmentsByWorkspace: db.prepare<[string], EnvironmentRow>(
@@ -339,7 +347,11 @@ export function openStore(dbPath: string): Store {
       const rows = stmts.listTasksByWorkspace.all(workspaceId);
       return rows.map(rowToTask);
     },
-    listTasksPage(workspaceId: string, cursor: string | null, limit: number): { tasks: Task[]; nextCursor: string | null } {
+    listTasksPage(
+      workspaceId: string,
+      cursor: string | null,
+      limit: number,
+    ): { tasks: Task[]; nextCursor: string | null } {
       const fetchLimit = limit + 1;
       let rows: TaskRow[];
       if (cursor === null) {
@@ -349,7 +361,13 @@ export function openStore(dbPath: string): Store {
         if (cur === undefined) {
           rows = stmts.listTasksPageFirst.all(workspaceId, fetchLimit);
         } else {
-          rows = stmts.listTasksPageAfter.all(workspaceId, cur.created_at, cur.created_at, cur.id, fetchLimit);
+          rows = stmts.listTasksPageAfter.all(
+            workspaceId,
+            cur.created_at,
+            cur.created_at,
+            cur.id,
+            fetchLimit,
+          );
         }
       }
       let nextCursor: string | null = null;

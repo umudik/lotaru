@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  formatDuration,
-  formatTime,
-  statusBadgeVariant,
-  statusLabel,
-} from '@/lib/format';
+import { formatDuration, formatTime, statusBadgeVariant, statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { api } from '@/api/client';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
@@ -137,7 +132,9 @@ export function LogPanel(props: Props): React.JSX.Element {
             variant="destructive"
             size="sm"
             className="ml-auto"
-            onClick={() => { props.onCancel(props.target.executionId); }}
+            onClick={() => {
+              props.onCancel(props.target.executionId);
+            }}
           >
             Cancel
           </Button>

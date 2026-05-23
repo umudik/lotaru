@@ -22,6 +22,13 @@ interface Props {
   onImported(workspaceId: string): void;
 }
 
+function importButtonLabel(busy: boolean): string {
+  if (busy) {
+    return 'Importing…';
+  }
+  return 'Import';
+}
+
 export function ProjectImportDialog(props: Props): React.JSX.Element {
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
@@ -92,7 +99,9 @@ export function ProjectImportDialog(props: Props): React.JSX.Element {
             <Input
               id="import-project-name"
               value={name}
-              onChange={(e) => { setName(e.target.value); }}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
               className="h-9"
             />
           </div>
@@ -102,21 +111,44 @@ export function ProjectImportDialog(props: Props): React.JSX.Element {
               <Input
                 id="import-project-path"
                 value={path}
-                onChange={(e) => { setPath(e.target.value); }}
+                onChange={(e) => {
+                  setPath(e.target.value);
+                }}
                 className="h-9 font-mono text-xs flex-1"
               />
-              <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => { void pickDir(); }}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => {
+                  void pickDir();
+                }}
+              >
                 <Folder className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => { props.onOpenChange(false); }}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              props.onOpenChange(false);
+            }}
+          >
             Cancel
           </Button>
-          <Button type="button" disabled={busy || props.bundle === null} onClick={() => { void submit(); }}>
-            {busy ? 'Importing…' : 'Import'}
+          <Button
+            type="button"
+            disabled={busy || props.bundle === null}
+            onClick={() => {
+              void submit();
+            }}
+          >
+            {importButtonLabel(busy)}
           </Button>
         </DialogFooter>
       </DialogContent>

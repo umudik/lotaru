@@ -95,7 +95,15 @@ export function TaskTile(props: Props): React.JSX.Element {
   let runBtn: React.JSX.Element;
   if (showCancel) {
     runBtn = (
-      <Button type="button" onClick={(e) => { void cancel(e); }} variant="destructive" size="sm" className="h-6 w-6 p-0 shrink-0">
+      <Button
+        type="button"
+        onClick={(e) => {
+          void cancel(e);
+        }}
+        variant="destructive"
+        size="sm"
+        className="h-6 w-6 p-0 shrink-0"
+      >
         <X className="w-3 h-3" />
       </Button>
     );
@@ -103,7 +111,9 @@ export function TaskTile(props: Props): React.JSX.Element {
     runBtn = (
       <Button
         type="button"
-        onClick={(e) => { void run(e); }}
+        onClick={(e) => {
+          void run(e);
+        }}
         size="sm"
         className="h-6 w-6 p-0 shrink-0"
         disabled={!t.enabled || props.workspacePaused}
@@ -120,8 +130,21 @@ export function TaskTile(props: Props): React.JSX.Element {
     statusCaption = statusLabel(status);
   }
 
-  const statusKey = stableRunning ? 'running' : status;
+  let statusKey: typeof status | 'running' = status;
+  if (stableRunning) {
+    statusKey = 'running';
+  }
   const flash = useStatusFlash(statusKey);
+
+  let dataFlash: string | undefined;
+  if (flash !== null) {
+    dataFlash = flash;
+  }
+
+  let dotClass = statusDotClass(status);
+  if (stableRunning) {
+    dotClass = 'bg-running/45 animate-pulse';
+  }
 
   return (
     <Card
@@ -132,7 +155,7 @@ export function TaskTile(props: Props): React.JSX.Element {
         !t.enabled && 'opacity-55',
         props.workspacePaused && 'opacity-70',
       )}
-      data-flash={flash ?? undefined}
+      data-flash={dataFlash}
       onClick={props.onSelect}
     >
       {props.selected && (
@@ -140,15 +163,12 @@ export function TaskTile(props: Props): React.JSX.Element {
       )}
       <div className="p-2.5 flex flex-col gap-2 flex-1 min-h-0">
         <div className="flex items-start gap-2 min-w-0">
-          <span
-            className={cn(
-              'w-2 h-2 rounded-full shrink-0 mt-1',
-              stableRunning ? 'bg-running/45 animate-pulse' : statusDotClass(status),
-            )}
-          />
+          <span className={cn('w-2 h-2 rounded-full shrink-0 mt-1', dotClass)} />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{t.name}</div>
-            <div className="text-[10px] text-muted-foreground truncate mt-0.5">{triggerSummary(t)}</div>
+            <div className="text-[10px] text-muted-foreground truncate mt-0.5">
+              {triggerSummary(t)}
+            </div>
             {statusCaption !== null && (
               <div
                 className={cn(

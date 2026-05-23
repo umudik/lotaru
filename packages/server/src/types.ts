@@ -56,7 +56,13 @@ export interface TriggerReason {
 export type ServerMessage =
   | { kind: 'execution.started'; executionId: string; taskId: string; ts: number }
   | { kind: 'execution.log'; executionId: string; line: string; stream: LogStream; ts: number }
-  | { kind: 'execution.ended'; executionId: string; status: ExecutionStatus; exitCode: number | null; ts: number }
+  | {
+      kind: 'execution.ended';
+      executionId: string;
+      status: ExecutionStatus;
+      exitCode: number | null;
+      ts: number;
+    }
   | { kind: 'task.updated'; taskId: string }
   | { kind: 'task.deleted'; taskId: string }
   | { kind: 'workspace.updated'; workspaceId: string }

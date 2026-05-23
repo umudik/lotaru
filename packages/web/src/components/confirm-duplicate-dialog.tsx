@@ -59,14 +59,18 @@ export function ConfirmDuplicateDialog(props: Props): React.JSX.Element {
             type="button"
             variant="outline"
             disabled={duplicating}
-            onClick={() => { props.onOpenChange(false); }}
+            onClick={() => {
+              props.onOpenChange(false);
+            }}
           >
             Cancel
           </Button>
           <Button
             type="button"
             disabled={duplicating}
-            onClick={() => { void confirm(); }}
+            onClick={() => {
+              void confirm();
+            }}
           >
             {confirmLabel}
           </Button>

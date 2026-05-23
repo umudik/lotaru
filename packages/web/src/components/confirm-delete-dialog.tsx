@@ -75,7 +75,9 @@ export function ConfirmDeleteDialog(props: Props): React.JSX.Element {
             type="button"
             variant="outline"
             disabled={deleting}
-            onClick={() => { props.onOpenChange(false); }}
+            onClick={() => {
+              props.onOpenChange(false);
+            }}
           >
             Cancel
           </Button>
@@ -83,7 +85,9 @@ export function ConfirmDeleteDialog(props: Props): React.JSX.Element {
             type="button"
             variant="destructive"
             disabled={deleting}
-            onClick={() => { void confirm(); }}
+            onClick={() => {
+              void confirm();
+            }}
           >
             {confirmLabel}
           </Button>

@@ -12,12 +12,16 @@ export function isDockerPlatform(v: string): v is DockerPlatform {
   return false;
 }
 
-export function parseDockerPlatformInput(v: unknown): string | null | 'invalid docker_platform' {
+export const INVALID_DOCKER_PLATFORM = 'invalid docker_platform' as const;
+
+export type ParseDockerPlatformResult = DockerPlatform | null | typeof INVALID_DOCKER_PLATFORM;
+
+export function parseDockerPlatformInput(v: unknown): ParseDockerPlatformResult {
   if (v === undefined || v === null || v === '') {
     return null;
   }
   if (typeof v !== 'string') {
-    return 'invalid docker_platform';
+    return INVALID_DOCKER_PLATFORM;
   }
   if (v === 'auto') {
     return null;
@@ -25,7 +29,7 @@ export function parseDockerPlatformInput(v: unknown): string | null | 'invalid d
   if (isDockerPlatform(v)) {
     return v;
   }
-  return 'invalid docker_platform';
+  return INVALID_DOCKER_PLATFORM;
 }
 
 export function resolveTaskPlatform(taskPlatform: string | null): string | null {

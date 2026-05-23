@@ -82,11 +82,26 @@ export function CommandField(props: FieldProps): React.JSX.Element {
       }
     }
     window.addEventListener('keydown', onKeyDown);
-    return () => { window.removeEventListener('keydown', onKeyDown); };
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [open, draft, props.onSave]);
 
   const summary = commandSummary(props.value);
-  const RuntimeIcon = props.runtime === 'docker' ? Box : Terminal;
+  let RuntimeIcon = Terminal;
+  if (props.runtime === 'docker') {
+    RuntimeIcon = Box;
+  }
+
+  let iconBoxClass = 'border-border/60 bg-muted/40 text-muted-foreground';
+  if (summary.configured) {
+    iconBoxClass = 'border-primary/25 bg-primary/10 text-primary';
+  }
+
+  let commandSubtextClass = 'text-muted-foreground/80';
+  if (summary.configured) {
+    commandSubtextClass = 'text-muted-foreground';
+  }
 
   return (
     <>
@@ -102,21 +117,14 @@ export function CommandField(props: FieldProps): React.JSX.Element {
           <div
             className={cn(
               'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border',
-              summary.configured
-                ? 'border-primary/25 bg-primary/10 text-primary'
-                : 'border-border/60 bg-muted/40 text-muted-foreground',
+              iconBoxClass,
             )}
           >
             <RuntimeIcon className="h-5 w-5" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium leading-none">Command</div>
-            <div
-              className={cn(
-                'text-xs mt-1.5 truncate',
-                summary.configured ? 'text-muted-foreground' : 'text-muted-foreground/80',
-              )}
-            >
+            <div className={cn('text-xs mt-1.5 truncate', commandSubtextClass)}>
               {statusText(props.runtime, summary)}
             </div>
           </div>
@@ -127,7 +135,14 @@ export function CommandField(props: FieldProps): React.JSX.Element {
         </div>
       </button>
 
-      <Dialog open={open} onOpenChange={(next) => { if (!next) { cancel(); } }}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            cancel();
+          }
+        }}
+      >
         <DialogContent className="max-w-4xl w-[min(96vw,56rem)] h-[min(88vh,720px)] p-0 gap-0 flex flex-col overflow-hidden sm:rounded-xl">
           <DialogHeader className="px-5 pt-5 pb-3 shrink-0 border-b border-border/60">
             <DialogTitle>Edit command</DialogTitle>

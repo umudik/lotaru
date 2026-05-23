@@ -55,7 +55,11 @@ function getState(): State {
 }
 
 export function useStore<T>(selector: (s: State) => T): T {
-  return useSyncExternalStore(subscribe, () => selector(getState()), () => selector(initial));
+  return useSyncExternalStore(
+    subscribe,
+    () => selector(getState()),
+    () => selector(initial),
+  );
 }
 
 const EMPTY_TASKS: readonly Task[] = Object.freeze([]);
@@ -135,8 +139,7 @@ export const actions = {
     try {
       const r = await api.getTask(taskId);
       actions.upsertTask(r.task);
-    } catch (_e: unknown) {
-    }
+    } catch (_e: unknown) {}
   },
   removeTask(taskId: string): void {
     set((s) => {
@@ -275,7 +278,10 @@ function handleMessage(msg: ServerMessage): void {
   if (msg.kind === 'execution.ended') {
     set((s) => {
       const existing = s.liveExecutions[msg.executionId];
-      let taskId = existing?.taskId;
+      let taskId: string | undefined;
+      if (existing !== undefined) {
+        taskId = existing.taskId;
+      }
       if (taskId === undefined) {
         for (const key of Object.keys(s.liveLogsByTask)) {
           const logs = s.liveLogsByTask[key];
@@ -309,7 +315,14 @@ function handleMessage(msg: ServerMessage): void {
         return { ...s, liveExecutions: liveExecNext };
       }
 
-      const startedAt = existing?.startedAt ?? msg.ts;
+      let startedAt = msg.ts;
+      if (existing !== undefined) {
+        startedAt = existing.startedAt;
+      }
+      let logLines: string[] = [];
+      if (existing !== undefined) {
+        logLines = existing.logLines;
+      }
       const updated: ExecutionRuntime = {
         id: msg.executionId,
         taskId,
@@ -317,20 +330,26 @@ function handleMessage(msg: ServerMessage): void {
         startedAt,
         endedAt: msg.ts,
         exitCode: msg.exitCode,
-        logLines: existing?.logLines ?? [],
+        logLines,
       };
       const taskLogs = s.liveLogsByTask[taskId];
-      let nextList: ExecutionRuntime[] | undefined = taskLogs;
+      let nextList: ExecutionRuntime[];
       if (taskLogs !== undefined) {
-        let found = false;
-        nextList = taskLogs.map((e) => {
-          if (e.id === msg.executionId) {
-            found = true;
-            return updated;
+        let matchIndex = -1;
+        for (let i = 0; i < taskLogs.length; i++) {
+          if (taskLogs[i].id === msg.executionId) {
+            matchIndex = i;
+            break;
           }
-          return e;
-        });
-        if (!found) {
+        }
+        if (matchIndex >= 0) {
+          nextList = taskLogs.map((row, i) => {
+            if (i === matchIndex) {
+              return updated;
+            }
+            return row;
+          });
+        } else {
           nextList = [updated, ...taskLogs].slice(0, 5);
         }
       } else {

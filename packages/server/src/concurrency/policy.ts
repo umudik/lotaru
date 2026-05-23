@@ -31,11 +31,7 @@ export function initialState(policy: ConcurrencyKind): SlotState {
   return { kind: 'idle' };
 }
 
-export function step(
-  policy: ConcurrencyKind,
-  state: SlotState,
-  event: PolicyEvent,
-): PolicyResult {
+export function step(policy: ConcurrencyKind, state: SlotState, event: PolicyEvent): PolicyResult {
   if (policy === 'parallel') {
     return stepParallel(state, event);
   }
@@ -73,13 +69,21 @@ function stepRestart(state: SlotState, event: PolicyEvent): PolicyResult {
     }
     if (state.kind === 'running') {
       return {
-        state: { kind: 'cancelling_then_start', executionId: state.executionId, next: event.reason },
+        state: {
+          kind: 'cancelling_then_start',
+          executionId: state.executionId,
+          next: event.reason,
+        },
         commands: [{ kind: 'cancel', executionId: state.executionId }],
       };
     }
     if (state.kind === 'running_with_queued' || state.kind === 'cancelling_then_start') {
       return {
-        state: { kind: 'cancelling_then_start', executionId: state.executionId, next: event.reason },
+        state: {
+          kind: 'cancelling_then_start',
+          executionId: state.executionId,
+          next: event.reason,
+        },
         commands: [{ kind: 'cancel', executionId: state.executionId }],
       };
     }
@@ -89,9 +93,6 @@ function stepRestart(state: SlotState, event: PolicyEvent): PolicyResult {
     if (state.kind === 'idle') {
       return { state: { kind: 'running', executionId: event.executionId }, commands: [] };
     }
-    return { state, commands: [] };
-  }
-  if (event.kind !== 'ended') {
     return { state, commands: [] };
   }
   if (state.kind === 'cancelling_then_start' && state.executionId === event.executionId) {

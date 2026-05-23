@@ -11,9 +11,7 @@ interface Props {
 export function LogShell(props: Props): React.JSX.Element {
   let subtitleEl: React.JSX.Element | null = null;
   if (props.taskName.length > 0) {
-    subtitleEl = (
-      <div className="text-[10px] text-muted-foreground truncate">{props.taskName}</div>
-    );
+    subtitleEl = <div className="text-[10px] text-muted-foreground truncate">{props.taskName}</div>;
   }
 
   return (
@@ -23,7 +21,13 @@ export function LogShell(props: Props): React.JSX.Element {
           <div className="text-sm font-semibold">Logs</div>
           {subtitleEl}
         </div>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={props.onClear}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={props.onClear}
+        >
           <X className="w-4 h-4" />
         </Button>
       </div>

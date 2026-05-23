@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Store } from '../db/index.js';
 import type { Orchestrator } from '../orchestrator.js';
 import type { EventBus } from '../events/bus.js';
-import { parseDockerPlatformInput } from '../executor/platform.js';
+import { INVALID_DOCKER_PLATFORM, parseDockerPlatformInput } from '../executor/platform.js';
 import { pickFolder } from '../system/pickFolder.js';
 import {
   buildProjectExportBundle,
@@ -138,8 +138,8 @@ function validateCreateTask(body: unknown): CreateTaskBody | string {
     enabled = b['enabled'];
   }
   const platformParsed = parseDockerPlatformInput(b['docker_platform']);
-  if (platformParsed === 'invalid docker_platform') {
-    return platformParsed;
+  if (platformParsed === INVALID_DOCKER_PLATFORM) {
+    return INVALID_DOCKER_PLATFORM;
   }
   let dockerPlatform: string | null = null;
   if (typeof platformParsed === 'string') {
@@ -212,45 +212,48 @@ export function registerRoutes(
     await reply.send({ workspace: w });
   });
 
-  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/workspaces/:id', async (req, reply) => {
-    const w = store.getWorkspace(req.params.id);
-    if (w === null) {
-      await reply.code(404).send({ error: 'not found' });
-      return;
-    }
-    const raw = req.body;
-    if (typeof raw !== 'object' || raw === null) {
-      await reply.code(400).send({ error: 'body required' });
-      return;
-    }
-    const body = raw as Partial<UpdateWorkspaceBody>;
-    let nextName = w.name;
-    let nextPath = w.path;
-    if (typeof body.name === 'string') {
-      if (body.name.length === 0) {
-        await reply.code(400).send({ error: 'name required' });
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/workspaces/:id',
+    async (req, reply) => {
+      const w = store.getWorkspace(req.params.id);
+      if (w === null) {
+        await reply.code(404).send({ error: 'not found' });
         return;
       }
-      nextName = body.name;
-    }
-    if (typeof body.path === 'string') {
-      const pathErr = validateWorkspacePath(body.path);
-      if (pathErr !== null) {
-        await reply.code(400).send({ error: pathErr });
+      const raw = req.body;
+      if (typeof raw !== 'object' || raw === null) {
+        await reply.code(400).send({ error: 'body required' });
         return;
       }
-      nextPath = body.path;
-    }
-    if (nextName === w.name && nextPath === w.path) {
-      await reply.send({ workspace: w });
-      return;
-    }
-    store.updateWorkspace(w.id, nextName, nextPath);
-    const updated: Workspace = { ...w, name: nextName, path: nextPath };
-    orch.onWorkspaceUpdated(updated);
-    bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
-    await reply.send({ workspace: updated });
-  });
+      const body = raw as Partial<UpdateWorkspaceBody>;
+      let nextName = w.name;
+      let nextPath = w.path;
+      if (typeof body.name === 'string') {
+        if (body.name.length === 0) {
+          await reply.code(400).send({ error: 'name required' });
+          return;
+        }
+        nextName = body.name;
+      }
+      if (typeof body.path === 'string') {
+        const pathErr = validateWorkspacePath(body.path);
+        if (pathErr !== null) {
+          await reply.code(400).send({ error: pathErr });
+          return;
+        }
+        nextPath = body.path;
+      }
+      if (nextName === w.name && nextPath === w.path) {
+        await reply.send({ workspace: w });
+        return;
+      }
+      store.updateWorkspace(w.id, nextName, nextPath);
+      const updated: Workspace = { ...w, name: nextName, path: nextPath };
+      orch.onWorkspaceUpdated(updated);
+      bus.emit({ kind: 'workspace.updated', workspaceId: w.id });
+      await reply.send({ workspace: updated });
+    },
+  );
 
   app.post<{ Params: { id: string } }>('/api/v1/workspaces/:id/pause', async (req, reply) => {
     const w = store.getWorkspace(req.params.id);
@@ -441,7 +444,7 @@ export function registerRoutes(
       };
       try {
         store.insertEnvironment(env);
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         await reply.code(409).send({ error: 'environment name already exists' });
         return;
       }
@@ -482,7 +485,7 @@ export function registerRoutes(
       }
       try {
         store.updateEnvironment(existing.id, nextName, nextVars);
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         await reply.code(409).send({ error: 'environment name already exists' });
         return;
       }
@@ -612,38 +615,35 @@ export function registerRoutes(
     await reply.send({ task: t });
   });
 
-  app.patch<{ Params: { id: string }; Body: unknown }>(
-    '/api/v1/tasks/:id',
-    async (req, reply) => {
-      const existing = store.getTask(req.params.id);
-      if (existing === null) {
-        await reply.code(404).send({ error: 'not found' });
-        return;
-      }
-      const v = validateCreateTask(req.body);
-      if (typeof v === 'string') {
-        await reply.code(400).send({ error: v });
-        return;
-      }
-      const t: Task = {
-        ...existing,
-        name: v.name,
-        command: v.command,
-        runtime: v.runtime,
-        docker_image: v.docker_image,
-        docker_platform: v.docker_platform,
-        trigger_type: v.trigger_type,
-        trigger_glob: v.trigger_glob,
-        trigger_cron: v.trigger_cron,
-        concurrency: v.concurrency,
-        enabled: v.enabled,
-      };
-      store.updateTask(t);
-      orch.onTaskUpdated(t);
-      bus.emit({ kind: 'task.updated', taskId: t.id });
-      await reply.send({ task: t });
-    },
-  );
+  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/tasks/:id', async (req, reply) => {
+    const existing = store.getTask(req.params.id);
+    if (existing === null) {
+      await reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    const v = validateCreateTask(req.body);
+    if (typeof v === 'string') {
+      await reply.code(400).send({ error: v });
+      return;
+    }
+    const t: Task = {
+      ...existing,
+      name: v.name,
+      command: v.command,
+      runtime: v.runtime,
+      docker_image: v.docker_image,
+      docker_platform: v.docker_platform,
+      trigger_type: v.trigger_type,
+      trigger_glob: v.trigger_glob,
+      trigger_cron: v.trigger_cron,
+      concurrency: v.concurrency,
+      enabled: v.enabled,
+    };
+    store.updateTask(t);
+    orch.onTaskUpdated(t);
+    bus.emit({ kind: 'task.updated', taskId: t.id });
+    await reply.send({ task: t });
+  });
 
   app.delete<{ Params: { id: string } }>('/api/v1/tasks/:id', async (req, reply) => {
     const t = store.getTask(req.params.id);

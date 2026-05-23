@@ -259,8 +259,18 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
     varsSection = (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Variables</span>
-          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { addRow(); }}>
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Variables
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              addRow();
+            }}
+          >
             Add variable
           </Button>
         </div>
@@ -270,13 +280,17 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
               <Input
                 placeholder="KEY"
                 value={row.key}
-                onChange={(e) => { updateRow(row.rowId, 'key', e.target.value); }}
+                onChange={(e) => {
+                  updateRow(row.rowId, 'key', e.target.value);
+                }}
                 className="h-8 text-xs font-mono flex-1"
               />
               <Input
                 placeholder="value"
                 value={row.value}
-                onChange={(e) => { updateRow(row.rowId, 'value', e.target.value); }}
+                onChange={(e) => {
+                  updateRow(row.rowId, 'value', e.target.value);
+                }}
                 className="h-8 text-xs flex-1"
                 type="password"
                 autoComplete="off"
@@ -286,7 +300,9 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 shrink-0"
-                onClick={() => { removeRow(row.rowId); }}
+                onClick={() => {
+                  removeRow(row.rowId);
+                }}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
@@ -300,7 +316,13 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
   let saveButton: React.JSX.Element | null = null;
   if (selectedId !== null) {
     saveButton = (
-      <Button type="button" onClick={() => { void saveEnvironment(); }} disabled={saveDisabled}>
+      <Button
+        type="button"
+        onClick={() => {
+          void saveEnvironment();
+        }}
+        disabled={saveDisabled}
+      >
         Save
       </Button>
     );
@@ -313,7 +335,9 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
         variant="outline"
         size="sm"
         className="h-8 gap-1.5 text-xs"
-        onClick={() => { setOpen(true); }}
+        onClick={() => {
+          setOpen(true);
+        }}
       >
         <Layers className="w-3.5 h-3.5" />
         {activeLabel}
@@ -325,26 +349,39 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Active</span>
-              <Select value={selectValue} onValueChange={(v) => { void selectEnvironment(v); }}>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Active
+              </span>
+              <Select
+                value={selectValue}
+                onValueChange={(v) => {
+                  void selectEnvironment(v);
+                }}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="None" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   {environments.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>{env.name}</SelectItem>
+                    <SelectItem key={env.id} value={env.id}>
+                      {env.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">New environment</span>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                New environment
+              </span>
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="dev"
                   value={newName}
-                  onChange={(e) => { setNewName(e.target.value); }}
+                  onChange={(e) => {
+                    setNewName(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       void createEnvironment();
@@ -352,7 +389,16 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
                   }}
                   className="h-9"
                 />
-                <Button type="button" variant="outline" size="sm" className="shrink-0 h-9" onClick={() => { void createEnvironment(); }} disabled={creating}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-9"
+                  onClick={() => {
+                    void createEnvironment();
+                  }}
+                  disabled={creating}
+                >
                   <Plus className="w-4 h-4" />
                 </Button>
               </div>
@@ -360,7 +406,13 @@ export function WorkspaceEnvironmentDialog(props: Props): React.JSX.Element {
             {varsSection}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setOpen(false); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+              }}
+            >
               Close
             </Button>
             {saveButton}

@@ -111,7 +111,9 @@ export function RunDots(props: Props): React.JSX.Element {
               key={d.id}
               type="button"
               title={dotTitle(d.status)}
-              onClick={(e) => { onDotClick(e, d); }}
+              onClick={(e) => {
+                onDotClick(e, d);
+              }}
               className={cn(
                 'rounded-sm shrink-0 hover:scale-125 transition-transform',
                 sizeCls,
