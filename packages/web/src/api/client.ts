@@ -10,6 +10,9 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  pickFolder(): Promise<{ path: string | null }> {
+    return jsonFetch('/api/v1/system/pick-folder', { method: 'POST' });
+  },
   listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
     return jsonFetch('/api/v1/workspaces');
   },

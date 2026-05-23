@@ -35,22 +35,6 @@ On macOS/Linux use `export LOTARU_SHELL_HOST=1`.
 | `LOTARU_SHELL_HOST` | — | Set to `1` to run shell tasks on the host |
 | `LOTARU_SHELL_IMAGE` | `node:22-alpine` | Docker image for isolated shell tasks |
 
-## Publish setup (maintainers)
-
-1. Create an npm [access token](https://www.npmjs.com/settings/~youruser/tokens): **Granular**, scope **`@umudik`**, Read and write, **Bypass 2FA** enabled.
-2. Add GitHub repository secret **`NPM_TOKEN`** (Settings → Secrets and variables → Actions).
-3. Bump `version` in **`packages/cli/package.json`**, push to **`main`** — the publish workflow runs automatically. You can also run it manually from Actions → Publish npm → Run workflow.
-
-Manual first publish:
-
-```bash
-npm ci
-npm run build:publish
-cd packages/cli
-npm pack
-npm publish
-```
-
 ## Development
 
 ```bash

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { folderBaseName } from '@/lib/path';
 import { statusDotClass, tsOrZero } from '@/lib/format';
 import { actions, useStore } from '@/state/store';
 import { api } from '@/api/client';
@@ -182,15 +183,18 @@ function AddWorkspace(props: AddWorkspaceProps): React.JSX.Element {
   const [busy, setBusy] = useState(false);
 
   async function pickDir(): Promise<void> {
-    if (!('showDirectoryPicker' in window)) {
-      setError('This browser does not support folder picker — paste path manually.');
-      return;
-    }
+    setError(null);
     try {
-      const w = window as unknown as { showDirectoryPicker: () => Promise<{ name: string }> };
-      const handle = await w.showDirectoryPicker();
-      setName(handle.name);
-    } catch (_e: unknown) {
+      const { path: picked } = await api.pickFolder();
+      if (picked === null || picked.length === 0) {
+        return;
+      }
+      setPath(picked);
+      if (name.length === 0) {
+        setName(folderBaseName(picked));
+      }
+    } catch (e: unknown) {
+      setError(String(e));
     }
   }
 

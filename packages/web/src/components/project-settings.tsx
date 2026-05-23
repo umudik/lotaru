@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +42,18 @@ export function ProjectSettingsDialog(props: Props): React.JSX.Element {
   let saveLabel = 'Save';
   if (saving) {
     saveLabel = 'Saving…';
+  }
+
+  async function pickDir(): Promise<void> {
+    try {
+      const { path: picked } = await api.pickFolder();
+      if (picked === null || picked.length === 0) {
+        return;
+      }
+      setPath(picked);
+    } catch (e: unknown) {
+      toast.error(String(e));
+    }
   }
 
   async function save(): Promise<void> {
@@ -105,12 +118,17 @@ export function ProjectSettingsDialog(props: Props): React.JSX.Element {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={`edit-ws-path-${w.id}`}>Folder path</Label>
-            <Input
-              id={`edit-ws-path-${w.id}`}
-              value={path}
-              onChange={(e) => { setPath(e.target.value); }}
-              className="h-9 font-mono text-xs"
-            />
+            <div className="flex gap-2">
+              <Input
+                id={`edit-ws-path-${w.id}`}
+                value={path}
+                onChange={(e) => { setPath(e.target.value); }}
+                className="h-9 font-mono text-xs flex-1"
+              />
+              <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => { void pickDir(); }}>
+                <Folder className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
           <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2.5">
             <div className="flex flex-col gap-0.5">

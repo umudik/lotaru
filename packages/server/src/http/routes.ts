@@ -5,6 +5,7 @@ import type { Store } from '../db/index.js';
 import type { Orchestrator } from '../orchestrator.js';
 import type { EventBus } from '../events/bus.js';
 import { parseDockerPlatformInput } from '../executor/platform.js';
+import { pickFolder } from '../system/pickFolder.js';
 import type {
   Task,
   Workspace,
@@ -159,6 +160,15 @@ export function registerRoutes(
   bus: EventBus,
   orch: Orchestrator,
 ): void {
+  app.post('/api/v1/system/pick-folder', async (_req, reply) => {
+    const result = await pickFolder();
+    if ('error' in result) {
+      await reply.code(501).send({ error: 'folder picker not available on this system' });
+      return;
+    }
+    await reply.send({ path: result.path });
+  });
+
   app.get('/api/v1/workspaces', async () => {
     return { workspaces: store.listWorkspaces() };
   });
