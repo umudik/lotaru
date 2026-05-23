@@ -28,6 +28,6 @@ cpSync(serverDist, cliDistServer, { recursive: true });
 console.log('[build-publish] copied server/dist -> cli/dist-server');
 
 run('node scripts/cp-public.mjs');
-run('npm --workspace lotaru run build');
+run('npm --workspace @umudik/lotaru run build');
 
 console.log('[build-publish] done');

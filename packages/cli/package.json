@@ -1,9 +1,12 @@
 {
-  "name": "lotaru",
+  "name": "@umudik/lotaru",
   "version": "0.1.1",
   "description": "Local-first task orchestration — run shell tasks on your projects from the browser",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/umudik/lotaru.git"

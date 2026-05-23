@@ -5,7 +5,7 @@ Local-first task orchestration for your machine. Define shell tasks on a project
 ## Run
 
 ```bash
-npx -y lotaru@latest
+npx -y @umudik/lotaru@latest
 ```
 
 Opens http://127.0.0.1:4317 and stores data in `~/.lotaru/`.
@@ -21,7 +21,7 @@ To use tools installed on your machine (`gh`, `kubectl`, Claude Code, etc.):
 
 ```bash
 set LOTARU_SHELL_HOST=1
-npx lotaru
+npx @umudik/lotaru
 ```
 
 On macOS/Linux use `export LOTARU_SHELL_HOST=1`.
@@ -37,7 +37,7 @@ On macOS/Linux use `export LOTARU_SHELL_HOST=1`.
 
 ## Publish setup (maintainers)
 
-1. Create an npm [access token](https://www.npmjs.com/settings/~youruser/tokens) with publish permission (All packages, Read and write, Bypass 2FA if enabled).
+1. Create an npm [access token](https://www.npmjs.com/settings/~youruser/tokens): **Granular**, scope **`@umudik`**, Read and write, **Bypass 2FA** enabled.
 2. Add GitHub repository secret **`NPM_TOKEN`** (Settings → Secrets and variables → Actions).
 3. Bump `version` in **`packages/cli/package.json`**, push to **`main`** — the publish workflow runs automatically. You can also run it manually from Actions → Publish npm → Run workflow.
 

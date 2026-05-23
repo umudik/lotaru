@@ -25,6 +25,6 @@ jobs:
 
       - run: npm test
 
-      - run: npm publish -w lotaru --access public
+      - run: npm publish -w @umudik/lotaru --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
