@@ -28,12 +28,25 @@ function pickShell(): { cmd: string; args: string[] } {
   return { cmd: '/bin/sh', args: ['-c'] };
 }
 
+function shellCommand(command: string): string {
+  if (process.platform !== 'win32') {
+    return command;
+  }
+  const enc = '[System.Text.UTF8Encoding]::new($false)';
+  const utf8 =
+    `[Console]::OutputEncoding = ${enc}; ` +
+    `[Console]::InputEncoding = ${enc}; ` +
+    '$OutputEncoding = [Console]::OutputEncoding; ' +
+    'chcp 65001 | Out-Null; ';
+  return utf8 + command;
+}
+
 export function runShell(opts: ExecutorOptions): ExecutionHandle {
   mkdirSync(dirname(opts.logPath), { recursive: true });
-  const logFile = createWriteStream(opts.logPath, { flags: 'a' });
+  const logFile = createWriteStream(opts.logPath, { flags: 'a', encoding: 'utf8' });
 
   const shell = pickShell();
-  const child: ChildProcess = spawn(shell.cmd, [...shell.args, opts.command], {
+  const child: ChildProcess = spawn(shell.cmd, [...shell.args, shellCommand(opts.command)], {
     cwd: opts.cwd,
     env: opts.env,
     stdio: ['ignore', 'pipe', 'pipe'],

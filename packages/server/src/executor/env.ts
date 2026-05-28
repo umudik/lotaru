@@ -23,6 +23,16 @@ export function stringifyEnvVars(vars: Record<string, string>): string {
   return JSON.stringify(vars);
 }
 
+function shellUtf8Env(): Record<string, string> {
+  if (process.platform === 'win32') {
+    return {
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
+    };
+  }
+  return {};
+}
+
 export function buildExecEnv(
   custom: Record<string, string>,
   isolated: boolean,
@@ -31,6 +41,13 @@ export function buildExecEnv(
     const merged: Record<string, string> = {};
     for (const key of Object.keys(process.env)) {
       const val = process.env[key];
+      if (val !== undefined) {
+        merged[key] = val;
+      }
+    }
+    const utf8Env = shellUtf8Env();
+    for (const key of Object.keys(utf8Env)) {
+      const val = utf8Env[key];
       if (val !== undefined) {
         merged[key] = val;
       }

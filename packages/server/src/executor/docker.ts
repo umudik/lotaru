@@ -16,7 +16,7 @@ function ignoreKillError(): void {
 
 export function runDocker(opts: DockerOptions): ExecutionHandle {
   mkdirSync(dirname(opts.logPath), { recursive: true });
-  const logFile = createWriteStream(opts.logPath, { flags: 'a' });
+  const logFile = createWriteStream(opts.logPath, { flags: 'a', encoding: 'utf8' });
 
   const docker = new Docker();
   let cancelled = false;
