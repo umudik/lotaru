@@ -63,16 +63,16 @@ export function createWatcherManager(onEvent: (e: WatchEvent) => void): WatcherM
         awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
         persistent: true,
       });
-      w.on('add', (p) => {
+      w.on('add', (p: string) => {
         emit(workspaceId, p, 'add');
       });
-      w.on('change', (p) => {
+      w.on('change', (p: string) => {
         emit(workspaceId, p, 'change');
       });
-      w.on('unlink', (p) => {
+      w.on('unlink', (p: string) => {
         emit(workspaceId, p, 'unlink');
       });
-      w.on('error', (err) => {
+      w.on('error', (err: unknown) => {
         console.error('watcher error', workspaceId, err);
       });
       watchers.set(workspaceId, w);
