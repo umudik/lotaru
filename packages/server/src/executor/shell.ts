@@ -37,7 +37,7 @@ function splitPowerShellArgs(rest: string): string[] {
   let current = '';
   let quote: '"' | "'" | null = null;
   for (let i = 0; i < trimmed.length; i += 1) {
-    const ch = trimmed[i];
+    const ch = trimmed[i] as string;
     if (quote !== null) {
       if (ch === quote) {
         quote = null;
@@ -72,22 +72,22 @@ function tryParsePs1Invocation(command: string): { script: string; args: string[
     /^powershell(?:\.exe)?(?:\s+-NoProfile)?(?:\s+-NonInteractive)?(?:\s+-ExecutionPolicy\s+\S+)?\s+-File\s+["']?([^"'\r\n]+\.ps1)["']?(.*)$/is,
   );
   if (fileFlag) {
-    return { script: fileFlag[1], args: splitPowerShellArgs(fileFlag[2] ?? '') };
+    return { script: fileFlag[1] as string, args: splitPowerShellArgs(fileFlag[2] ?? '') };
   }
 
   const callOperator = trimmed.match(/^&\s*["']([^"']+\.ps1)["'](.*)$/is);
   if (callOperator) {
-    return { script: callOperator[1], args: splitPowerShellArgs(callOperator[2] ?? '') };
+    return { script: callOperator[1] as string, args: splitPowerShellArgs(callOperator[2] ?? '') };
   }
 
   const dotSource = trimmed.match(/^\.\\["']?([^"'\s]+\.ps1)["']?(.*)$/is);
   if (dotSource) {
-    return { script: dotSource[1], args: splitPowerShellArgs(dotSource[2] ?? '') };
+    return { script: dotSource[1] as string, args: splitPowerShellArgs(dotSource[2] ?? '') };
   }
 
   const barePath = trimmed.match(/^["']?([^"'\s]+\.ps1)["']?\s*$/i);
   if (barePath) {
-    return { script: barePath[1], args: [] };
+    return { script: barePath[1] as string, args: [] };
   }
 
   return null;
