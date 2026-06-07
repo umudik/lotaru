@@ -155,9 +155,9 @@ export function TaskHistory(props: Props): React.JSX.Element {
           {runningIds.length > 0 && (
             <Button
               type="button"
-              variant="outline"
+              variant="warn"
               size="sm"
-              className="h-7 text-[10px] px-2 text-destructive/90 border-destructive/30 hover:bg-destructive/10"
+              className="h-7 text-[10px] px-2"
               onClick={() => {
                 void cancelAll();
               }}

@@ -100,7 +100,7 @@ export function TaskTile(props: Props): React.JSX.Element {
         onClick={(e) => {
           void cancel(e);
         }}
-        variant="destructive"
+        variant="warn"
         size="sm"
         className="h-8 w-8 p-0 shrink-0"
       >

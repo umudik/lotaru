@@ -129,7 +129,7 @@ export function LogPanel(props: Props): React.JSX.Element {
         {isLive && (
           <Button
             type="button"
-            variant="destructive"
+            variant="warn"
             size="sm"
             className="ml-auto"
             onClick={() => {
