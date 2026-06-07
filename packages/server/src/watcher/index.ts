@@ -1,5 +1,6 @@
 import chokidar from 'chokidar';
 import micromatch from 'micromatch';
+import { clearTimeout, setTimeout } from 'node:timers';
 import type { FSWatcher } from 'chokidar';
 
 export interface WatchEvent {
@@ -14,18 +15,28 @@ export interface WatcherManager {
   closeAll(): Promise<void>;
 }
 
-const DEFAULT_IGNORES: string[] = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/.next/**',
-  '**/.lotaru/**',
-];
+const IGNORED_SEGMENTS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  '.lotaru',
+]);
+
+function shouldIgnorePath(path: string): boolean {
+  const normalised = path.replace(/\\/g, '/');
+  for (const segment of normalised.split('/')) {
+    if (IGNORED_SEGMENTS.has(segment)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function createWatcherManager(onEvent: (e: WatchEvent) => void): WatcherManager {
   const watchers = new Map<string, FSWatcher>();
-  const pending = new Map<string, NodeJS.Timeout>();
+  const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   function emit(workspaceId: string, path: string, kind: WatchEvent['kind']): void {
     const key = `${workspaceId}::${path}`;
@@ -47,21 +58,21 @@ export function createWatcherManager(onEvent: (e: WatchEvent) => void): WatcherM
         void existing.close();
       }
       const w = chokidar.watch(rootPath, {
-        ignored: DEFAULT_IGNORES,
+        ignored: shouldIgnorePath,
         ignoreInitial: true,
         awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
         persistent: true,
       });
-      w.on('add', (p) => {
+      w.on('add', (p: string) => {
         emit(workspaceId, p, 'add');
       });
-      w.on('change', (p) => {
+      w.on('change', (p: string) => {
         emit(workspaceId, p, 'change');
       });
-      w.on('unlink', (p) => {
+      w.on('unlink', (p: string) => {
         emit(workspaceId, p, 'unlink');
       });
-      w.on('error', (err) => {
+      w.on('error', (err: unknown) => {
         console.error('watcher error', workspaceId, err);
       });
       watchers.set(workspaceId, w);

@@ -1,7 +1,12 @@
 import Docker from 'dockerode';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { PassThrough } from 'node:stream';
+import {
+  dockerMountLogLine,
+  dockerWorkspaceBind,
+  needsOneDriveBindHint,
+} from './docker-bind.js';
 import { envToDockerList } from './env.js';
 import type { ExecutionHandle, ExecutorOptions } from './shell.js';
 
@@ -12,10 +17,6 @@ export interface DockerOptions extends ExecutorOptions {
 
 function ignoreKillError(): void {
   return;
-}
-
-function dockerBindSource(hostPath: string): string {
-  return resolve(hostPath);
 }
 
 export function runDocker(opts: DockerOptions): ExecutionHandle {
@@ -70,9 +71,8 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
         });
       }
 
-      const bindHost = dockerBindSource(opts.cwd);
-      write(`[lotaru] docker mount ${bindHost} -> /workspace`, 'out');
-      if (bindHost.toLowerCase().includes('onedrive')) {
+      write(dockerMountLogLine(opts.cwd), 'out');
+      if (needsOneDriveBindHint(opts.cwd)) {
         write(
           '[lotaru] OneDrive folder: enable path in Docker Desktop → Settings → Resources → File sharing',
           'out',
@@ -86,7 +86,7 @@ export function runDocker(opts: DockerOptions): ExecutionHandle {
         Env: envToDockerList(opts.env),
         HostConfig: {
           AutoRemove: true,
-          Binds: [`${bindHost}:/workspace:rw`],
+          Binds: [dockerWorkspaceBind(opts.cwd)],
         },
         Tty: false,
       };
