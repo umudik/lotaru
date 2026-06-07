@@ -11,7 +11,7 @@ import { TaskScheduleBar } from '@/components/task-schedule-bar';
 import { useStableRunning } from '@/hooks/use-stable-running';
 import { useTick } from '@/hooks/use-tick';
 import { api } from '@/api/client';
-import { taskHasLiveRunning, taskIsBusy } from '@/lib/task-running';
+import { findRunningExecutionId, taskHasLiveRunning, taskIsBusy } from '@/lib/task-running';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
 import type { Execution, Task, ExecutionStatus } from '@/types';
 
@@ -82,12 +82,11 @@ export function TaskTile(props: Props): React.JSX.Element {
 
   async function cancel(e: MouseEvent): Promise<void> {
     stopBubble(e);
-    for (const rt of live) {
-      if (rt.status === 'running') {
-        await api.cancelExecution(rt.id);
-        return;
-      }
+    const executionId = findRunningExecutionId(t.id, liveExec, history, live);
+    if (executionId === null) {
+      return;
     }
+    await api.cancelExecution(executionId);
   }
 
   const showCancel = busy || runPending;
