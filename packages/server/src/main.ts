@@ -50,7 +50,7 @@ export async function start(opts: StartOptions): Promise<void> {
 
   registerRoutes(app, store, bus, orch);
 
-  const hub = createHub(bus);
+  const hub = createHub(bus, orch);
   app.get('/api/v1/stream', { websocket: true }, (socket) => {
     hub.attach(socket);
   });

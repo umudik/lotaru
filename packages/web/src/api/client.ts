@@ -1,5 +1,5 @@
 import type { ProjectExportBundle } from '../lib/project-export.js';
-import type { Workspace, Task, Execution, Environment } from '../types.js';
+import type { Workspace, Task, Execution, Environment, RunningSnapshot } from '../types.js';
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -139,6 +139,9 @@ export const api = {
   },
   cancelExecution(id: string): Promise<{ ok: boolean }> {
     return jsonFetch(`/api/v1/executions/${id}/cancel`, { method: 'POST' });
+  },
+  listRunningExecutions(): Promise<{ running: RunningSnapshot[] }> {
+    return jsonFetch('/api/v1/executions/running');
   },
   listExecutions(taskId: string | null, limit: number): Promise<{ executions: Execution[] }> {
     const params = new URLSearchParams();

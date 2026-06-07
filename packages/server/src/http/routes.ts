@@ -680,6 +680,10 @@ export function registerRoutes(
     await reply.send({ ok: true });
   });
 
+  app.get('/api/v1/executions/running', async (_req, reply) => {
+    await reply.send({ running: orch.listRunningExecutions() });
+  });
+
   app.get<{ Querystring: { taskId?: string; limit?: string } }>(
     '/api/v1/executions',
     async (req, reply) => {

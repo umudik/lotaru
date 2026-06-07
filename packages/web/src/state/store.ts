@@ -3,7 +3,14 @@ import { api } from '../api/client.js';
 import { connectStream } from '../api/stream.js';
 import { isActiveExecution } from '../lib/task-running.js';
 import { tsOrZero } from '../lib/format.js';
-import type { Workspace, Task, Execution, ExecutionStatus, ServerMessage } from '../types.js';
+import type {
+  Workspace,
+  Task,
+  Execution,
+  ExecutionStatus,
+  RunningSnapshot,
+  ServerMessage,
+} from '../types.js';
 
 interface ExecutionRuntime {
   id: string;
@@ -102,6 +109,140 @@ function scheduleExecutionRefresh(taskId: string, delayMs: number): void {
   }
   executionRefreshAt.set(taskId, now);
   void actions.refreshExecutionsForTask(taskId);
+}
+
+function mergeRunningExecution(
+  executionsByTask: Record<string, Execution[]>,
+  row: RunningSnapshot,
+): void {
+  const stub: Execution = {
+    id: row.executionId,
+    task_id: row.taskId,
+    status: 'running',
+    started_at: row.startedAt,
+    ended_at: null,
+    exit_code: null,
+    trigger_reason: 'live',
+    log_path: '',
+  };
+  const list = executionsByTask[row.taskId];
+  if (list === undefined) {
+    executionsByTask[row.taskId] = [stub];
+    return;
+  }
+  let found = false;
+  const next: Execution[] = [];
+  for (const e of list) {
+    if (e.id === row.executionId) {
+      found = true;
+      next.push({
+        ...e,
+        status: 'running',
+        started_at: row.startedAt,
+        ended_at: null,
+        exit_code: null,
+      });
+    } else {
+      next.push(e);
+    }
+  }
+  if (!found) {
+    executionsByTask[row.taskId] = [stub, ...list];
+    return;
+  }
+  executionsByTask[row.taskId] = next;
+}
+
+function reconcileLiveLogRow(
+  taskId: string,
+  logRow: ExecutionRuntime,
+  runningIds: ReadonlySet<string>,
+  executionsByTask: Record<string, Execution[]>,
+): ExecutionRuntime | null {
+  if (runningIds.has(logRow.id)) {
+    return logRow;
+  }
+  if (logRow.status !== 'running') {
+    return logRow;
+  }
+  const history = executionsByTask[taskId];
+  if (history !== undefined) {
+    for (const row of history) {
+      if (row.id !== logRow.id) {
+        continue;
+      }
+      if (row.ended_at !== null) {
+        return {
+          ...logRow,
+          status: row.status,
+          endedAt: row.ended_at,
+          exitCode: row.exit_code,
+        };
+      }
+      break;
+    }
+  }
+  return null;
+}
+
+function applyRunningSnapshot(s: State, running: readonly RunningSnapshot[]): State {
+  const runningIds = new Set(running.map((row) => row.executionId));
+  const liveExecutions: Record<string, ExecutionRuntime> = {};
+  const liveLogsByTask = { ...s.liveLogsByTask };
+  const executionsByTask = { ...s.executionsByTask };
+
+  for (const row of running) {
+    const existing = s.liveExecutions[row.executionId];
+    let logLines: ExecutionRuntime['logLines'] = [];
+    if (existing !== undefined) {
+      logLines = existing.logLines;
+    }
+    const rt: ExecutionRuntime = {
+      id: row.executionId,
+      taskId: row.taskId,
+      status: 'running',
+      startedAt: row.startedAt,
+      endedAt: null,
+      exitCode: null,
+      logLines,
+    };
+    liveExecutions[row.executionId] = rt;
+    mergeRunningExecution(executionsByTask, row);
+
+    const taskLogs = liveLogsByTask[row.taskId];
+    let nextList: ExecutionRuntime[] = [rt];
+    if (taskLogs !== undefined) {
+      const filtered: ExecutionRuntime[] = [];
+      for (const logRow of taskLogs) {
+        if (logRow.id !== row.executionId) {
+          filtered.push(logRow);
+        }
+      }
+      nextList = [rt, ...filtered].slice(0, 5);
+    }
+    liveLogsByTask[row.taskId] = nextList;
+  }
+
+  for (const taskId of Object.keys(liveLogsByTask)) {
+    const logs = liveLogsByTask[taskId];
+    if (logs === undefined) {
+      continue;
+    }
+    const next: ExecutionRuntime[] = [];
+    for (const logRow of logs) {
+      const reconciled = reconcileLiveLogRow(taskId, logRow, runningIds, executionsByTask);
+      if (reconciled !== null) {
+        next.push(reconciled);
+      }
+    }
+    if (next.length === 0) {
+      delete liveLogsByTask[taskId];
+    } else {
+      liveLogsByTask[taskId] = next;
+    }
+  }
+
+  return { ...s, liveExecutions, liveLogsByTask, executionsByTask };
 }
 
 function hydrateLiveRunningState(s: State): State {
@@ -256,6 +397,10 @@ export const actions = {
     const r = await api.listExecutions(null, 30);
     set((s) => ({ ...s, recentExecutions: r.executions }));
   },
+  async refreshRunningExecutions(): Promise<void> {
+    const r = await api.listRunningExecutions();
+    set((s) => applyRunningSnapshot(s, r.running));
+  },
   async refreshExecutionsForTask(taskId: string, limit = 20): Promise<void> {
     const r = await api.listExecutions(taskId, limit);
     set((s) =>
@@ -294,6 +439,14 @@ export const actions = {
 };
 
 function handleMessage(msg: ServerMessage): void {
+  if (msg.kind === 'hello') {
+    let rows: RunningSnapshot[] = [];
+    if (Array.isArray(msg.running)) {
+      rows = msg.running;
+    }
+    set((s) => applyRunningSnapshot(s, rows));
+    return;
+  }
   if (msg.kind === 'execution.started') {
     scheduleExecutionRefresh(msg.taskId, 1500);
     set((s) => {
@@ -490,10 +643,7 @@ function handleMessage(msg: ServerMessage): void {
     void actions.syncTask(msg.taskId);
     return;
   }
-  if (msg.kind === 'task.deleted') {
-    actions.removeTask(msg.taskId);
-    return;
-  }
+  actions.removeTask(msg.taskId);
 }
 
 export function useBootstrap(): { ready: boolean } {
@@ -503,6 +653,7 @@ export function useBootstrap(): { ready: boolean } {
     const unsub = stream.subscribe(handleMessage);
     void (async () => {
       await actions.refreshWorkspaces();
+      await actions.refreshRunningExecutions();
       const ws = state.workspaces;
       for (const w of ws) {
         await actions.refreshTasks(w.id);
@@ -514,6 +665,7 @@ export function useBootstrap(): { ready: boolean } {
         await actions.prefetchExecutionsForTasks(ids, 20);
       }
       await actions.refreshRecentExecutions();
+      await actions.refreshRunningExecutions();
       setReady(true);
     })();
     return () => {

@@ -64,14 +64,16 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     setLoadingTasks(true);
     try {
       const r = await api.listTasksPage(props.workspaceId, null, TASK_PAGE_SIZE);
-      setTasks(r.tasks);
       actions.mergeWorkspaceTasks(props.workspaceId, r.tasks);
       setNextCursor(r.nextCursor);
       const ids: string[] = [];
       for (const t of r.tasks) {
         ids.push(t.id);
       }
-      void actions.prefetchExecutionsForTasks(ids, 20);
+      await actions.refreshRunningExecutions();
+      await actions.prefetchExecutionsForTasks(ids, 20);
+      await actions.refreshRunningExecutions();
+      setTasks(r.tasks);
     } catch (e: unknown) {
       toast.error(String(e));
     } finally {
@@ -231,7 +233,9 @@ export function WorkspaceView(props: Props): React.JSX.Element {
       for (const t of r.tasks) {
         ids.push(t.id);
       }
-      void actions.prefetchExecutionsForTasks(ids, 20);
+      await actions.refreshRunningExecutions();
+      await actions.prefetchExecutionsForTasks(ids, 20);
+      await actions.refreshRunningExecutions();
     } catch (e: unknown) {
       toast.error(String(e));
     } finally {

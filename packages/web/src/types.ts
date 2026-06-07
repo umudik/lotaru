@@ -48,6 +48,12 @@ export interface Execution {
   log_path: string;
 }
 
+export interface RunningSnapshot {
+  executionId: string;
+  taskId: string;
+  startedAt: number;
+}
+
 export type ServerMessage =
   | { kind: 'execution.started'; executionId: string; taskId: string; ts: number }
   | { kind: 'execution.log'; executionId: string; line: string; stream: LogStream; ts: number }
@@ -62,4 +68,4 @@ export type ServerMessage =
   | { kind: 'task.deleted'; taskId: string }
   | { kind: 'workspace.updated'; workspaceId: string }
   | { kind: 'workspace.deleted'; workspaceId: string }
-  | { kind: 'hello'; ts: number };
+  | { kind: 'hello'; ts: number; running: RunningSnapshot[] };

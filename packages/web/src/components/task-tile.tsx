@@ -11,7 +11,8 @@ import { TaskScheduleBar } from '@/components/task-schedule-bar';
 import { useStableRunning } from '@/hooks/use-stable-running';
 import { useTick } from '@/hooks/use-tick';
 import { api } from '@/api/client';
-import { findRunningExecutionId, taskHasLiveRunning, taskIsBusy } from '@/lib/task-running';
+import { actions } from '@/state/store';
+import { findRunningExecutionId, taskHasLiveRunning } from '@/lib/task-running';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
 import type { Execution, Task, ExecutionStatus } from '@/types';
 
@@ -60,7 +61,6 @@ export function TaskTile(props: Props): React.JSX.Element {
   const liveExec = useStore((s) => s.liveExecutions);
   const live = useStore((s) => selectLiveLogsOf(s, t.id));
   const isRunning = taskHasLiveRunning(t.id, liveExec, history);
-  const busy = taskIsBusy(t.id, liveExec, history, live);
   const stableRunning = useStableRunning(isRunning, 500);
   const [runPending, setRunPending] = useState(false);
   const status = lastStatus(t.id, liveExec, history);
@@ -69,7 +69,7 @@ export function TaskTile(props: Props): React.JSX.Element {
 
   async function run(e: MouseEvent): Promise<void> {
     stopBubble(e);
-    if (busy || runPending) {
+    if (isRunning || runPending) {
       return;
     }
     setRunPending(true);
@@ -87,9 +87,11 @@ export function TaskTile(props: Props): React.JSX.Element {
       return;
     }
     await api.cancelExecution(executionId);
+    void actions.refreshExecutionsForTask(t.id);
+    void actions.refreshRunningExecutions();
   }
 
-  const showCancel = busy || runPending;
+  const showCancel = isRunning || runPending;
 
   let runBtn: React.JSX.Element;
   if (showCancel) {

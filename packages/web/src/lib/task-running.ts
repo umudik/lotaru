@@ -19,13 +19,6 @@ export function taskHasLiveRunning(
   liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
   history: readonly Execution[],
 ): boolean {
-  const finishedIds = new Set<string>();
-  for (const row of history) {
-    if (row.ended_at !== null || isTerminalStatus(row.status)) {
-      finishedIds.add(row.id);
-    }
-  }
-
   for (const key of Object.keys(liveExec)) {
     const e = liveExec[key];
     if (e === undefined) {
@@ -34,19 +27,12 @@ export function taskHasLiveRunning(
     if (e.taskId !== taskId) {
       continue;
     }
-    if (e.status !== 'running') {
-      continue;
+    if (e.status === 'running') {
+      return true;
     }
-    if (finishedIds.has(key)) {
-      continue;
-    }
-    return true;
   }
 
   for (const row of history) {
-    if (finishedIds.has(row.id)) {
-      continue;
-    }
     if (isActiveExecution(row)) {
       return true;
     }

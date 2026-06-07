@@ -12,7 +12,7 @@ import type { Store } from './db/index.js';
 import type { EventBus } from './events/bus.js';
 import type { WatcherManager, WatchEvent } from './watcher/index.js';
 import type { SchedulerManager } from './scheduler/index.js';
-import type { Task, Workspace, TriggerReason, Execution } from './types.js';
+import type { Task, Workspace, TriggerReason, Execution, RunningSnapshot } from './types.js';
 
 export interface Orchestrator {
   loadAll(): void;
@@ -25,6 +25,7 @@ export interface Orchestrator {
   onWorkspaceUpdated(workspace: Workspace): void;
   triggerManual(taskId: string): boolean;
   cancelExecution(executionId: string): boolean;
+  listRunningExecutions(): RunningSnapshot[];
   handleWatchEvent(e: WatchEvent): void;
   shutdown(): Promise<void>;
 }
@@ -371,6 +372,19 @@ export function createOrchestrator(
     },
 
     cancelExecution,
+
+    listRunningExecutions(): RunningSnapshot[] {
+      const out: RunningSnapshot[] = [];
+      for (const [executionId, info] of running.entries()) {
+        const exec = store.getExecution(executionId);
+        let startedAt = Date.now();
+        if (exec !== null && exec.started_at !== null) {
+          startedAt = exec.started_at;
+        }
+        out.push({ executionId, taskId: info.taskId, startedAt });
+      }
+      return out;
+    },
 
     handleWatchEvent(e: WatchEvent): void {
       onWatchEvent(e);
