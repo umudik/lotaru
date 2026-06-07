@@ -1,6 +1,6 @@
 {
   "name": "lotaru",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "description": "Local-first real-time task orchestration runtime",
