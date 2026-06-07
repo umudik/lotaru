@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { ResizeHandle } from '@/components/resize-handle';
+import { useDragResize } from '@/hooks/use-drag-resize';
 import { Download, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -7,18 +10,25 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { TaskTile } from '@/components/task-tile';
 import { TaskDetailPanel } from '@/components/task-detail-panel';
-import { LogPanel } from '@/components/log-panel';
-import { LogShell } from '@/components/log-shell';
+import { api } from '@/api/client';
 import { ProjectSettingsDialog } from '@/components/project-settings';
 import { WorkspaceEnvironmentDialog } from '@/components/workspace-environment-dialog';
 import { downloadProjectBundle, exportFileName } from '@/lib/project-export';
 import { BLANK_TASK_BODY } from '@/lib/project-templates';
 import type { InspectTarget } from '@/components/run-dots';
 import { actions, useStore, selectTasksOf } from '@/state/store';
-import { api } from '@/api/client';
 import type { Task } from '@/types';
 
 const TASK_PAGE_SIZE = 24;
+
+type DetailTab = 'task' | 'logs';
+
+function detailPanelWidth(open: boolean, size: number): number {
+  if (open) {
+    return size;
+  }
+  return 0;
+}
 
 interface Props {
   workspaceId: string;
@@ -39,8 +49,15 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [creating, setCreating] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [logHold, setLogHold] = useState<InspectTarget | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>('task');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewportMaxDetail, setViewportMaxDetail] = useState(960);
+  const detailResize = useDragResize({
+    storageKey: 'lotaru-workspace-detail-width',
+    initial: 560,
+    min: 400,
+    max: viewportMaxDetail,
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const loadFirstPage = useCallback(async (): Promise<void> => {
@@ -69,24 +86,22 @@ export function WorkspaceView(props: Props): React.JSX.Element {
   }, [loadFirstPage]);
 
   useEffect(() => {
+    function syncMax(): void {
+      setViewportMaxDetail(Math.max(480, Math.floor(window.innerWidth * 0.78)));
+    }
+    syncMax();
+    window.addEventListener('resize', syncMax);
+    return () => {
+      window.removeEventListener('resize', syncMax);
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedId === null) {
       return;
     }
     void actions.refreshExecutionsForTask(selectedId, 50);
   }, [selectedId]);
-
-  useEffect(() => {
-    if (inspect !== null) {
-      setLogHold(inspect);
-      return;
-    }
-    const t = window.setTimeout(() => {
-      setLogHold(null);
-    }, 200);
-    return () => {
-      window.clearTimeout(t);
-    };
-  }, [inspect]);
 
   const storeTasks = useStore((s) => selectTasksOf(s, props.workspaceId));
 
@@ -165,18 +180,6 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     }
   }
 
-  let inspectTaskName = '';
-  if (inspect !== null && selectedTask !== null && inspect.taskId === selectedTask.id) {
-    inspectTaskName = selectedTask.name;
-  }
-  if (inspect !== null && inspectTaskName.length === 0) {
-    for (const t of tasks) {
-      if (t.id === inspect.taskId) {
-        inspectTaskName = t.name;
-      }
-    }
-  }
-
   let inspectId: string | null = null;
   if (inspect !== null) {
     inspectId = inspect.executionId;
@@ -186,15 +189,18 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     if (selectedId === taskId) {
       setSelectedId(null);
       setInspect(null);
+      setDetailTab('task');
       return;
     }
     setSelectedId(taskId);
     setInspect(null);
+    setDetailTab('task');
   }
 
   function onInspect(target: InspectTarget): void {
     setSelectedId(target.taskId);
     setInspect(target);
+    setDetailTab('logs');
   }
 
   async function loadMore(): Promise<void> {
@@ -265,6 +271,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     actions.upsertTask(task);
     setSelectedId(task.id);
     setInspect(null);
+    setDetailTab('task');
   }
 
   async function createTask(): Promise<void> {
@@ -294,32 +301,24 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     detailOpen = true;
   }
 
-  let detailWidth = 'w-0 opacity-0 overflow-hidden pointer-events-none';
-  if (detailOpen) {
-    detailWidth = 'w-[min(440px,36vw)] opacity-100';
-  }
-
-  let logTarget = logHold;
-  if (inspect !== null) {
-    logTarget = inspect;
-  }
-  const logVisible = inspect !== null;
-  let logWidth = 'w-0 opacity-0 overflow-hidden pointer-events-none';
-  if (logVisible) {
-    logWidth = 'w-[min(400px,34vw)] opacity-100';
-  }
-
   let detailBody: React.JSX.Element;
   if (selectedTask !== null) {
     detailBody = (
       <TaskDetailPanel
         task={selectedTask}
         inspectId={inspectId}
+        inspect={inspect}
+        detailTab={detailTab}
+        onDetailTabChange={setDetailTab}
         existingTaskNames={tasks.map((row) => row.name)}
         onInspect={onInspect}
+        onCancelExecution={(id) => {
+          void api.cancelExecution(id);
+        }}
         onClosePanel={() => {
           setSelectedId(null);
           setInspect(null);
+          setDetailTab('task');
         }}
         onDuplicated={(task) => {
           adoptCreatedTask(task);
@@ -327,6 +326,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
         onDeleted={(taskId) => {
           setSelectedId(null);
           setInspect(null);
+          setDetailTab('task');
           setTasks((prev) => {
             const next: Task[] = [];
             for (const row of prev) {
@@ -351,7 +351,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
     <>
       <ProjectSettingsDialog workspace={ws} open={settingsOpen} onOpenChange={setSettingsOpen} />
       <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
-        <div className="flex-1 min-w-0 flex flex-col px-6 border-r">
+        <div className="flex-1 min-w-[280px] flex flex-col px-6 border-r">
           <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -416,7 +416,7 @@ export function WorkspaceView(props: Props): React.JSX.Element {
                 <div className="p-8 text-center text-sm text-muted-foreground">No tasks yet</div>
               </Card>
             )}
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
               {tasks.map((t) => (
                 <TaskTile
                   key={t.id}
@@ -447,30 +447,21 @@ export function WorkspaceView(props: Props): React.JSX.Element {
           </div>
         </div>
 
-        <div
-          className={`shrink-0 border-r bg-card/20 transition-all duration-200 ease-out flex flex-col ${detailWidth}`}
-        >
-          {detailBody}
-        </div>
+        {detailOpen && (
+          <ResizeHandle
+            onMouseDown={detailResize.onHandleMouseDown}
+            active={detailResize.dragging}
+          />
+        )}
 
         <div
-          className={`shrink-0 h-full transition-all duration-200 ease-out flex flex-col ${logWidth}`}
-        >
-          {logTarget !== null && (
-            <LogShell
-              taskName={inspectTaskName}
-              onClear={() => {
-                setInspect(null);
-              }}
-            >
-              <LogPanel
-                target={logTarget}
-                onCancel={(id) => {
-                  void api.cancelExecution(id);
-                }}
-              />
-            </LogShell>
+          className={cn(
+            'shrink-0 bg-card/20 flex flex-col overflow-hidden',
+            detailOpen && !detailResize.dragging && 'transition-[width] duration-200 ease-out',
           )}
+          style={{ width: detailPanelWidth(detailOpen, detailResize.size) }}
+        >
+          {detailBody}
         </div>
       </div>
     </>

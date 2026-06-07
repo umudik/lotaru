@@ -21,7 +21,9 @@ import { nullToEmpty } from '@/lib/format';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { ConfirmDuplicateDialog } from '@/components/confirm-duplicate-dialog';
 import { TaskHistory } from '@/components/task-history';
+import { LogPanel } from '@/components/log-panel';
 import type { InspectTarget } from '@/components/run-dots';
+import { cn } from '@/lib/utils';
 import { api } from '@/api/client';
 import { actions, useStore, selectTasksOf } from '@/state/store';
 import type { Task, RuntimeKind, TriggerKind, ConcurrencyKind } from '@/types';
@@ -57,14 +59,27 @@ function emptyToNull(v: string): string | null {
   return v;
 }
 
+type DetailTab = 'task' | 'logs';
+
 interface Props {
   task: Task;
   inspectId: string | null;
+  inspect: InspectTarget | null;
+  detailTab: DetailTab;
+  onDetailTabChange(tab: DetailTab): void;
   existingTaskNames: readonly string[];
   onInspect(target: InspectTarget): void;
+  onCancelExecution(executionId: string): void;
   onClosePanel(): void;
   onDuplicated(task: Task): void;
   onDeleted(taskId: string): void;
+}
+
+function detailTabClass(active: boolean): string {
+  if (active) {
+    return 'border-primary text-foreground';
+  }
+  return 'border-transparent text-muted-foreground hover:text-foreground';
 }
 
 export function TaskDetailPanel(props: Props): React.JSX.Element {
@@ -229,11 +244,47 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
     );
   }
 
+  let logsBody: React.JSX.Element;
+  if (props.inspect !== null) {
+    logsBody = <LogPanel target={props.inspect} onCancel={props.onCancelExecution} />;
+  } else {
+    logsBody = (
+      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground text-center">
+        Select a run from history to view logs.
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full flex flex-col gap-4 p-4 min-h-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 shrink-0">
-        <span className="text-sm font-semibold">Task</span>
-        <div className="flex items-center gap-1">
+    <div className="h-full flex flex-col min-h-0 overflow-hidden border-l">
+      <div className="flex items-center justify-between gap-2 shrink-0 px-4 py-3 border-b">
+        <div className="flex items-center gap-1 min-w-0">
+          <button
+            type="button"
+            className={cn(
+              'text-sm font-semibold px-2 py-1 border-b-2 transition-colors',
+              detailTabClass(props.detailTab === 'task'),
+            )}
+            onClick={() => {
+              props.onDetailTabChange('task');
+            }}
+          >
+            Task
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'text-sm font-semibold px-2 py-1 border-b-2 transition-colors',
+              detailTabClass(props.detailTab === 'logs'),
+            )}
+            onClick={() => {
+              props.onDetailTabChange('logs');
+            }}
+          >
+            Logs
+          </button>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
           <Button
             type="button"
             variant="ghost"
@@ -282,119 +333,127 @@ export function TaskDetailPanel(props: Props): React.JSX.Element {
         onConfirm={removeTask}
       />
 
-      <div className="flex items-center gap-3 shrink-0">
-        <Input
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-          }}
-          onBlur={() => {
-            if (name !== t.name) {
-              void saveField({ name });
-            }
-          }}
-          className="h-9 font-medium flex-1"
-        />
-        <div className="flex items-center gap-2 shrink-0">
-          <Switch
-            checked={enabled}
-            onCheckedChange={(v) => {
-              void setTaskEnabled(v);
+      {props.detailTab === 'task' && (
+        <div className="flex flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto p-4">
+          <div className="flex items-center gap-3 shrink-0">
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
+              onBlur={() => {
+                if (name !== t.name) {
+                  void saveField({ name });
+                }
+              }}
+              className="h-9 font-medium flex-1"
+            />
+            <div className="flex items-center gap-2 shrink-0">
+              <Switch
+                checked={enabled}
+                onCheckedChange={(v) => {
+                  void setTaskEnabled(v);
+                }}
+              />
+              <span className="text-xs text-muted-foreground">{enabledLabel(enabled)}</span>
+            </div>
+          </div>
+
+          <CommandField
+            value={command}
+            runtime={t.runtime}
+            onSave={(next) => {
+              setCommand(next);
+              if (next !== t.command) {
+                void saveField({ command: next });
+              }
             }}
           />
-          <span className="text-xs text-muted-foreground">{enabledLabel(enabled)}</span>
-        </div>
-      </div>
 
-      <CommandField
-        value={command}
-        runtime={t.runtime}
-        onSave={(next) => {
-          setCommand(next);
-          if (next !== t.command) {
-            void saveField({ command: next });
-          }
-        }}
-      />
-
-      <div className="rounded-lg border bg-muted/20 p-3 flex flex-col gap-3 shrink-0">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <Label className="text-xs text-muted-foreground">Trigger</Label>
-            <Select
-              value={t.trigger_type}
-              onValueChange={(v) => {
-                const kind = v as TriggerKind;
-                if (kind === 'scheduled') {
-                  void saveField({
-                    trigger_type: kind,
-                    trigger_cron: resolveCronExpression(t.trigger_cron),
-                  });
-                  return;
-                }
-                void saveField({ trigger_type: kind });
-              }}
-            >
-              <SelectTrigger className="h-9 text-xs w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {triggerOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="rounded-lg border bg-muted/20 p-3 flex flex-col gap-3 shrink-0">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <Label className="text-xs text-muted-foreground">Trigger</Label>
+                <Select
+                  value={t.trigger_type}
+                  onValueChange={(v) => {
+                    const kind = v as TriggerKind;
+                    if (kind === 'scheduled') {
+                      void saveField({
+                        trigger_type: kind,
+                        trigger_cron: resolveCronExpression(t.trigger_cron),
+                      });
+                      return;
+                    }
+                    void saveField({ trigger_type: kind });
+                  }}
+                >
+                  <SelectTrigger className="h-9 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {triggerOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <Label className="text-xs text-muted-foreground">Concurrency</Label>
+                <Select
+                  value={t.concurrency}
+                  onValueChange={(v) => {
+                    void saveField({ concurrency: v as ConcurrencyKind });
+                  }}
+                >
+                  <SelectTrigger className="h-9 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {concurrencyOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <Label className="text-xs text-muted-foreground">Runtime</Label>
+              <Select
+                value={t.runtime}
+                onValueChange={(v) => {
+                  void saveField({ runtime: v as RuntimeKind });
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {runtimeOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {platformInput}
+            {globInput}
+            {cronInput}
+            {dockerImageInput}
           </div>
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <Label className="text-xs text-muted-foreground">Concurrency</Label>
-            <Select
-              value={t.concurrency}
-              onValueChange={(v) => {
-                void saveField({ concurrency: v as ConcurrencyKind });
-              }}
-            >
-              <SelectTrigger className="h-9 text-xs w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {concurrencyOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5 min-w-0">
-          <Label className="text-xs text-muted-foreground">Runtime</Label>
-          <Select
-            value={t.runtime}
-            onValueChange={(v) => {
-              void saveField({ runtime: v as RuntimeKind });
-            }}
-          >
-            <SelectTrigger className="h-9 text-xs w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {runtimeOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {platformInput}
-        {globInput}
-        {cronInput}
-        {dockerImageInput}
-      </div>
 
-      <TaskHistory taskId={t.id} selectedId={props.inspectId} onInspect={props.onInspect} />
+          <TaskHistory taskId={t.id} selectedId={props.inspectId} onInspect={props.onInspect} />
+        </div>
+      )}
+
+      {props.detailTab === 'logs' && (
+        <div className="flex flex-1 min-h-0 flex flex-col">{logsBody}</div>
+      )}
     </div>
   );
 }

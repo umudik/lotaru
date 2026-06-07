@@ -36,8 +36,7 @@ function splitPowerShellArgs(rest: string): string[] {
   const args: string[] = [];
   let current = '';
   let quote: '"' | "'" | null = null;
-  for (let i = 0; i < trimmed.length; i += 1) {
-    const ch = trimmed[i];
+  for (const ch of trimmed) {
     if (quote !== null) {
       if (ch === quote) {
         quote = null;
@@ -65,29 +64,54 @@ function splitPowerShellArgs(rest: string): string[] {
   return args;
 }
 
+const PS1_FILE_FLAG_RE =
+  /^powershell(?:\.exe)?(?:\s+-NoProfile)?(?:\s+-NonInteractive)?(?:\s+-ExecutionPolicy\s+\S+)?\s+-File\s+["']?([^"'\r\n]+\.ps1)["']?(.*)$/is;
+const PS1_CALL_OPERATOR_RE = /^&\s*["']([^"']+\.ps1)["'](.*)$/is;
+const PS1_DOT_SOURCE_RE = /^\.\\["']?([^"'\s]+\.ps1)["']?(.*)$/is;
+const PS1_BARE_PATH_RE = /^["']?([^"'\s]+\.ps1)["']?\s*$/i;
+
+function ps1InvocationFromExec(
+  m: RegExpExecArray | null,
+  withArgs: boolean,
+): { script: string; args: string[] } | null {
+  if (m === null) {
+    return null;
+  }
+  const script = m[1];
+  if (script === undefined) {
+    return null;
+  }
+  if (!withArgs) {
+    return { script, args: [] };
+  }
+  const tail = m[2];
+  if (tail === undefined) {
+    return { script, args: [] };
+  }
+  return { script, args: splitPowerShellArgs(tail) };
+}
+
 function tryParsePs1Invocation(command: string): { script: string; args: string[] } | null {
   const trimmed = command.trim();
 
-  const fileFlag = trimmed.match(
-    /^powershell(?:\.exe)?(?:\s+-NoProfile)?(?:\s+-NonInteractive)?(?:\s+-ExecutionPolicy\s+\S+)?\s+-File\s+["']?([^"'\r\n]+\.ps1)["']?(.*)$/is,
-  );
-  if (fileFlag) {
-    return { script: fileFlag[1], args: splitPowerShellArgs(fileFlag[2] ?? '') };
+  let parsed = ps1InvocationFromExec(PS1_FILE_FLAG_RE.exec(trimmed), true);
+  if (parsed !== null) {
+    return parsed;
   }
 
-  const callOperator = trimmed.match(/^&\s*["']([^"']+\.ps1)["'](.*)$/is);
-  if (callOperator) {
-    return { script: callOperator[1], args: splitPowerShellArgs(callOperator[2] ?? '') };
+  parsed = ps1InvocationFromExec(PS1_CALL_OPERATOR_RE.exec(trimmed), true);
+  if (parsed !== null) {
+    return parsed;
   }
 
-  const dotSource = trimmed.match(/^\.\\["']?([^"'\s]+\.ps1)["']?(.*)$/is);
-  if (dotSource) {
-    return { script: dotSource[1], args: splitPowerShellArgs(dotSource[2] ?? '') };
+  parsed = ps1InvocationFromExec(PS1_DOT_SOURCE_RE.exec(trimmed), true);
+  if (parsed !== null) {
+    return parsed;
   }
 
-  const barePath = trimmed.match(/^["']?([^"'\s]+\.ps1)["']?\s*$/i);
-  if (barePath) {
-    return { script: barePath[1], args: [] };
+  parsed = ps1InvocationFromExec(PS1_BARE_PATH_RE.exec(trimmed), false);
+  if (parsed !== null) {
+    return parsed;
   }
 
   return null;
@@ -98,9 +122,12 @@ function quotePs1SingleQuoted(value: string): string {
 }
 
 function buildPs1FileCommand(script: string, args: string[]): string {
-  const argSuffix =
-    args.length > 0 ? ` ${args.map((a) => quotePs1SingleQuoted(a)).join(' ')}` : '';
-  return `${utf8Preamble()}& ${quotePs1SingleQuoted(script)}${argSuffix}`;
+  const base = `${utf8Preamble()}& ${quotePs1SingleQuoted(script)}`;
+  if (args.length === 0) {
+    return base;
+  }
+  const quoted = args.map((a) => quotePs1SingleQuoted(a)).join(' ');
+  return `${base} ${quoted}`;
 }
 
 function buildWindowsSpawn(command: string): { cmd: string; args: string[] } {

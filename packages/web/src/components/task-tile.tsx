@@ -102,9 +102,9 @@ export function TaskTile(props: Props): React.JSX.Element {
         }}
         variant="destructive"
         size="sm"
-        className="h-6 w-6 p-0 shrink-0"
+        className="h-8 w-8 p-0 shrink-0"
       >
-        <X className="w-3 h-3" />
+        <X className="w-3.5 h-3.5" />
       </Button>
     );
   } else {
@@ -115,10 +115,10 @@ export function TaskTile(props: Props): React.JSX.Element {
           void run(e);
         }}
         size="sm"
-        className="h-6 w-6 p-0 shrink-0"
+        className="h-8 w-8 p-0 shrink-0"
         disabled={!t.enabled || props.workspacePaused}
       >
-        <Play className="w-3 h-3" />
+        <Play className="w-3.5 h-3.5" />
       </Button>
     );
   }
@@ -146,10 +146,19 @@ export function TaskTile(props: Props): React.JSX.Element {
     dotClass = 'bg-running/45 animate-pulse';
   }
 
+  let statusLine: React.JSX.Element | null = null;
+  if (statusCaption !== null) {
+    statusLine = (
+      <span className={cn('text-xs font-medium shrink-0', statusCaptionClass(status, stableRunning))}>
+        {statusCaption}
+      </span>
+    );
+  }
+
   return (
     <Card
       className={cn(
-        'cursor-pointer hover:bg-secondary/20 transition-colors h-full overflow-hidden flex flex-col relative',
+        'cursor-pointer hover:bg-secondary/20 transition-colors overflow-hidden flex flex-col relative min-h-[5.5rem]',
         flash !== null && 'task-card-flash',
         props.selected && 'bg-secondary/20',
         !t.enabled && 'opacity-55',
@@ -159,28 +168,21 @@ export function TaskTile(props: Props): React.JSX.Element {
       onClick={props.onSelect}
     >
       {props.selected && (
-        <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
+        <span className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
       )}
-      <div className="p-2.5 flex flex-col gap-2 flex-1 min-h-0">
-        <div className="flex items-start gap-2 min-w-0">
-          <span className={cn('w-2 h-2 rounded-full shrink-0 mt-1', dotClass)} />
+      <div className="p-3.5 flex flex-col gap-2.5 flex-1 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', dotClass)} />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{t.name}</div>
-            <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-              {triggerSummary(t)}
+            <div className="text-[15px] font-semibold leading-tight truncate">{t.name}</div>
+            <div className="flex items-center gap-2 min-w-0 mt-1">
+              <span className="text-xs text-muted-foreground truncate">{triggerSummary(t)}</span>
+              {statusLine}
             </div>
-            {statusCaption !== null && (
-              <div
-                className={cn(
-                  'text-[9px] font-medium mt-0.5 truncate',
-                  statusCaptionClass(status, stableRunning),
-                )}
-              >
-                {statusCaption}
-              </div>
-            )}
           </div>
-          <div onClick={stopBubble}>{runBtn}</div>
+          <div onClick={stopBubble} className="shrink-0">
+            {runBtn}
+          </div>
         </div>
         <RunDotsPreview taskId={t.id} max={14} />
         {isScheduled && (
