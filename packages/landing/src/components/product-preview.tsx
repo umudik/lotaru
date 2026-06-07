@@ -22,9 +22,9 @@ export function ProductPreview(props: Props): React.JSX.Element {
         <span className="text-[10px] text-primary font-medium shrink-0">1 running</span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_minmax(0,42%)] min-h-[280px] sm:min-h-[300px]">
-        <div className="p-3 sm:border-r border-border/60 min-w-0">
-          <div className="grid grid-cols-2 gap-2">
+      <div className="flex min-h-[300px] sm:min-h-[320px]">
+        <div className="flex-1 min-w-0 p-3 border-r border-border/60">
+          <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,140px),1fr))]">
             <DemoTaskTile
               name="build-api"
               trigger="on save"
@@ -54,7 +54,9 @@ export function ProductPreview(props: Props): React.JSX.Element {
           </div>
         </div>
 
-        <div className="border-t sm:border-t-0 border-border/60 bg-card/25 min-h-[200px] sm:min-h-0">
+        <div className="w-1 shrink-0 bg-border/40 hidden sm:block" aria-hidden />
+
+        <div className="hidden sm:flex w-[min(42%,220px)] shrink-0 min-h-0 bg-card/25">
           <DemoTaskDetail />
         </div>
       </div>

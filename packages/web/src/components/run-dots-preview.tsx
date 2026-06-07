@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { statusDotClass } from '@/lib/format';
+import { runDotPreviewSizeClass } from '@/lib/run-dot-size';
 import { collectRunDots } from '@/lib/runs';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
 
@@ -25,8 +26,8 @@ export function RunDotsPreview(props: Props): React.JSX.Element {
   }
 
   return (
-    <div className="flex items-center gap-0.5 flex-wrap pointer-events-none">
-      {dots.map((d) => {
+    <div className="flex items-center gap-1 flex-wrap pointer-events-none">
+      {dots.map((d, i) => {
         let pulse = '';
         if (d.status === 'running') {
           pulse = 'animate-pulse';
@@ -34,7 +35,12 @@ export function RunDotsPreview(props: Props): React.JSX.Element {
         return (
           <span
             key={d.id}
-            className={cn('w-1.5 h-1.5 rounded-sm shrink-0', statusDotClass(d.status), pulse)}
+            className={cn(
+              'rounded-sm shrink-0',
+              runDotPreviewSizeClass(i),
+              statusDotClass(d.status),
+              pulse,
+            )}
           />
         );
       })}

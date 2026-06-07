@@ -149,7 +149,9 @@ export function TaskTile(props: Props): React.JSX.Element {
   let statusLine: React.JSX.Element | null = null;
   if (statusCaption !== null) {
     statusLine = (
-      <span className={cn('text-xs font-medium shrink-0', statusCaptionClass(status, stableRunning))}>
+      <span
+        className={cn('text-xs font-medium shrink-0', statusCaptionClass(status, stableRunning))}
+      >
         {statusCaption}
       </span>
     );

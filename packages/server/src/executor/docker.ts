@@ -2,11 +2,7 @@ import Docker from 'dockerode';
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PassThrough } from 'node:stream';
-import {
-  dockerMountLogLine,
-  dockerWorkspaceBind,
-  needsOneDriveBindHint,
-} from './docker-bind.js';
+import { dockerMountLogLine, dockerWorkspaceBind, needsOneDriveBindHint } from './docker-bind.js';
 import { envToDockerList } from './env.js';
 import type { ExecutionHandle, ExecutorOptions } from './shell.js';
 

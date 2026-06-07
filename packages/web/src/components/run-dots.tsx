@@ -2,6 +2,7 @@ import type { MouseEvent } from 'react';
 import { ScrollText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { statusDotClass } from '@/lib/format';
+import { runDotPreviewSizeClass } from '@/lib/run-dot-size';
 import { collectRunDots, type RunDot } from '@/lib/runs';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@/state/store';
 import type { ExecutionStatus } from '@/types';
@@ -80,6 +81,11 @@ export function RunDots(props: Props): React.JSX.Element {
     gapCls = 'gap-1';
   }
 
+  let dotsWrapCls = 'items-center gap-0.5';
+  if (isCompact) {
+    dotsWrapCls = 'items-center gap-1';
+  }
+
   return (
     <div className={cn('flex items-center min-w-0', gapCls)}>
       {!isCompact && (
@@ -93,18 +99,18 @@ export function RunDots(props: Props): React.JSX.Element {
           <ScrollText className="w-3.5 h-3.5" />
         </button>
       )}
-      <div className="flex items-center gap-0.5 flex-wrap min-w-0">
+      <div className={cn('flex flex-wrap min-w-0', dotsWrapCls)}>
         {dots.length === 0 && !isCompact && (
           <span className="text-[10px] text-muted-foreground">no runs</span>
         )}
-        {dots.map((d) => {
+        {dots.map((d, i) => {
           let pulse = '';
           if (d.status === 'running') {
             pulse = 'animate-pulse ring-1 ring-running/50';
           }
           let sizeCls = 'w-2 h-2';
           if (isCompact) {
-            sizeCls = 'w-1.5 h-1.5';
+            sizeCls = runDotPreviewSizeClass(i);
           }
           return (
             <button

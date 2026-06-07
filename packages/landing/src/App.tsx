@@ -1,4 +1,4 @@
-import { Box, Clock, FolderOpen, Github, Radio, Terminal, Zap } from 'lucide-react';
+import { Box, Braces, Clock, FolderOpen, Github, Layers, Radio, Terminal, Zap } from 'lucide-react';
 import { CopyCommand } from '@/components/copy-command';
 import { SiteHeader } from '@/components/site-header';
 import { ProductPreview } from '@/components/product-preview';
@@ -20,12 +20,22 @@ const features = [
   {
     icon: Radio,
     title: 'Live logs in the browser',
-    body: 'Stream stdout and stderr in real time. Inspect history without leaving the UI.',
+    body: 'Task and Logs tabs keep editing and output separate. Stream runs in real time or replay history.',
   },
   {
     icon: FolderOpen,
     title: 'Local-first',
     body: 'Your projects stay on disk. State lives in ~/.lotaru/ no cloud account required.',
+  },
+  {
+    icon: Braces,
+    title: 'Import & export',
+    body: 'Move whole projects as JSON between machines. Tasks, environments, and settings travel with you.',
+  },
+  {
+    icon: Layers,
+    title: 'Environments',
+    body: 'Per-project env var sets for dev, staging, or custom profiles switch without editing every task.',
   },
 ] as const;
 
@@ -102,7 +112,7 @@ export function App(): React.JSX.Element {
                 A small runtime that sits beside your editor not another CI platform in the cloud.
               </p>
             </div>
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {features.map((f) => (
                 <FeatureCard key={f.title} icon={f.icon} title={f.title} body={f.body} />
               ))}
@@ -139,6 +149,10 @@ export function App(): React.JSX.Element {
             <span className="inline-flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2">
               <Box className="h-4 w-4 text-primary" />
               Docker optional
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2">
+              <Braces className="h-4 w-4 text-primary" />
+              Project JSON import/export
             </span>
           </div>
         </section>
