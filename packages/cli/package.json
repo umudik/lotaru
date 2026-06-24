@@ -1,6 +1,6 @@
 {
   "name": "@umudik/lotaru",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Local-first task orchestration — run shell tasks on your projects from the browser",
   "type": "module",
   "license": "MIT",
