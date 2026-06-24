@@ -1,4 +1,9 @@
-import { DatabaseSync, type StatementSync, type SupportedValueType } from 'node:sqlite';
+import {
+  DatabaseSync,
+  type StatementSync,
+  type SQLInputValue,
+  type StatementResultingChanges,
+} from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,21 +157,21 @@ export interface Store {
 }
 
 interface Prepared<R> {
-  all(...params: SupportedValueType[]): R[];
-  get(...params: SupportedValueType[]): R | undefined;
-  run(...params: SupportedValueType[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+  all(...params: SQLInputValue[]): R[];
+  get(...params: SQLInputValue[]): R | undefined;
+  run(...params: SQLInputValue[]): StatementResultingChanges;
 }
 
 function prep<R = unknown>(db: DatabaseSync, sql: string): Prepared<R> {
   const stmt: StatementSync = db.prepare(sql);
   return {
-    all(...params: SupportedValueType[]): R[] {
+    all(...params: SQLInputValue[]): R[] {
       return stmt.all(...params) as R[];
     },
-    get(...params: SupportedValueType[]): R | undefined {
+    get(...params: SQLInputValue[]): R | undefined {
       return stmt.get(...params) as R | undefined;
     },
-    run(...params: SupportedValueType[]): { changes: number | bigint; lastInsertRowid: number | bigint } {
+    run(...params: SQLInputValue[]): StatementResultingChanges {
       return stmt.run(...params);
     },
   };

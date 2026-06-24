@@ -17,7 +17,7 @@ export function createScheduler(): SchedulerManager {
       }
       const existing = jobs.get(taskId);
       if (existing !== undefined) {
-        existing.stop();
+        void existing.stop();
       }
       const job = cron.schedule(expression, onTick);
       jobs.set(taskId, job);
@@ -28,12 +28,12 @@ export function createScheduler(): SchedulerManager {
       if (job === undefined) {
         return;
       }
-      job.stop();
+      void job.stop();
       jobs.delete(taskId);
     },
     stopAll(): void {
       for (const job of jobs.values()) {
-        job.stop();
+        void job.stop();
       }
       jobs.clear();
     },
