@@ -12,7 +12,7 @@
     "url": "git+https://github.com/umudik/lotaru.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=26"
   },
   "bin": {
     "lotaru": "dist/index.js"
@@ -30,19 +30,18 @@
     "prepublishOnly": "node ../../scripts/build-publish.mjs"
   },
   "dependencies": {
-    "@fastify/static": "^7.0.4",
-    "@fastify/websocket": "^10.0.1",
-    "better-sqlite3": "^11.5.0",
+    "@fastify/static": "^9.1.3",
+    "@fastify/websocket": "^11.2.0",
     "chokidar": "^4.0.1",
-    "dockerode": "^4.0.2",
-    "fastify": "^4.28.1",
+    "dockerode": "^5.0.1",
+    "fastify": "^5.8.5",
     "micromatch": "^4.0.8",
     "nanoid": "^5.0.9",
-    "node-cron": "^3.0.3"
+    "node-cron": "^4.5.0"
   },
   "devDependencies": {
     "@lotaru/server": "0.1.0",
-    "@types/node": "^22.9.0",
+    "@types/node": "^26.0.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync, type StatementSync, type SupportedValueType } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -151,11 +151,32 @@ export interface Store {
   close(): void;
 }
 
+interface Prepared<R> {
+  all(...params: SupportedValueType[]): R[];
+  get(...params: SupportedValueType[]): R | undefined;
+  run(...params: SupportedValueType[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+}
+
+function prep<R = unknown>(db: DatabaseSync, sql: string): Prepared<R> {
+  const stmt: StatementSync = db.prepare(sql);
+  return {
+    all(...params: SupportedValueType[]): R[] {
+      return stmt.all(...params) as R[];
+    },
+    get(...params: SupportedValueType[]): R | undefined {
+      return stmt.get(...params) as R | undefined;
+    },
+    run(...params: SupportedValueType[]): { changes: number | bigint; lastInsertRowid: number | bigint } {
+      return stmt.run(...params);
+    },
+  };
+}
+
 export function openStore(dbPath: string): Store {
   mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  const db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
 
   const schema = readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
@@ -193,72 +214,80 @@ export function openStore(dbPath: string): Store {
   db.exec('CREATE INDEX IF NOT EXISTS idx_environments_workspace ON environments(workspace_id)');
 
   const stmts = {
-    listWorkspaces: db.prepare<[], WorkspaceRow>(
-      'SELECT * FROM workspaces ORDER BY created_at ASC',
-    ),
-    getWorkspace: db.prepare<[string], WorkspaceRow>('SELECT * FROM workspaces WHERE id = ?'),
-    insertWorkspace: db.prepare(
+    listWorkspaces: prep<WorkspaceRow>(db, 'SELECT * FROM workspaces ORDER BY created_at ASC'),
+    getWorkspace: prep<WorkspaceRow>(db, 'SELECT * FROM workspaces WHERE id = ?'),
+    insertWorkspace: prep(
+      db,
       'INSERT INTO workspaces (id, name, path, paused, active_environment_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ),
-    setWorkspacePaused: db.prepare('UPDATE workspaces SET paused = ? WHERE id = ?'),
-    updateWorkspace: db.prepare('UPDATE workspaces SET name = ?, path = ? WHERE id = ?'),
-    setActiveEnvironment: db.prepare(
-      'UPDATE workspaces SET active_environment_id = ? WHERE id = ?',
-    ),
-    deleteWorkspace: db.prepare('DELETE FROM workspaces WHERE id = ?'),
+    setWorkspacePaused: prep(db, 'UPDATE workspaces SET paused = ? WHERE id = ?'),
+    updateWorkspace: prep(db, 'UPDATE workspaces SET name = ?, path = ? WHERE id = ?'),
+    setActiveEnvironment: prep(db, 'UPDATE workspaces SET active_environment_id = ? WHERE id = ?'),
+    deleteWorkspace: prep(db, 'DELETE FROM workspaces WHERE id = ?'),
 
-    listEnvironmentsByWorkspace: db.prepare<[string], EnvironmentRow>(
+    listEnvironmentsByWorkspace: prep<EnvironmentRow>(
+      db,
       'SELECT * FROM environments WHERE workspace_id = ? ORDER BY created_at ASC',
     ),
-    getEnvironment: db.prepare<[string], EnvironmentRow>('SELECT * FROM environments WHERE id = ?'),
-    insertEnvironment: db.prepare(
+    getEnvironment: prep<EnvironmentRow>(db, 'SELECT * FROM environments WHERE id = ?'),
+    insertEnvironment: prep(
+      db,
       'INSERT INTO environments (id, workspace_id, name, vars_json, created_at) VALUES (?, ?, ?, ?, ?)',
     ),
-    updateEnvironment: db.prepare('UPDATE environments SET name = ?, vars_json = ? WHERE id = ?'),
-    deleteEnvironment: db.prepare('DELETE FROM environments WHERE id = ?'),
+    updateEnvironment: prep(db, 'UPDATE environments SET name = ?, vars_json = ? WHERE id = ?'),
+    deleteEnvironment: prep(db, 'DELETE FROM environments WHERE id = ?'),
 
-    listTasksByWorkspace: db.prepare<[string], TaskRow>(
+    listTasksByWorkspace: prep<TaskRow>(
+      db,
       'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC, id ASC',
     ),
-    listTasksPageFirst: db.prepare<[string, number], TaskRow>(
+    listTasksPageFirst: prep<TaskRow>(
+      db,
       'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC, id ASC LIMIT ?',
     ),
-    listTasksPageAfter: db.prepare<[string, number, number, string, number], TaskRow>(
+    listTasksPageAfter: prep<TaskRow>(
+      db,
       `SELECT * FROM tasks WHERE workspace_id = ?
        AND (created_at > ? OR (created_at = ? AND id > ?))
        ORDER BY created_at ASC, id ASC LIMIT ?`,
     ),
-    listAllEnabledTasks: db.prepare<[], TaskRow>('SELECT * FROM tasks WHERE enabled = 1'),
-    getTask: db.prepare<[string], TaskRow>('SELECT * FROM tasks WHERE id = ?'),
-    insertTask: db.prepare(
+    listAllEnabledTasks: prep<TaskRow>(db, 'SELECT * FROM tasks WHERE enabled = 1'),
+    getTask: prep<TaskRow>(db, 'SELECT * FROM tasks WHERE id = ?'),
+    insertTask: prep(
+      db,
       `INSERT INTO tasks
         (id, workspace_id, name, command, runtime, docker_image, docker_platform, trigger_type, trigger_glob, trigger_cron, concurrency, enabled, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
-    updateTask: db.prepare(
+    updateTask: prep(
+      db,
       `UPDATE tasks SET
         name = ?, command = ?, runtime = ?, docker_image = ?, docker_platform = ?,
         trigger_type = ?, trigger_glob = ?, trigger_cron = ?,
         concurrency = ?, enabled = ?
        WHERE id = ?`,
     ),
-    deleteTask: db.prepare('DELETE FROM tasks WHERE id = ?'),
+    deleteTask: prep(db, 'DELETE FROM tasks WHERE id = ?'),
 
-    insertExecution: db.prepare(
+    insertExecution: prep(
+      db,
       `INSERT INTO executions
         (id, task_id, status, started_at, ended_at, exit_code, trigger_reason, log_path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
-    updateExecution: db.prepare(
+    updateExecution: prep(
+      db,
       `UPDATE executions SET
         status = ?, started_at = ?, ended_at = ?, exit_code = ?
        WHERE id = ?`,
     ),
-    getExecution: db.prepare<[string], ExecutionRow>('SELECT * FROM executions WHERE id = ?'),
-    listExecutionsByTask: db.prepare<[string, number], ExecutionRow>(
+    getExecution: prep<ExecutionRow>(db, 'SELECT * FROM executions WHERE id = ?'),
+    listExecutionsByTask: prep<ExecutionRow>(
+      db,
       'SELECT * FROM executions WHERE task_id = ? ORDER BY COALESCE(started_at, 0) DESC LIMIT ?',
     ),
-    listRecentExecutions: db.prepare<[number], ExecutionRow>(
+    listRecentExecutions: prep<ExecutionRow>(
+      db,
       'SELECT * FROM executions ORDER BY COALESCE(started_at, 0) DESC LIMIT ?',
     ),
   };
