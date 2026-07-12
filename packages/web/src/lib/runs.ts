@@ -53,9 +53,14 @@ export function collectRunDots(
   }
 
   for (const e of history) {
-    if (!byId.has(e.id)) {
-      byId.set(e.id, { id: e.id, status: e.status, startedAt: tsOrZero(e.started_at) });
+    if (byId.has(e.id)) {
+      continue;
     }
+    let st: ExecutionStatus | 'running' = e.status;
+    if (e.status === 'running' || e.status === 'pending') {
+      st = 'cancelled';
+    }
+    byId.set(e.id, { id: e.id, status: st, startedAt: tsOrZero(e.started_at) });
   }
 
   const list = Array.from(byId.values());

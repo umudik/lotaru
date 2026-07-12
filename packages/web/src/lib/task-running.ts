@@ -17,7 +17,7 @@ export function isActiveExecution(row: Execution): boolean {
 export function taskHasLiveRunning(
   taskId: string,
   liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
-  history: readonly Execution[],
+  _history: readonly Execution[],
 ): boolean {
   for (const key of Object.keys(liveExec)) {
     const e = liveExec[key];
@@ -31,20 +31,13 @@ export function taskHasLiveRunning(
       return true;
     }
   }
-
-  for (const row of history) {
-    if (isActiveExecution(row)) {
-      return true;
-    }
-  }
-
   return false;
 }
 
 export function findRunningExecutionId(
   taskId: string,
   liveExec: Record<string, { taskId: string; status: ExecutionStatus }>,
-  history: readonly Execution[],
+  _history: readonly Execution[],
   liveLogs: readonly { id: string; status: ExecutionStatus }[],
 ): string | null {
   for (const rt of liveLogs) {
@@ -64,11 +57,6 @@ export function findRunningExecutionId(
       continue;
     }
     return key;
-  }
-  for (const row of history) {
-    if (isActiveExecution(row)) {
-      return row.id;
-    }
   }
   return null;
 }

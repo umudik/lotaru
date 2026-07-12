@@ -1,8 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api } from '../api/client.js';
 import { connectStream } from '../api/stream.js';
-import { isActiveExecution } from '../lib/task-running.js';
-import { tsOrZero } from '../lib/format.js';
 import type {
   Workspace,
   Task,
@@ -245,74 +243,6 @@ function applyRunningSnapshot(s: State, running: readonly RunningSnapshot[]): St
   return { ...s, liveExecutions, liveLogsByTask, executionsByTask };
 }
 
-function hydrateLiveRunningState(s: State): State {
-  let liveExecutions = s.liveExecutions;
-  let liveLogsByTask = s.liveLogsByTask;
-  let changed = false;
-
-  for (const taskId of Object.keys(s.executionsByTask)) {
-    const history = s.executionsByTask[taskId];
-    if (history === undefined) {
-      continue;
-    }
-    for (const row of history) {
-      if (!isActiveExecution(row)) {
-        continue;
-      }
-      const existing = liveExecutions[row.id];
-      if (existing !== undefined && existing.status === 'running' && existing.logLines.length > 0) {
-        continue;
-      }
-      let logLines: ExecutionRuntime['logLines'] = [];
-      if (existing !== undefined) {
-        logLines = existing.logLines;
-      }
-      const rt: ExecutionRuntime = {
-        id: row.id,
-        taskId: row.task_id,
-        status: 'running',
-        startedAt: tsOrZero(row.started_at),
-        endedAt: null,
-        exitCode: null,
-        logLines,
-      };
-      if (existing === undefined || existing.status !== 'running') {
-        liveExecutions = { ...liveExecutions, [row.id]: rt };
-        changed = true;
-      }
-      const taskLogs = liveLogsByTask[row.task_id];
-      let hasRunning = false;
-      if (taskLogs !== undefined) {
-        for (const logRow of taskLogs) {
-          if (logRow.id === row.id && logRow.status === 'running') {
-            hasRunning = true;
-            break;
-          }
-        }
-      }
-      if (!hasRunning) {
-        let nextList: ExecutionRuntime[] = [rt];
-        if (taskLogs !== undefined) {
-          const filtered: ExecutionRuntime[] = [];
-          for (const logRow of taskLogs) {
-            if (logRow.id !== row.id) {
-              filtered.push(logRow);
-            }
-          }
-          nextList = [rt, ...filtered].slice(0, 5);
-        }
-        liveLogsByTask = { ...liveLogsByTask, [row.task_id]: nextList };
-        changed = true;
-      }
-    }
-  }
-
-  if (!changed) {
-    return s;
-  }
-  return { ...s, liveExecutions, liveLogsByTask };
-}
-
 export const actions = {
   async refreshWorkspaces(): Promise<void> {
     const r = await api.listWorkspaces();
@@ -403,12 +333,10 @@ export const actions = {
   },
   async refreshExecutionsForTask(taskId: string, limit = 20): Promise<void> {
     const r = await api.listExecutions(taskId, limit);
-    set((s) =>
-      hydrateLiveRunningState({
-        ...s,
-        executionsByTask: { ...s.executionsByTask, [taskId]: r.executions },
-      }),
-    );
+    set((s) => ({
+      ...s,
+      executionsByTask: { ...s.executionsByTask, [taskId]: r.executions },
+    }));
   },
   async prefetchExecutionsForTasks(taskIds: readonly string[], limit = 20): Promise<void> {
     if (taskIds.length === 0) {
@@ -425,7 +353,7 @@ export const actions = {
       for (const row of rows) {
         executionsByTask[row.taskId] = row.executions;
       }
-      return hydrateLiveRunningState({ ...s, executionsByTask });
+      return { ...s, executionsByTask };
     });
   },
   async refreshExecutionsForWorkspace(workspaceId: string): Promise<void> {

@@ -150,6 +150,8 @@ export interface Store {
   insertExecution(e: Execution): void;
   updateExecution(e: Execution): void;
   getExecution(id: string): Execution | null;
+  listOpenExecutions(): Execution[];
+  closeOpenExecutions(status: ExecutionStatus, endedAt: number): number;
   listExecutionsByTask(taskId: string, limit: number): Execution[];
   listRecentExecutions(limit: number): Execution[];
 
@@ -287,6 +289,18 @@ export function openStore(dbPath: string): Store {
        WHERE id = ?`,
     ),
     getExecution: prep<ExecutionRow>(db, 'SELECT * FROM executions WHERE id = ?'),
+    listOpenExecutions: prep<ExecutionRow>(
+      db,
+      `SELECT * FROM executions
+       WHERE status IN ('running', 'pending') AND ended_at IS NULL
+       ORDER BY COALESCE(started_at, 0) ASC`,
+    ),
+    closeOpenExecutions: prep(
+      db,
+      `UPDATE executions
+       SET status = ?, ended_at = ?, exit_code = NULL
+       WHERE status IN ('running', 'pending') AND ended_at IS NULL`,
+    ),
     listExecutionsByTask: prep<ExecutionRow>(
       db,
       'SELECT * FROM executions WHERE task_id = ? ORDER BY COALESCE(started_at, 0) DESC LIMIT ?',
@@ -483,6 +497,14 @@ export function openStore(dbPath: string): Store {
         return null;
       }
       return rowToExecution(row);
+    },
+    listOpenExecutions(): Execution[] {
+      const rows = stmts.listOpenExecutions.all();
+      return rows.map(rowToExecution);
+    },
+    closeOpenExecutions(status: ExecutionStatus, endedAt: number): number {
+      const result = stmts.closeOpenExecutions.run(status, endedAt);
+      return result.changes;
     },
     listExecutionsByTask(taskId: string, limit: number): Execution[] {
       const rows = stmts.listExecutionsByTask.all(taskId, limit);

@@ -290,8 +290,27 @@ export function createOrchestrator(
     }
   }
 
+  function recoverStaleExecutions(): void {
+    const endedAt = Date.now();
+    const open = store.listOpenExecutions();
+    if (open.length === 0) {
+      return;
+    }
+    store.closeOpenExecutions('cancelled', endedAt);
+    for (const exec of open) {
+      bus.emit({
+        kind: 'execution.ended',
+        executionId: exec.id,
+        status: 'cancelled',
+        exitCode: null,
+        ts: endedAt,
+      });
+    }
+  }
+
   return {
     loadAll(): void {
+      recoverStaleExecutions();
       const workspaces = store.listWorkspaces();
       for (const w of workspaces) {
         if (!w.paused) {
@@ -392,9 +411,17 @@ export function createOrchestrator(
 
     async shutdown(): Promise<void> {
       scheduler.stopAll();
-      for (const info of running.values()) {
+      const live = [...running.entries()];
+      for (const [executionId] of live) {
+        finalizeExecution(executionId, 'cancelled', null, {
+          source: 'manual',
+          detail: 'shutdown',
+        });
+      }
+      for (const [, info] of live) {
         info.handle.cancel();
       }
+      running.clear();
       await watchers.closeAll();
     },
   };
