@@ -1,7 +1,7 @@
 {
   "name": "@umudik/lotaru",
   "version": "0.2.1",
-  "description": "Lotaru local agent — Fookie auth + cloud console task orchestration",
+  "description": "Local-first task orchestration ? run shell tasks on your projects from the browser",
   "type": "module",
   "license": "MIT",
   "publishConfig": {

@@ -27,7 +27,7 @@ const features = [
   {
     icon: FolderOpen,
     title: 'Local-first',
-    body: 'Your projects stay on disk. State lives in ~/.lotaru/ — cloud console talks to your agent.',
+    body: 'Your projects stay on disk. State lives in ~/.lotaru/ no cloud account required.',
   },
   {
     icon: Braces,
@@ -96,8 +96,8 @@ function Landing(): React.JSX.Element {
                 <CopyCommand />
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Agent on your machine · console at{' '}
-                <code className="font-mono text-foreground/70">lotaru.fookiecloud.com</code>
+                Opens <code className="font-mono text-foreground/70">http://127.0.0.1:4317</code> ·
+                data in <code className="font-mono text-foreground/70">~/.lotaru/</code>
               </p>
             </div>
             <ProductPreview className="lg:translate-y-2" />
@@ -163,7 +163,7 @@ function Landing(): React.JSX.Element {
           <div className="max-w-6xl mx-auto px-6 py-20 text-center">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Try it in one command</h2>
             <p className="mt-3 text-muted-foreground max-w-lg mx-auto">
-              Sign in with Fookie, then the agent on your machine connects to the console.
+              No install step. Ships the server and UI together.
             </p>
             <div className="mt-8 max-w-md mx-auto">
               <CopyCommand />

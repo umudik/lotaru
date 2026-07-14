@@ -16,26 +16,23 @@ import { ensureAuth } from './auth/credentials.js';
 import { connectCloudBridge } from './auth/cloud-bridge.js';
 
 const DEFAULT_PORT = 4317;
-const CONSOLE_URL = process.env['LOTARU_CONSOLE_URL'] ?? 'https://lotaru.fookiecloud.com';
 
 interface StartOptions {
   port: number;
   dataDir: string;
   staticDir: string | null;
-  cloud?: boolean;
-  openConsole?: boolean;
 }
 
-export async function start(opts: StartOptions): Promise<{ consoleUrl: string }> {
+export async function start(opts: StartOptions): Promise<void> {
   mkdirSync(opts.dataDir, { recursive: true });
   const dbPath = join(opts.dataDir, 'lotaru.db');
   const logsDir = join(opts.dataDir, 'logs');
   mkdirSync(logsDir, { recursive: true });
 
-  const cloudEnabled = opts.cloud !== false && process.env['LOTARU_OFFLINE'] !== '1';
+  const cloudEnabled = process.env['LOTARU_CLOUD'] === '1';
   if (cloudEnabled) {
     const creds = await ensureAuth(opts.dataDir);
-    console.log(`  signed in as ${creds.user.email ?? creds.user.id}`);
+    console.log(`  cloud mode — signed in as ${creds.user.email ?? creds.user.id}`);
   }
 
   const store = openStore(dbPath);
@@ -104,14 +101,12 @@ export async function start(opts: StartOptions): Promise<{ consoleUrl: string }>
   });
 
   await app.listen({ port: opts.port, host: '127.0.0.1' });
-  app.log.info(`lotaru agent on http://127.0.0.1:${String(opts.port)}`);
+  app.log.info(`lotaru ready on http://127.0.0.1:${String(opts.port)}`);
 
   if (cloudEnabled) {
     const bridge = connectCloudBridge({ dataDir: opts.dataDir, app, bus });
     bridgeStop = bridge.stop;
   }
-
-  return { consoleUrl: CONSOLE_URL };
 }
 
 function defaultStaticDir(): string | null {
