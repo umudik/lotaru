@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { BrandSplash } from '@/components/brand-splash';
+import { CloudTopBar } from '@/components/cloud-top-bar';
 import { Sidebar } from '@/components/sidebar';
 import { WaitingForAgent } from '@/components/waiting-for-agent';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
@@ -56,27 +58,7 @@ function TaskRedirect(props: { taskId: string }): React.JSX.Element {
     }
     navigate('/');
   }, [props.taskId, tasksByWorkspace]);
-  return <div className="text-sm text-muted-foreground">Redirecting…</div>;
-}
-
-function renderRoute(route: Route): React.JSX.Element {
-  if (route.kind === 'workspace') {
-    return <WorkspaceView workspaceId={route.id} />;
-  }
-  return <DashboardView />;
-}
-
-function BootSplash(): React.JSX.Element {
-  return (
-    <div className="min-h-screen grid place-items-center">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary grid place-items-center text-primary-foreground font-bold animate-pulse">
-          L
-        </div>
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      </div>
-    </div>
-  );
+  return <BrandSplash title="Lotaru" subtitle="Opening task…" />;
 }
 
 function useRouteWithRedirect(): { route: Route; taskRedirect: string | null } {
@@ -95,40 +77,61 @@ function useRouteWithRedirect(): { route: Route; taskRedirect: string | null } {
   return parsed;
 }
 
-function ConnectedApp(): React.JSX.Element {
+function Shell(props: {
+  children: React.ReactNode;
+  activeWorkspaceId?: string | undefined;
+  agentOnline: boolean;
+  agentInfo: ReturnType<typeof useAgentConnection>['info'];
+}): React.JSX.Element {
+  const cloud = isCloudHost();
+  return (
+    <div className="min-h-screen flex flex-col">
+      {cloud ? <CloudTopBar agentOnline={props.agentOnline} agentInfo={props.agentInfo} /> : null}
+      <div className="relative flex-1">
+        <Sidebar activeWorkspaceId={props.activeWorkspaceId} />
+        <main className={cloud ? 'pl-60 pt-0 min-h-[calc(100vh-2.5rem)]' : 'pl-60 min-h-screen'}>
+          {props.children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function ConnectedApp(props: {
+  agentOnline: boolean;
+  agentInfo: ReturnType<typeof useAgentConnection>['info'];
+}): React.JSX.Element {
   const { ready } = useBootstrap();
   const { route, taskRedirect } = useRouteWithRedirect();
 
   if (!ready) {
-    return <BootSplash />;
+    return <BrandSplash title="Lotaru" subtitle="Loading…" />;
   }
 
   if (taskRedirect !== null) {
-    return (
-      <div className="min-h-screen grid place-items-center">
-        <TaskRedirect taskId={taskRedirect} />
-      </div>
-    );
+    return <TaskRedirect taskId={taskRedirect} />;
   }
 
   if (route.kind === 'workspace') {
     return (
-      <div className="min-h-screen">
-        <Sidebar activeWorkspaceId={route.id} />
-        <main className="pl-60 min-h-screen pr-0">
-          <div className="w-full px-8 py-6">{renderRoute(route)}</div>
-        </main>
-      </div>
+      <Shell
+        activeWorkspaceId={route.id}
+        agentOnline={props.agentOnline}
+        agentInfo={props.agentInfo}
+      >
+        <div className="w-full px-8 py-6">
+          <WorkspaceView workspaceId={route.id} />
+        </div>
+      </Shell>
     );
   }
 
   return (
-    <div className="min-h-screen">
-      <Sidebar />
-      <main className="pl-60 min-h-screen">
-        <div className="max-w-[1600px] mx-auto px-8 py-8">{renderRoute(route)}</div>
-      </main>
-    </div>
+    <Shell agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
+      <div className="max-w-[1600px] mx-auto px-8 py-8">
+        <DashboardView />
+      </div>
+    </Shell>
   );
 }
 
@@ -137,13 +140,15 @@ export function App(): React.JSX.Element {
 
   if (isCloudHost()) {
     if (agent.checking) {
-      return <BootSplash />;
+      return <BrandSplash title="Lotaru" subtitle="Checking agent…" />;
     }
     if (!agent.online) {
       return <WaitingForAgent info={agent.info} />;
     }
-    return <ConnectedApp key="connected" />;
+    return (
+      <ConnectedApp key="connected" agentOnline={agent.online} agentInfo={agent.info} />
+    );
   }
 
-  return <ConnectedApp />;
+  return <ConnectedApp agentOnline={true} agentInfo={null} />;
 }

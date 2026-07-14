@@ -1,6 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Plus } from 'lucide-react';
-import { FookieCloudBack } from '@/components/fookie-cloud-back';
 import { isCloudHost } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
@@ -36,11 +35,17 @@ function NavItem(props: NavItemProps): React.JSX.Element {
   );
 }
 
-export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Element {
+export function Sidebar(props: { activeWorkspaceId?: string | undefined }): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces);
+  const cloud = isCloudHost();
 
   return (
-    <aside className="fixed top-0 left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col">
+    <aside
+      className={cn(
+        'fixed left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col',
+        cloud ? 'top-10' : 'top-0',
+      )}
+    >
       <button
         type="button"
         onClick={() => {
@@ -97,11 +102,6 @@ export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Elemen
           </div>
         </div>
       </nav>
-      {isCloudHost() && (
-        <div className="px-4 py-3 border-t">
-          <FookieCloudBack />
-        </div>
-      )}
     </aside>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FookieCloudBack } from '@/components/fookie-cloud-back';
+import { BrandSplash } from '@/components/brand-splash';
+import { FookieCloudMark } from '@/components/fookie-cloud-mark';
 import {
   clearSession,
   exchangeCode,
@@ -88,14 +89,15 @@ export function AuthGate(props: Props): React.JSX.Element {
         >
           Try again
         </button>
-        <FookieCloudBack />
+        <FookieCloudMark size="sm" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-background text-sm text-muted-foreground">
-      {boot === 'auth' ? 'Signing in…' : 'Redirecting to Fookie Auth…'}
-    </div>
+    <BrandSplash
+      title="Lotaru"
+      subtitle={boot === 'auth' ? 'Signing in…' : 'Redirecting to sign in…'}
+    />
   );
 }
