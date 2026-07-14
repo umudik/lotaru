@@ -1,6 +1,6 @@
 {
   "name": "@umudik/lotaru-mcp",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "private": false,
   "description": "MCP server for Lotaru - create and run tasks from Cursor",
   "type": "module",
