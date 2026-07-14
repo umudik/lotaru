@@ -20,6 +20,13 @@ const PORT = Number.parseInt(process.env['PORT'] ?? '8080', 10);
 const PUBLIC_URL = process.env['PUBLIC_URL'] ?? 'https://lotaru.fookiecloud.com';
 const REDIRECT_URI = `${PUBLIC_URL}/callback`;
 
+const ALLOWED_ORIGINS = new Set(
+  (process.env['ALLOWED_ORIGINS'] ?? PUBLIC_URL)
+    .split(',')
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0),
+);
+
 function staticRoot(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -35,15 +42,54 @@ function staticRoot(): string | null {
   return null;
 }
 
+function tokenFromWsProtocols(raw: string | string[] | undefined): string | null {
+  const protocols = (Array.isArray(raw) ? raw.join(',') : (raw ?? ''))
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const bearerIdx = protocols.findIndex((p) => p.toLowerCase() === 'bearer');
+  if (bearerIdx >= 0) {
+    const next = protocols[bearerIdx + 1];
+    if (next !== undefined && next.length > 0) {
+      return next;
+    }
+  }
+  return null;
+}
+
+function tokenFromRequest(req: {
+  headers: {
+    authorization?: string | undefined;
+    'sec-websocket-protocol'?: string | string[] | undefined;
+  };
+}): string | null {
+  const headerToken = bearerFromHeader(req.headers.authorization);
+  if (headerToken !== null) {
+    return headerToken;
+  }
+  return tokenFromWsProtocols(req.headers['sec-websocket-protocol']);
+}
+
+function corsOrigin(reqOrigin: string | undefined): string | null {
+  if (reqOrigin !== undefined && ALLOWED_ORIGINS.has(reqOrigin)) {
+    return reqOrigin;
+  }
+  return null;
+}
+
 async function attachAuthedSocket(
   socket: import('ws').WebSocket,
-  req: { url: string; headers: { authorization?: string | undefined } },
+  req: {
+    url: string;
+    headers: {
+      authorization?: string | undefined;
+      'sec-websocket-protocol'?: string | string[] | undefined;
+    };
+  },
   kind: 'agent' | 'console',
 ): Promise<void> {
   const url = new URL(req.url, 'http://localhost');
-  const qToken = url.searchParams.get('token');
-  const headerToken = bearerFromHeader(req.headers.authorization);
-  const token = qToken ?? headerToken;
+  const token = tokenFromRequest(req);
   if (token === null) {
     socket.close(4401, 'unauthorized');
     return;
@@ -61,7 +107,11 @@ async function attachAuthedSocket(
       version: url.searchParams.get('version') ?? '0.0.0',
       connectedAt: Date.now(),
     };
-    registerAgent(user.id, socket, info);
+    const session = registerAgent(user.id, socket, info);
+    if (session === null) {
+      socket.close(4409, 'agent_already_connected');
+      return;
+    }
     socket.send(JSON.stringify({ type: 'agent.welcome', userId: user.id }));
     socket.on('message', (data) => {
       handleAgentMessage(user.id, data.toString());
@@ -79,7 +129,19 @@ async function attachAuthedSocket(
 
 async function main(): Promise<void> {
   const app = Fastify({
-    logger: true,
+    logger: {
+      serializers: {
+        req(req) {
+          const rawUrl = typeof req.url === 'string' ? req.url : '';
+          return {
+            method: req.method,
+            url: rawUrl.split('?')[0] ?? '/',
+            hostname: req.hostname,
+            remoteAddress: req.ip,
+          };
+        },
+      },
+    },
     trustProxy: true,
   });
   await registerObservability(app);
@@ -94,17 +156,29 @@ async function main(): Promise<void> {
     publicUrl: PUBLIC_URL,
   }));
 
-  app.options('/api/*', async (_req, reply) => {
+  app.options('/api/*', async (req, reply) => {
+    const origin = corsOrigin(
+      typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    );
+    if (origin !== null) {
+      void reply.header('Access-Control-Allow-Origin', origin);
+      void reply.header('Vary', 'Origin');
+    }
     void reply
-      .header('Access-Control-Allow-Origin', '*')
       .header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
       .header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
       .code(204)
       .send();
   });
 
-  app.addHook('onSend', async (_req, reply, payload) => {
-    void reply.header('Access-Control-Allow-Origin', '*');
+  app.addHook('onSend', async (req, reply, payload) => {
+    const origin = corsOrigin(
+      typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    );
+    if (origin !== null) {
+      void reply.header('Access-Control-Allow-Origin', origin);
+      void reply.header('Vary', 'Origin');
+    }
     return payload;
   });
 

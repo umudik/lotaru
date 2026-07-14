@@ -192,7 +192,6 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
       const creds = loadCredentials(opts.dataDir);
       const userLabel = creds?.user.email ?? creds?.user.id ?? 'user';
       const wsUrl = new URL(`${toWsBase(gateway)}/v1/agent`);
-      wsUrl.searchParams.set('token', token);
       wsUrl.searchParams.set('hostname', agentHostname());
       wsUrl.searchParams.set('version', PACKAGE_VERSION);
 
@@ -205,7 +204,9 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
         socket = null;
       }
 
-      const active = new WebSocket(wsUrl.toString());
+      const active = new WebSocket(wsUrl.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       socket = active;
 
       active.on('open', () => {

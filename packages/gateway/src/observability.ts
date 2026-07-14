@@ -1,3 +1,4 @@
+import { bearerFromHeader } from './auth.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   Registry,
@@ -66,7 +67,15 @@ function clientIp(req: FastifyRequest): string {
 }
 
 export async function registerObservability(app: FastifyInstance): Promise<void> {
-  app.get('/metrics', async (_req, reply) => {
+  app.get('/metrics', async (req, reply) => {
+    const expected = process.env['METRICS_TOKEN'];
+    if (expected === undefined || expected.length === 0) {
+      return reply.code(404).send();
+    }
+    const got = bearerFromHeader(req.headers.authorization);
+    if (got !== expected) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
     reply.header('Content-Type', register.contentType);
     return register.metrics();
   });

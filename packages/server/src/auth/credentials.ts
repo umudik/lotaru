@@ -2,7 +2,6 @@ import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 import { hostname as osHostname } from 'node:os';
 
 const AUTH_ISSUER = process.env['FOOKIE_AUTH_ISSUER'] ?? 'https://auth.fookiecloud.com';
@@ -37,22 +36,6 @@ function pkcePair(): { verifier: string; challenge: string } {
   const verifier = base64url(randomBytes(32));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   return { verifier, challenge };
-}
-
-function openBrowser(url: string): void {
-  let child;
-  if (process.platform === 'win32') {
-    child = spawn('cmd', ['/c', 'start', '', url.replaceAll('&', '^&')], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-  } else if (process.platform === 'darwin') {
-    child = spawn('open', [url], { detached: true, stdio: 'ignore' });
-  } else {
-    child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
-  }
-  child.unref();
 }
 
 export function loadCredentials(dataDir: string): Credentials | null {
@@ -178,12 +161,10 @@ function interactiveLogin(dataDir: string): Promise<Credentials> {
             expires_at: Date.now() + tokens.expires_in * 1000,
             user,
           };
-          const consoleUrl =
-            process.env['LOTARU_CONSOLE_URL'] ?? 'https://lotaru.fookiecloud.com';
           saveCredentials(dataDir, creds);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
           res.end(
-            `<!doctype html><html><head><meta http-equiv="refresh" content="0;url=${consoleUrl}" /><title>Lotaru</title></head><body style="font-family:system-ui;padding:2rem;background:#0c0c0f;color:#eee"><h1>Signed in</h1><p>Opening <a href="${consoleUrl}" style="color:#6b8cff">${consoleUrl}</a>…</p></body></html>`,
+            `<!doctype html><html><head><title>Lotaru</title></head><body style="font-family:system-ui;padding:2rem;background:#0c0c0f;color:#eee"><h1>Signed in</h1><p>You can close this window.</p></body></html>`,
           );
           server.close();
           resolve(creds);
@@ -197,8 +178,7 @@ function interactiveLogin(dataDir: string): Promise<Credentials> {
     });
     server.listen(AGENT_CALLBACK_PORT, '127.0.0.1', () => {
       console.log(`\n  Sign in with Fookie to continue…`);
-      console.log(`  Opening ${loginUrl.toString()}\n`);
-      openBrowser(loginUrl.toString());
+      console.log(`  ${loginUrl.toString()}\n`);
     });
     server.on('error', reject);
   });

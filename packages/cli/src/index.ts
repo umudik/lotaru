@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_PORT = 4317;
@@ -43,22 +42,6 @@ async function loadStart(): Promise<StartFn> {
   return mod.start;
 }
 
-function openBrowser(url: string): void {
-  let child: ReturnType<typeof spawn>;
-  if (process.platform === 'win32') {
-    child = spawn('cmd', ['/c', 'start', '', url.replaceAll('&', '^&')], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-  } else if (process.platform === 'darwin') {
-    child = spawn('open', [url], { detached: true, stdio: 'ignore' });
-  } else {
-    child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
-  }
-  child.unref();
-}
-
 async function main(): Promise<void> {
   const port = resolvePort();
   const dataDir = join(homedir(), '.lotaru');
@@ -66,7 +49,6 @@ async function main(): Promise<void> {
   const start = await loadStart();
   await start({ port, dataDir, staticDir });
   console.log(`\n  → ${CONSOLE_URL}\n`);
-  openBrowser(CONSOLE_URL);
 }
 
 main().catch((err: unknown) => {

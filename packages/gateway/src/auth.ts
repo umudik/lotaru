@@ -25,7 +25,10 @@ async function introspectApiKey(token: string): Promise<boolean> {
   try {
     const res = await fetch(`${AUTH_ISSUER}/v1/introspect`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${process.env['FOOKIE_INTROSPECT_SECRET'] ?? ''}`,
+      },
       body: JSON.stringify({ token }),
     });
     if (!res.ok) {

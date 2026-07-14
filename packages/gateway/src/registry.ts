@@ -52,14 +52,12 @@ function fanout(userId: string, msg: unknown): void {
   }
 }
 
-export function registerAgent(userId: string, socket: WebSocket, info: AgentInfo): AgentSession {
+export function registerAgent(userId: string, socket: WebSocket, info: AgentInfo): AgentSession | null {
   const existing = agents.get(userId);
+  if (existing !== undefined && existing.socket.readyState === 1) {
+    return null;
+  }
   if (existing !== undefined) {
-    try {
-      existing.socket.close(4000, 'replaced');
-    } catch {
-      void 0;
-    }
     for (const [, p] of existing.pending) {
       clearTimeout(p.timer);
       p.reject(new Error('agent replaced'));

@@ -20,13 +20,11 @@ export function connectStream(): Stream {
       proto = 'wss';
     }
     const url = new URL(`${proto}://${window.location.host}/api/v1/stream`);
-    if (isCloudHost()) {
-      const token = getAccessToken();
-      if (token !== null) {
-        url.searchParams.set('token', token);
-      }
-    }
-    const socket = new WebSocket(url.toString());
+    const token = isCloudHost() ? getAccessToken() : null;
+    const socket =
+      token !== null
+        ? new WebSocket(url.toString(), ['bearer', token])
+        : new WebSocket(url.toString());
     ws = socket;
     socket.onmessage = (ev: MessageEvent<string>) => {
       let parsed: unknown;
