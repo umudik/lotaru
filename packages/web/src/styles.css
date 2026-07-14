@@ -138,23 +138,28 @@
 
 .fookie-cloud-mark {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  color: hsl(var(--muted-foreground));
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: hsl(var(--foreground));
   text-decoration: none;
   transition: opacity 0.15s ease;
 }
 
 .fookie-cloud-mark:hover {
   opacity: 0.9;
-  color: hsl(var(--foreground));
 }
 
 .fookie-cloud-mark--sm {
   font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.fookie-cloud-mark--sm:hover {
+  color: hsl(var(--foreground));
 }
 
 .fookie-cloud-word {
