@@ -89,7 +89,7 @@ function Shell(props: {
       {cloud ? <CloudTopBar agentOnline={props.agentOnline} agentInfo={props.agentInfo} /> : null}
       <div className="relative flex-1">
         <Sidebar activeWorkspaceId={props.activeWorkspaceId} />
-        <main className={cloud ? 'pl-60 pt-0 min-h-[calc(100vh-2.5rem)]' : 'pl-60 min-h-screen'}>
+        <main className={cloud ? 'pl-60 pt-0 min-h-[calc(100vh-3rem)]' : 'pl-60 min-h-screen'}>
           {props.children}
         </main>
       </div>
