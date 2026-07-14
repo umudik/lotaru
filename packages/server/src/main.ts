@@ -1,10 +1,8 @@
 import Fastify from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
-import fastifyStatic from '@fastify/static';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { openStore } from './db/index.js';
 import { createBus } from './events/bus.js';
 import { createWatcherManager } from './watcher/index.js';
@@ -30,12 +28,9 @@ export async function start(opts: StartOptions): Promise<void> {
   const logsDir = join(opts.dataDir, 'logs');
   mkdirSync(logsDir, { recursive: true });
 
-  const cloudEnabled = process.env['LOTARU_OFFLINE'] !== '1';
-  if (cloudEnabled) {
-    console.log('\n  Sign in with Fookie to connect this machine as your Lotaru backend…\n');
-    const creds = await ensureAuth(opts.dataDir);
-    console.log(`  signed in as ${creds.user.email ?? creds.user.id}`);
-  }
+  console.log('\n  Sign in with Fookie to connect this machine as your Lotaru backend…\n');
+  const creds = await ensureAuth(opts.dataDir);
+  console.log(`  signed in as ${creds.user.email ?? creds.user.id}`);
 
   const store = openStore(dbPath);
   const bus = createBus();
@@ -65,30 +60,16 @@ export async function start(opts: StartOptions): Promise<void> {
     hub.attach(socket);
   });
 
-  if (cloudEnabled) {
-    app.get('/', async (_req, reply) => {
-      return reply.redirect(CONSOLE_URL);
-    });
-    app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api/')) {
-        void reply.code(404).send({ error: 'not found' });
-        return;
-      }
-      void reply.redirect(CONSOLE_URL);
-    });
-  } else if (opts.staticDir !== null && existsSync(opts.staticDir)) {
-    await app.register(fastifyStatic, {
-      root: opts.staticDir,
-      prefix: '/',
-    });
-    app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api/')) {
-        void reply.code(404).send({ error: 'not found' });
-        return;
-      }
-      void reply.sendFile('index.html');
-    });
-  }
+  app.get('/', async (_req, reply) => {
+    return reply.redirect(CONSOLE_URL);
+  });
+  app.setNotFoundHandler((req, reply) => {
+    if (req.url.startsWith('/api/')) {
+      void reply.code(404).send({ error: 'not found' });
+      return;
+    }
+    void reply.redirect(CONSOLE_URL);
+  });
 
   let bridgeStop: (() => void) | null = null;
 
@@ -115,23 +96,10 @@ export async function start(opts: StartOptions): Promise<void> {
 
   await app.listen({ port: opts.port, host: '127.0.0.1' });
 
-  if (cloudEnabled) {
-    const bridge = connectCloudBridge({ dataDir: opts.dataDir, app, bus });
-    bridgeStop = bridge.stop;
-    console.log(`\n  agent listening on 127.0.0.1:${String(opts.port)}`);
-    console.log(`  open console → ${CONSOLE_URL}\n`);
-  } else {
-    app.log.info(`lotaru ready on http://127.0.0.1:${String(opts.port)}`);
-  }
-}
-
-function defaultStaticDir(): string | null {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidate = join(here, '..', 'public');
-  if (existsSync(candidate)) {
-    return candidate;
-  }
-  return null;
+  const bridge = connectCloudBridge({ dataDir: opts.dataDir, app, bus });
+  bridgeStop = bridge.stop;
+  console.log(`\n  agent listening on 127.0.0.1:${String(opts.port)}`);
+  console.log(`  open console → ${CONSOLE_URL}\n`);
 }
 
 function isMainEntry(): boolean {
@@ -160,11 +128,10 @@ if (isMainEntry()) {
     }
   }
   const dataDir = join(homedir(), '.lotaru');
-  const offline = process.env['LOTARU_OFFLINE'] === '1';
   void start({
     port,
     dataDir,
-    staticDir: offline ? defaultStaticDir() : null,
+    staticDir: null,
   }).catch((err: unknown) => {
     console.error(err);
     process.exit(1);

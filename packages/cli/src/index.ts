@@ -28,21 +28,7 @@ function resolvePort(): number {
   return DEFAULT_PORT;
 }
 
-function isOffline(): boolean {
-  return process.env['LOTARU_OFFLINE'] === '1';
-}
-
 function resolveStaticDir(): string | null {
-  if (!isOffline()) {
-    return null;
-  }
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [join(here, '..', 'public'), join(here, '..', '..', 'public')];
-  for (const c of candidates) {
-    if (existsSync(c)) {
-      return c;
-    }
-  }
   return null;
 }
 
@@ -76,16 +62,9 @@ function openBrowser(url: string): void {
 async function main(): Promise<void> {
   const port = resolvePort();
   const dataDir = join(homedir(), '.lotaru');
-  const offline = isOffline();
   const staticDir = resolveStaticDir();
   const start = await loadStart();
   await start({ port, dataDir, staticDir });
-  if (offline) {
-    const url = `http://127.0.0.1:${String(port)}`;
-    console.log(`\n  lotaru ready (offline) — ${url}\n`);
-    openBrowser(url);
-    return;
-  }
   console.log(`\n  → ${CONSOLE_URL}\n`);
   openBrowser(CONSOLE_URL);
 }

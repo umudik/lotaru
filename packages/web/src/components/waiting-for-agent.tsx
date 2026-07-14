@@ -59,6 +59,18 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
           <p className="text-xs text-muted-foreground">
             Use the same Fookie account as this browser session.
           </p>
+          <p className="text-xs text-muted-foreground">
+            For MCP or API access, create a key on{' '}
+            <a
+              href="https://fookiecloud.com/profile"
+              className="text-primary hover:underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Fookie Cloud profile
+            </a>{' '}
+            and use it as your Bearer token.
+          </p>
         </div>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
