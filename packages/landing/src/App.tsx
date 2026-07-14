@@ -3,7 +3,7 @@ import { Box, Braces, Clock, FolderOpen, Github, Layers, Radio, Terminal, Zap } 
 import { CopyCommand } from '@/components/copy-command';
 import { SiteHeader } from '@/components/site-header';
 import { ProductPreview } from '@/components/product-preview';
-import { exchangeCode } from '@/lib/config';
+import { AUTH, exchangeCode, getAccessToken, signInUrl } from '@/lib/config';
 import { cn } from '@/lib/utils';
 
 const GITHUB_URL = 'https://github.com/umudik/lotaru';
@@ -199,38 +199,68 @@ function Landing(): React.JSX.Element {
   );
 }
 
+async function tokenStillValid(token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${AUTH}/v1/userinfo`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function App(): React.JSX.Element {
-  const [boot, setBoot] = useState<'ready' | 'auth' | 'error'>('ready');
+  const [boot, setBoot] = useState<'loading' | 'ready' | 'auth' | 'error'>('loading');
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     const url = new URL(location.href);
-    if (url.pathname !== '/callback') {
-      return;
-    }
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    if (code === null || state === null) {
-      setBoot('error');
-      setAuthError('Missing OAuth code');
-      return;
-    }
-    setBoot('auth');
-    void exchangeCode(code, state)
-      .then(() => {
-        history.replaceState({}, '', '/');
-        setBoot('ready');
-      })
-      .catch((err: unknown) => {
+
+    if (url.pathname === '/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (code === null || state === null) {
         setBoot('error');
-        setAuthError(err instanceof Error ? err.message : 'Auth failed');
+        setAuthError('Missing OAuth code');
+        return;
+      }
+      setBoot('auth');
+      void exchangeCode(code, state)
+        .then(() => {
+          history.replaceState({}, '', '/');
+          setBoot('ready');
+        })
+        .catch((err: unknown) => {
+          setBoot('error');
+          setAuthError(err instanceof Error ? err.message : 'Auth failed');
+        });
+      return;
+    }
+
+    const token = getAccessToken();
+    if (token === null) {
+      void signInUrl().then((href) => {
+        location.href = href;
       });
+      return;
+    }
+
+    void tokenStillValid(token).then((ok) => {
+      if (ok) {
+        setBoot('ready');
+        return;
+      }
+      void signInUrl().then((href) => {
+        location.href = href;
+      });
+    });
   }, []);
 
-  if (boot === 'auth') {
+  if (boot === 'loading' || boot === 'auth') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
-        Signing in…
+        {boot === 'auth' ? 'Signing in…' : 'Redirecting to Fookie Auth…'}
       </div>
     );
   }
@@ -239,9 +269,17 @@ export function App(): React.JSX.Element {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-2 bg-background text-sm">
         <p className="text-destructive">{authError ?? 'Auth failed'}</p>
-        <a className="text-primary underline" href="/">
-          Back
-        </a>
+        <button
+          type="button"
+          className="text-primary underline"
+          onClick={() => {
+            void signInUrl().then((href) => {
+              location.href = href;
+            });
+          }}
+        >
+          Try again
+        </button>
       </div>
     );
   }
