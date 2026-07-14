@@ -1,7 +1,6 @@
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { BrandSplash } from '@/components/brand-splash';
-import { McpSetup } from '@/components/mcp-setup';
 import { Button } from '@/components/ui/button';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
 
@@ -52,8 +51,6 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
               </Button>
             </div>
           </div>
-
-          <McpSetup />
         </div>
       </div>
     </div>
