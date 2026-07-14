@@ -86,8 +86,7 @@ async function main(): Promise<void> {
     openBrowser(url);
     return;
   }
-  console.log(`\n  lotaru agent ready — http://127.0.0.1:${String(port)}`);
-  console.log(`  console → ${CONSOLE_URL}\n`);
+  console.log(`\n  → ${CONSOLE_URL}\n`);
   openBrowser(CONSOLE_URL);
 }
 

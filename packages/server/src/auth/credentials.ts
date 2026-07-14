@@ -178,10 +178,12 @@ function interactiveLogin(dataDir: string): Promise<Credentials> {
             expires_at: Date.now() + tokens.expires_in * 1000,
             user,
           };
+          const consoleUrl =
+            process.env['LOTARU_CONSOLE_URL'] ?? 'https://lotaru.fookiecloud.com';
           saveCredentials(dataDir, creds);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
           res.end(
-            '<html><body style="font-family:system-ui;padding:2rem"><h1>Lotaru connected</h1><p>You can close this tab. Agent is signing in…</p></body></html>',
+            `<!doctype html><html><head><meta http-equiv="refresh" content="0;url=${consoleUrl}" /><title>Lotaru</title></head><body style="font-family:system-ui;padding:2rem;background:#0c0c0f;color:#eee"><h1>Signed in</h1><p>Opening <a href="${consoleUrl}" style="color:#6b8cff">${consoleUrl}</a>…</p></body></html>`,
           );
           server.close();
           resolve(creds);

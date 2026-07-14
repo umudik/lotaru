@@ -16,6 +16,7 @@ import { ensureAuth } from './auth/credentials.js';
 import { connectCloudBridge } from './auth/cloud-bridge.js';
 
 const DEFAULT_PORT = 4317;
+const CONSOLE_URL = process.env['LOTARU_CONSOLE_URL'] ?? 'https://lotaru.fookiecloud.com';
 
 interface StartOptions {
   port: number;
@@ -64,7 +65,18 @@ export async function start(opts: StartOptions): Promise<void> {
     hub.attach(socket);
   });
 
-  if (opts.staticDir !== null && existsSync(opts.staticDir)) {
+  if (cloudEnabled) {
+    app.get('/', async (_req, reply) => {
+      return reply.redirect(CONSOLE_URL);
+    });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/')) {
+        void reply.code(404).send({ error: 'not found' });
+        return;
+      }
+      void reply.redirect(CONSOLE_URL);
+    });
+  } else if (opts.staticDir !== null && existsSync(opts.staticDir)) {
     await app.register(fastifyStatic, {
       root: opts.staticDir,
       prefix: '/',
@@ -102,12 +114,14 @@ export async function start(opts: StartOptions): Promise<void> {
   });
 
   await app.listen({ port: opts.port, host: '127.0.0.1' });
-  app.log.info(`lotaru agent on http://127.0.0.1:${String(opts.port)}`);
 
   if (cloudEnabled) {
     const bridge = connectCloudBridge({ dataDir: opts.dataDir, app, bus });
     bridgeStop = bridge.stop;
-    console.log('  waiting for cloud console…');
+    console.log(`\n  agent listening on 127.0.0.1:${String(opts.port)}`);
+    console.log(`  open console → ${CONSOLE_URL}\n`);
+  } else {
+    app.log.info(`lotaru ready on http://127.0.0.1:${String(opts.port)}`);
   }
 }
 
@@ -146,7 +160,12 @@ if (isMainEntry()) {
     }
   }
   const dataDir = join(homedir(), '.lotaru');
-  void start({ port, dataDir, staticDir: defaultStaticDir() }).catch((err: unknown) => {
+  const offline = process.env['LOTARU_OFFLINE'] === '1';
+  void start({
+    port,
+    dataDir,
+    staticDir: offline ? defaultStaticDir() : null,
+  }).catch((err: unknown) => {
     console.error(err);
     process.exit(1);
   });
