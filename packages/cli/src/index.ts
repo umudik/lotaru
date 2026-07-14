@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_PORT = 4317;
+const CONSOLE_URL = process.env['LOTARU_CONSOLE_URL'] ?? 'https://lotaru.fookiecloud.com';
 
 interface StartOptions {
   port: number;
@@ -13,7 +14,7 @@ interface StartOptions {
   staticDir: string | null;
 }
 
-type StartFn = (opts: StartOptions) => Promise<void>;
+type StartFn = (opts: StartOptions) => Promise<{ consoleUrl: string }>;
 
 function resolvePort(): number {
   const envPort = process.env['LOTARU_PORT'];
@@ -28,11 +29,13 @@ function resolvePort(): number {
 }
 
 function resolveStaticDir(): string | null {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [join(here, '..', 'public'), join(here, '..', '..', 'public')];
-  for (const c of candidates) {
-    if (existsSync(c)) {
-      return c;
+  if (process.env['LOTARU_LOCAL_UI'] === '1') {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const candidates = [join(here, '..', 'public'), join(here, '..', '..', 'public')];
+    for (const c of candidates) {
+      if (existsSync(c)) {
+        return c;
+      }
     }
   }
   return null;
@@ -70,9 +73,10 @@ async function main(): Promise<void> {
   const dataDir = join(homedir(), '.lotaru');
   const staticDir = resolveStaticDir();
   const start = await loadStart();
-  const url = `http://127.0.0.1:${String(port)}`;
-  await start({ port, dataDir, staticDir });
-  console.log(`\n  lotaru ready — ${url}\n`);
+  const { consoleUrl } = await start({ port, dataDir, staticDir });
+  const url = consoleUrl.length > 0 ? consoleUrl : CONSOLE_URL;
+  console.log(`\n  lotaru agent ready — local http://127.0.0.1:${String(port)}`);
+  console.log(`  console → ${url}\n`);
   openBrowser(url);
 }
 

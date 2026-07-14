@@ -1,9 +1,16 @@
+import { useEffect, useState } from 'react';
 import { Github } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { GITHUB_URL, signInUrl } from '@/lib/config';
+import { GITHUB_URL, clearSession, getUser, signInUrl } from '@/lib/config';
 
 export function ConsoleTopbar(): React.JSX.Element {
+  const [user, setUser] = useState(getUser());
+
+  useEffect(() => {
+    setUser(getUser());
+  }, []);
+
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-card px-3">
       <a href="/" className="flex items-center gap-2.5 shrink-0">
@@ -30,9 +37,35 @@ export function ConsoleTopbar(): React.JSX.Element {
             <span className="hidden sm:inline">GitHub</span>
           </a>
         </Button>
-        <Button size="sm" asChild>
-          <a href={signInUrl()}>Sign in</a>
-        </Button>
+        {user !== null ? (
+          <>
+            <span className="hidden text-xs text-muted-foreground sm:inline max-w-[160px] truncate">
+              {user.email ?? user.name ?? user.id}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                clearSession();
+                setUser(null);
+                location.reload();
+              }}
+            >
+              Sign out
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="sm"
+            onClick={() => {
+              void signInUrl().then((url) => {
+                location.href = url;
+              });
+            }}
+          >
+            Sign in
+          </Button>
+        )}
       </div>
     </header>
   );

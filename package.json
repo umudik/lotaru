@@ -1,6 +1,6 @@
 {
   "name": "lotaru",
-  "version": "0.1.13",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Local-first real-time task orchestration runtime",
@@ -18,7 +18,9 @@
     "lint": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "npm --workspace @lotaru/server run typecheck && npm --workspace @lotaru/web run typecheck && npm --workspace @lotaru/landing run typecheck",
+    "typecheck": "npm --workspace @lotaru/server run typecheck && npm --workspace @lotaru/web run typecheck && npm --workspace @lotaru/landing run typecheck && npm --workspace @lotaru/gateway run typecheck",
+    "dev:gateway": "npm --workspace @lotaru/gateway run dev",
+    "build:gateway": "npm --workspace @lotaru/landing run build && npm --workspace @lotaru/gateway run build",
     "test": "npm --workspace @lotaru/server run test"
   },
   "devDependencies": {

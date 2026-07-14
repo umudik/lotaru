@@ -504,7 +504,7 @@ export function openStore(dbPath: string): Store {
     },
     closeOpenExecutions(status: ExecutionStatus, endedAt: number): number {
       const result = stmts.closeOpenExecutions.run(status, endedAt);
-      return result.changes;
+      return Number(result.changes);
     },
     listExecutionsByTask(taskId: string, limit: number): Execution[] {
       const rows = stmts.listExecutionsByTask.all(taskId, limit);

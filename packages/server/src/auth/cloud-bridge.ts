@@ -1,0 +1,171 @@
+import WebSocket from 'ws';
+import type { FastifyInstance } from 'fastify';
+import type { EventBus } from '../events/bus.js';
+import { agentHostname, getValidAccessToken, loadCredentials } from './credentials.js';
+
+const DEFAULT_GATEWAY = 'https://lotaru.fookiecloud.com';
+const PACKAGE_VERSION = process.env['LOTARU_VERSION'] ?? '0.2.0';
+
+interface BridgeOptions {
+  dataDir: string;
+  app: FastifyInstance;
+  bus: EventBus;
+  gatewayUrl?: string;
+}
+
+function toWsBase(httpUrl: string): string {
+  const u = new URL(httpUrl);
+  u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+  return u.toString().replace(/\/$/, '');
+}
+
+export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
+  const gateway = (opts.gatewayUrl ?? process.env['LOTARU_GATEWAY_URL'] ?? DEFAULT_GATEWAY).replace(
+    /\/$/,
+    '',
+  );
+  let socket: WebSocket | null = null;
+  let stopped = false;
+  let retryMs = 2000;
+  let unsub: (() => void) | null = null;
+
+  async function handleRequest(msg: Record<string, unknown>): Promise<void> {
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const id = typeof msg['id'] === 'string' ? msg['id'] : null;
+    const method = typeof msg['method'] === 'string' ? msg['method'] : 'GET';
+    const path = typeof msg['path'] === 'string' ? msg['path'] : '/';
+    if (id === null) {
+      return;
+    }
+    const headersRaw = msg['headers'];
+    const headers: Record<string, string> = {};
+    if (typeof headersRaw === 'object' && headersRaw !== null) {
+      for (const [k, v] of Object.entries(headersRaw as Record<string, unknown>)) {
+        if (typeof v === 'string') {
+          headers[k] = v;
+        }
+      }
+    }
+    const body = typeof msg['body'] === 'string' ? msg['body'] : undefined;
+    try {
+      type InjectResult = {
+        statusCode: number;
+        headers: Record<string, unknown>;
+        body: string;
+      };
+      const inject = opts.app.inject.bind(opts.app) as (opts: {
+        method: string;
+        url: string;
+        headers: Record<string, string>;
+        payload?: string;
+      }) => Promise<InjectResult>;
+      const res = await inject({
+        method,
+        url: path,
+        headers,
+        ...(body !== undefined ? { payload: body } : {}),
+      });
+      const outHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(res.headers)) {
+        if (typeof v === 'string') {
+          outHeaders[k] = v;
+        } else if (Array.isArray(v) && typeof v[0] === 'string') {
+          outHeaders[k] = v[0];
+        }
+      }
+      socket.send(
+        JSON.stringify({
+          type: 'http.response',
+          id,
+          status: res.statusCode,
+          headers: outHeaders,
+          body: res.body,
+        }),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'inject failed';
+      socket.send(
+        JSON.stringify({
+          type: 'http.response',
+          id,
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ error: message }),
+        }),
+      );
+    }
+  }
+
+  async function connect(): Promise<void> {
+    if (stopped) {
+      return;
+    }
+    const token = await getValidAccessToken(opts.dataDir);
+    const creds = loadCredentials(opts.dataDir);
+    const userLabel = creds?.user.email ?? creds?.user.id ?? 'user';
+    const wsUrl = new URL(`${toWsBase(gateway)}/v1/agent`);
+    wsUrl.searchParams.set('token', token);
+    wsUrl.searchParams.set('hostname', agentHostname());
+    wsUrl.searchParams.set('version', PACKAGE_VERSION);
+
+    socket = new WebSocket(wsUrl.toString());
+    socket.on('open', () => {
+      retryMs = 2000;
+      console.log(`  cloud bridge connected as ${userLabel} → ${gateway}`);
+      if (unsub === null) {
+        unsub = opts.bus.subscribe((event) => {
+          if (socket !== null && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'event', payload: event }));
+          }
+        });
+      }
+    });
+    socket.on('message', (data) => {
+      let msg: unknown;
+      try {
+        msg = JSON.parse(data.toString()) as unknown;
+      } catch {
+        return;
+      }
+      if (typeof msg !== 'object' || msg === null) {
+        return;
+      }
+      const rec = msg as Record<string, unknown>;
+      if (rec['type'] === 'http.request') {
+        void handleRequest(rec);
+      }
+    });
+    socket.on('close', () => {
+      socket = null;
+      if (stopped) {
+        return;
+      }
+      console.log(`  cloud bridge disconnected — retry in ${String(retryMs)}ms`);
+      setTimeout(() => {
+        void connect();
+      }, retryMs);
+      retryMs = Math.min(retryMs * 2, 30_000);
+    });
+    socket.on('error', () => {
+      void 0;
+    });
+  }
+
+  void connect();
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (unsub !== null) {
+        unsub();
+        unsub = null;
+      }
+      if (socket !== null) {
+        socket.close();
+        socket = null;
+      }
+    },
+  };
+}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { CopyCommand } from '@/components/copy-command';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,14 +11,47 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { signInUrl } from '@/lib/config';
+import { getAccessToken, getUser, signInUrl } from '@/lib/config';
 
-const demoProjects = [
-  { name: 'my-app', path: '~/projects/my-app', tasks: 4, status: 'disconnected' },
-  { name: 'api', path: '~/work/api', tasks: 7, status: 'disconnected' },
-] as const;
+interface AgentStatus {
+  online: boolean;
+  info: { hostname: string; version: string; connectedAt: number } | null;
+}
 
 export function HomeView(): React.JSX.Element {
+  const user = getUser();
+  const [agent, setAgent] = useState<AgentStatus>({ online: false, info: null });
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (token === null) {
+      return;
+    }
+    let cancelled = false;
+    async function tick(): Promise<void> {
+      try {
+        const res = await fetch('/v1/agent/status', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) {
+          return;
+        }
+        const data = (await res.json()) as AgentStatus;
+        setAgent(data);
+      } catch {
+        void 0;
+      }
+    }
+    void tick();
+    const id = window.setInterval(() => {
+      void tick();
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <Card>
@@ -25,29 +59,42 @@ export function HomeView(): React.JSX.Element {
           <div className="space-y-1.5">
             <CardTitle className="text-base">Local agent</CardTitle>
             <CardDescription>
-              Run the Lotaru agent on your machine, then sign in so this console can reach it.
+              Run the Lotaru agent on your machine with the same Fookie account as this console.
             </CardDescription>
           </div>
-          <Badge variant="warn">Not connected</Badge>
+          <Badge variant={agent.online ? 'success' : 'warn'}>
+            {agent.online ? 'Connected' : 'Not connected'}
+          </Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <CopyCommand />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button asChild>
-              <a href={signInUrl()}>Sign in with Fookie</a>
+          {user === null ? (
+            <Button
+              onClick={() => {
+                void signInUrl().then((url) => {
+                  location.href = url;
+                });
+              }}
+            >
+              Sign in with Fookie
             </Button>
+          ) : (
             <p className="text-xs text-muted-foreground">
-              Opens <code className="font-mono text-foreground/80">127.0.0.1:4317</code> · data in{' '}
-              <code className="font-mono text-foreground/80">~/.lotaru/</code>
+              Signed in as {user.email ?? user.id}
+              {agent.online && agent.info !== null
+                ? ` · agent ${agent.info.hostname} v${agent.info.version}`
+                : ' · waiting for agent'}
             </p>
-          </div>
+          )}
         </CardContent>
       </Card>
 
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-medium">Projects</h2>
-          <span className="text-xs text-muted-foreground">Connect an agent to load yours</span>
+          <span className="text-xs text-muted-foreground">
+            {agent.online ? 'Loaded from your agent' : 'Connect an agent to load yours'}
+          </span>
         </div>
         <Card className="overflow-hidden">
           <Table>
@@ -55,21 +102,17 @@ export function HomeView(): React.JSX.Element {
               <TableRow className="hover:bg-transparent">
                 <TableHead>Name</TableHead>
                 <TableHead>Path</TableHead>
-                <TableHead>Tasks</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {demoProjects.map((p) => (
-                <TableRow key={p.name}>
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{p.path}</TableCell>
-                  <TableCell>{p.tasks}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">Disconnected</Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
+              <TableRow>
+                <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                  {agent.online
+                    ? 'Open Tasks after agent sync lands workspaces here.'
+                    : 'No agent online. Run npx @umudik/lotaru and sign in.'}
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </Card>
