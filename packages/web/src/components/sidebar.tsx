@@ -1,11 +1,13 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Cable, Plus } from 'lucide-react';
 import { FookieCloudMark } from '@/components/fookie-cloud-mark';
-import { isCloudHost } from '@/lib/auth';
+import { getUser, isCloudHost } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
 import { useStore } from '@/state/store';
 import { navigate } from '@/app';
+
+const FOOKIE_PROFILE = 'https://fookiecloud.com/profile';
 
 interface NavItemProps {
   href: string;
@@ -42,6 +44,22 @@ export function Sidebar(props: {
 }): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces);
   const cloud = isCloudHost();
+  const user = cloud ? getUser() : null;
+  let displayName = 'Profile';
+  let displayEmail = '';
+  let initial = 'P';
+  if (user !== null) {
+    if (user.name !== null && user.name.length > 0) {
+      displayName = user.name;
+      initial = user.name.charAt(0);
+    } else if (user.email !== null && user.email.length > 0) {
+      displayName = user.email;
+      initial = user.email.charAt(0);
+    }
+    if (user.email !== null) {
+      displayEmail = user.email;
+    }
+  }
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-card/40 border-r flex flex-col">
@@ -104,9 +122,27 @@ export function Sidebar(props: {
           label="MCP"
         />
         {cloud ? (
-          <div className="px-2.5 py-2">
-            <FookieCloudMark size="sm" />
-          </div>
+          <>
+            <a
+              href={FOOKIE_PROFILE}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-secondary/60"
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-semibold uppercase text-primary">
+                {initial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium leading-none text-foreground">{displayName}</p>
+                {displayEmail.length > 0 ? (
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{displayEmail}</p>
+                ) : (
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Fookie Cloud</p>
+                )}
+              </div>
+            </a>
+            <div className="px-2.5 py-2">
+              <FookieCloudMark size="sm" />
+            </div>
+          </>
         ) : null}
       </div>
     </aside>

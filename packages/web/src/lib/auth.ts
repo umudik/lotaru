@@ -106,6 +106,37 @@ async function tokenStillValid(token: string): Promise<boolean> {
   }
 }
 
+type CloudUser = {
+  id: string | null;
+  email: string | null;
+  name: string | null;
+};
+
+function getUser(): CloudUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (raw === null || raw === '') {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    let id: string | null = null;
+    let email: string | null = null;
+    let name: string | null = null;
+    if (typeof parsed['id'] === 'string') {
+      id = parsed['id'];
+    }
+    if (typeof parsed['email'] === 'string') {
+      email = parsed['email'];
+    }
+    if (typeof parsed['name'] === 'string') {
+      name = parsed['name'];
+    }
+    return { id, email, name };
+  } catch {
+    return null;
+  }
+}
+
 export {
   AUTH,
   isCloudHost,
@@ -114,4 +145,5 @@ export {
   clearSession,
   exchangeCode,
   tokenStillValid,
+  getUser,
 };
