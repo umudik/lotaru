@@ -43,7 +43,7 @@ export function Sidebar(props: { activeWorkspaceId?: string | undefined }): Reac
     <aside
       className={cn(
         'fixed left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col',
-        cloud ? 'top-10' : 'top-0',
+        cloud ? 'top-12' : 'top-0',
       )}
     >
       <button
@@ -58,7 +58,7 @@ export function Sidebar(props: { activeWorkspaceId?: string | undefined }): Reac
         </div>
         <div className="flex flex-col items-start">
           <span className="text-sm font-semibold tracking-tight">Lotaru</span>
-          <span className="text-[10px] text-muted-foreground font-mono">v0.1</span>
+          <span className="text-[10px] text-muted-foreground">Local Task Runner</span>
         </div>
       </button>
 

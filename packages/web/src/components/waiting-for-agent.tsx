@@ -2,6 +2,7 @@ import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { BrandSplash } from '@/components/brand-splash';
 import { CloudTopBar } from '@/components/cloud-top-bar';
+import { McpSetup } from '@/components/mcp-setup';
 import { Button } from '@/components/ui/button';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
 
@@ -25,7 +26,7 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
   return (
     <div className="min-h-screen flex flex-col">
       <CloudTopBar agentOnline={false} agentInfo={null} />
-      <div className="flex-1 grid place-items-center px-6">
+      <div className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-lg space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary grid place-items-center text-primary-foreground font-bold">
@@ -33,7 +34,7 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
             </div>
             <div>
               <div className="text-lg font-semibold tracking-tight">Lotaru</div>
-              <div className="text-sm text-muted-foreground">Waiting for your local backend</div>
+              <div className="text-sm text-muted-foreground">Local Task Runner</div>
             </div>
           </div>
 
@@ -58,19 +59,9 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Use the same Fookie account as this browser session. API keys live on your{' '}
-              <a
-                href="https://fookiecloud.com/profile"
-                className="fookie-cloud-word font-medium hover:opacity-90"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Fookie Cloud
-              </a>{' '}
-              profile.
-            </p>
           </div>
+
+          <McpSetup />
         </div>
       </div>
     </div>

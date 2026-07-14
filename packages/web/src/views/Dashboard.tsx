@@ -27,6 +27,7 @@ import { api } from '@/api/client';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { ProjectImportDialog } from '@/components/project-import-dialog';
 import { ProjectSettingsDialog } from '@/components/project-settings';
+import { McpSetup } from '@/components/mcp-setup';
 import { isProjectExportBundle } from '@/lib/project-export';
 import type { ProjectExportBundle } from '@/lib/project-export';
 import { navigate } from '@/app';
@@ -403,9 +404,7 @@ export function DashboardView(): React.JSX.Element {
       <header className="flex items-end justify-between gap-4 pb-6 border-b">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Local workspaces and task orchestration.
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Local Task Runner</p>
         </div>
         {!adding && (
           <div className="flex items-center gap-2 shrink-0">
@@ -459,6 +458,10 @@ export function DashboardView(): React.JSX.Element {
         {workspaces.map((w) => (
           <ProjectCard key={w.id} workspace={w} />
         ))}
+      </div>
+
+      <div className="max-w-lg">
+        <McpSetup />
       </div>
     </div>
   );
