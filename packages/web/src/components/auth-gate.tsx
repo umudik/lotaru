@@ -78,6 +78,8 @@ export function AuthGate(props: Props): React.JSX.Element {
           type="button"
           className="text-primary underline"
           onClick={() => {
+            history.replaceState({}, '', '/');
+            clearSession();
             void signInUrl().then((href) => {
               location.href = href;
             });
