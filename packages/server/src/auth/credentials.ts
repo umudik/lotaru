@@ -228,6 +228,18 @@ export async function getValidAccessToken(dataDir: string): Promise<string> {
   return refreshed.access_token;
 }
 
+export async function getValidAccessTokenSilent(dataDir: string): Promise<string> {
+  const existing = loadCredentials(dataDir);
+  if (existing === null) {
+    throw new Error('no credentials');
+  }
+  if (existing.expires_at > Date.now() + 60_000) {
+    return existing.access_token;
+  }
+  const refreshed = await refreshCredentials(dataDir, existing);
+  return refreshed.access_token;
+}
+
 export function agentHostname(): string {
   return osHostname();
 }

@@ -1,10 +1,13 @@
 import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
 import type { EventBus } from '../events/bus.js';
-import { agentHostname, getValidAccessToken, loadCredentials } from './credentials.js';
+import { agentHostname, getValidAccessTokenSilent, loadCredentials } from './credentials.js';
 
 const DEFAULT_GATEWAY = 'https://lotaru.fookiecloud.com';
 const PACKAGE_VERSION = process.env['LOTARU_VERSION'] ?? '0.2.0';
+const HEARTBEAT_MS = 20_000;
+const PONG_TIMEOUT_MS = 12_000;
+const MAX_RETRY_MS = 30_000;
 
 interface BridgeOptions {
   dataDir: string;
@@ -28,6 +31,81 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
   let stopped = false;
   let retryMs = 2000;
   let unsub: (() => void) | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let pongTimer: ReturnType<typeof setTimeout> | null = null;
+  let connecting = false;
+
+  function clearHeartbeat(): void {
+    if (heartbeatTimer !== null) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (pongTimer !== null) {
+      clearTimeout(pongTimer);
+      pongTimer = null;
+    }
+  }
+
+  function forceCloseSocket(reason: string): void {
+    const s = socket;
+    if (s === null) {
+      return;
+    }
+    console.log(`  cloud bridge force close (${reason})`);
+    try {
+      s.terminate();
+    } catch {
+      void 0;
+    }
+    socket = null;
+  }
+
+  function startHeartbeat(active: WebSocket): void {
+    clearHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (stopped || socket !== active) {
+        return;
+      }
+      if (active.readyState !== WebSocket.OPEN) {
+        forceCloseSocket('not open');
+        scheduleReconnect();
+        return;
+      }
+      try {
+        active.send(JSON.stringify({ type: 'ping', at: Date.now() }));
+      } catch {
+        forceCloseSocket('ping send failed');
+        scheduleReconnect();
+        return;
+      }
+      if (pongTimer !== null) {
+        clearTimeout(pongTimer);
+      }
+      pongTimer = setTimeout(() => {
+        if (stopped || socket !== active) {
+          return;
+        }
+        forceCloseSocket('pong timeout');
+        scheduleReconnect();
+      }, PONG_TIMEOUT_MS);
+    }, HEARTBEAT_MS);
+  }
+
+  function scheduleReconnect(): void {
+    if (stopped) {
+      return;
+    }
+    if (retryTimer !== null) {
+      return;
+    }
+    console.log(`  cloud bridge reconnect in ${String(retryMs)}ms`);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void connect();
+    }, retryMs);
+    retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
+  }
 
   async function handleRequest(msg: Record<string, unknown>): Promise<void> {
     if (socket === null || socket.readyState !== WebSocket.OPEN) {
@@ -99,58 +177,93 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
   }
 
   async function connect(): Promise<void> {
-    if (stopped) {
+    if (stopped || connecting) {
       return;
     }
-    const token = await getValidAccessToken(opts.dataDir);
-    const creds = loadCredentials(opts.dataDir);
-    const userLabel = creds?.user.email ?? creds?.user.id ?? 'user';
-    const wsUrl = new URL(`${toWsBase(gateway)}/v1/agent`);
-    wsUrl.searchParams.set('token', token);
-    wsUrl.searchParams.set('hostname', agentHostname());
-    wsUrl.searchParams.set('version', PACKAGE_VERSION);
+    connecting = true;
+    clearHeartbeat();
+    try {
+      const token = await getValidAccessTokenSilent(opts.dataDir);
+      const creds = loadCredentials(opts.dataDir);
+      const userLabel = creds?.user.email ?? creds?.user.id ?? 'user';
+      const wsUrl = new URL(`${toWsBase(gateway)}/v1/agent`);
+      wsUrl.searchParams.set('token', token);
+      wsUrl.searchParams.set('hostname', agentHostname());
+      wsUrl.searchParams.set('version', PACKAGE_VERSION);
 
-    socket = new WebSocket(wsUrl.toString());
-    socket.on('open', () => {
-      retryMs = 2000;
-      console.log(`  cloud bridge connected as ${userLabel} → ${gateway}`);
-      if (unsub === null) {
-        unsub = opts.bus.subscribe((event) => {
-          if (socket !== null && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'event', payload: event }));
+      if (socket !== null) {
+        try {
+          socket.terminate();
+        } catch {
+          void 0;
+        }
+        socket = null;
+      }
+
+      const active = new WebSocket(wsUrl.toString());
+      socket = active;
+
+      active.on('open', () => {
+        retryMs = 2000;
+        console.log(`  cloud bridge connected as ${userLabel} → ${gateway}`);
+        startHeartbeat(active);
+        if (unsub === null) {
+          unsub = opts.bus.subscribe((event) => {
+            if (socket !== null && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'event', payload: event }));
+            }
+          });
+        }
+      });
+
+      active.on('message', (data) => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(data.toString()) as unknown;
+        } catch {
+          return;
+        }
+        if (typeof msg !== 'object' || msg === null) {
+          return;
+        }
+        const rec = msg as Record<string, unknown>;
+        if (rec['type'] === 'pong') {
+          if (pongTimer !== null) {
+            clearTimeout(pongTimer);
+            pongTimer = null;
           }
-        });
-      }
-    });
-    socket.on('message', (data) => {
-      let msg: unknown;
-      try {
-        msg = JSON.parse(data.toString()) as unknown;
-      } catch {
-        return;
-      }
-      if (typeof msg !== 'object' || msg === null) {
-        return;
-      }
-      const rec = msg as Record<string, unknown>;
-      if (rec['type'] === 'http.request') {
-        void handleRequest(rec);
-      }
-    });
-    socket.on('close', () => {
-      socket = null;
-      if (stopped) {
-        return;
-      }
-      console.log(`  cloud bridge disconnected — retry in ${String(retryMs)}ms`);
-      setTimeout(() => {
-        void connect();
-      }, retryMs);
-      retryMs = Math.min(retryMs * 2, 30_000);
-    });
-    socket.on('error', () => {
-      void 0;
-    });
+          return;
+        }
+        if (rec['type'] === 'http.request') {
+          void handleRequest(rec);
+        }
+      });
+
+      active.on('close', () => {
+        if (socket === active) {
+          socket = null;
+        }
+        clearHeartbeat();
+        if (stopped) {
+          return;
+        }
+        console.log(`  cloud bridge disconnected`);
+        scheduleReconnect();
+      });
+
+      active.on('error', (err) => {
+        console.log(
+          `  cloud bridge socket error: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+      });
+    } catch (err) {
+      console.log(
+        `  cloud bridge connect failed: ${err instanceof Error ? err.message : 'unknown'}`,
+      );
+      scheduleReconnect();
+    } finally {
+      connecting = false;
+    }
   }
 
   void connect();
@@ -158,6 +271,11 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
   return {
     stop: () => {
       stopped = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      clearHeartbeat();
       if (unsub !== null) {
         unsub();
         unsub = null;

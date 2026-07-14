@@ -159,6 +159,12 @@ export function handleAgentMessage(userId: string, raw: string): void {
     return;
   }
   const rec = msg as Record<string, unknown>;
+  if (rec['type'] === 'ping') {
+    if (session.socket.readyState === 1) {
+      session.socket.send(JSON.stringify({ type: 'pong', at: Date.now() }));
+    }
+    return;
+  }
   if (rec['type'] === 'http.response' && typeof rec['id'] === 'string') {
     const pending = session.pending.get(rec['id']);
     if (pending === undefined) {
