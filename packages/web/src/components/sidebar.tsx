@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { Plus } from 'lucide-react';
+import { Cable, Plus } from 'lucide-react';
 import { isCloudHost } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
@@ -35,7 +35,10 @@ function NavItem(props: NavItemProps): React.JSX.Element {
   );
 }
 
-export function Sidebar(props: { activeWorkspaceId?: string | undefined }): React.JSX.Element {
+export function Sidebar(props: {
+  activeWorkspaceId?: string | undefined;
+  activePage?: 'list' | 'mcp' | undefined;
+}): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces);
   const cloud = isCloudHost();
 
@@ -102,6 +105,15 @@ export function Sidebar(props: { activeWorkspaceId?: string | undefined }): Reac
           </div>
         </div>
       </nav>
+
+      <div className="shrink-0 border-t px-2 py-2">
+        <NavItem
+          href="/mcp"
+          active={props.activePage === 'mcp'}
+          icon={<Cable className="w-4 h-4" />}
+          label="MCP"
+        />
+      </div>
     </aside>
   );
 }

@@ -27,7 +27,6 @@ import { api } from '@/api/client';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { ProjectImportDialog } from '@/components/project-import-dialog';
 import { ProjectSettingsDialog } from '@/components/project-settings';
-import { McpSetup } from '@/components/mcp-setup';
 import { isProjectExportBundle } from '@/lib/project-export';
 import type { ProjectExportBundle } from '@/lib/project-export';
 import { navigate } from '@/app';
@@ -458,10 +457,6 @@ export function DashboardView(): React.JSX.Element {
         {workspaces.map((w) => (
           <ProjectCard key={w.id} workspace={w} />
         ))}
-      </div>
-
-      <div className="max-w-lg">
-        <McpSetup />
       </div>
     </div>
   );

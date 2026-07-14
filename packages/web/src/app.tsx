@@ -7,9 +7,13 @@ import { useAgentConnection } from '@/hooks/use-agent-connection';
 import { isCloudHost } from '@/lib/auth';
 import { useBootstrap, useStore } from '@/state/store';
 import { DashboardView } from '@/views/Dashboard';
+import { McpView } from '@/views/Mcp';
 import { WorkspaceView } from '@/views/Workspace';
 
-type Route = { kind: 'list' } | { kind: 'workspace'; id: string };
+type Route =
+  | { kind: 'list' }
+  | { kind: 'mcp' }
+  | { kind: 'workspace'; id: string };
 
 function parsePathWithTaskRedirect(pathname: string): {
   route: Route;
@@ -18,6 +22,9 @@ function parsePathWithTaskRedirect(pathname: string): {
   const clean = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
   if (clean === '' || clean === 'dashboard') {
     return { route: { kind: 'list' }, taskRedirect: null };
+  }
+  if (clean === 'mcp') {
+    return { route: { kind: 'mcp' }, taskRedirect: null };
   }
   const parts = clean.split('/');
   if (parts.length === 2 && parts[0] === 'workspace' && typeof parts[1] === 'string') {
@@ -80,6 +87,7 @@ function useRouteWithRedirect(): { route: Route; taskRedirect: string | null } {
 function Shell(props: {
   children: React.ReactNode;
   activeWorkspaceId?: string | undefined;
+  activePage?: 'list' | 'mcp' | undefined;
   agentOnline: boolean;
   agentInfo: ReturnType<typeof useAgentConnection>['info'];
 }): React.JSX.Element {
@@ -88,7 +96,10 @@ function Shell(props: {
     <div className="min-h-screen flex flex-col">
       {cloud ? <CloudTopBar agentOnline={props.agentOnline} agentInfo={props.agentInfo} /> : null}
       <div className="relative flex-1">
-        <Sidebar activeWorkspaceId={props.activeWorkspaceId} />
+        <Sidebar
+          activeWorkspaceId={props.activeWorkspaceId}
+          activePage={props.activePage}
+        />
         <main className={cloud ? 'pl-60 pt-0 min-h-[calc(100vh-3rem)]' : 'pl-60 min-h-screen'}>
           {props.children}
         </main>
@@ -126,8 +137,18 @@ function ConnectedApp(props: {
     );
   }
 
+  if (route.kind === 'mcp') {
+    return (
+      <Shell activePage="mcp" agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
+        <div className="max-w-[1600px] mx-auto px-8 py-8">
+          <McpView />
+        </div>
+      </Shell>
+    );
+  }
+
   return (
-    <Shell agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
+    <Shell activePage="list" agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
       <div className="max-w-[1600px] mx-auto px-8 py-8">
         <DashboardView />
       </div>
