@@ -60,21 +60,15 @@ export function Sidebar(props: {
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-card/40 border-r flex flex-col">
-      {cloud ? (
-        <div className="flex h-14 shrink-0 items-center border-b px-4">
-          <FookieCloudMark />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            navigate('/');
-          }}
-          className="flex items-center px-4 h-14 border-b hover:bg-secondary/40 transition-colors w-full text-left"
-        >
-          <span className="text-sm font-semibold tracking-tight">Lotaru</span>
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => {
+          navigate('/');
+        }}
+        className="flex items-center px-4 h-14 border-b hover:bg-secondary/40 transition-colors w-full text-left"
+      >
+        <span className="text-sm font-semibold tracking-tight">Lotaru</span>
+      </button>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -127,7 +121,10 @@ export function Sidebar(props: {
       </nav>
 
       {cloud ? (
-        <div className="shrink-0 border-t px-2 py-2">
+        <div className="shrink-0 border-t px-2 py-2 space-y-1">
+          <div className="px-2.5 py-2">
+            <FookieCloudMark size="sm" />
+          </div>
           <a
             href={FOOKIE_PROFILE}
             className="flex w-full items-center rounded-md px-2.5 py-2 text-left transition-colors hover:bg-secondary/60"
