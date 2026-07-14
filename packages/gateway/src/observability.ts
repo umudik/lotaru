@@ -1,19 +1,25 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import client from 'prom-client';
+import {
+  Registry,
+  Counter,
+  Histogram,
+  Gauge,
+  collectDefaultMetrics,
+} from 'prom-client';
 
 const SERVICE = 'lotaru';
 
-const register = new client.Registry();
-client.collectDefaultMetrics({ register, prefix: 'lotaru_' });
+const register = new Registry();
+collectDefaultMetrics({ register, prefix: 'lotaru_' });
 
-const httpRequests = new client.Counter({
+const httpRequests = new Counter({
   name: 'http_requests_total',
   help: 'Total HTTP requests',
   labelNames: ['service', 'method', 'route', 'status_class'] as const,
   registers: [register],
 });
 
-const httpDuration = new client.Histogram({
+const httpDuration = new Histogram({
   name: 'http_request_duration_seconds',
   help: 'HTTP request duration',
   labelNames: ['service', 'method', 'route', 'status_class'] as const,
@@ -21,7 +27,7 @@ const httpDuration = new client.Histogram({
   registers: [register],
 });
 
-const httpInFlight = new client.Gauge({
+const httpInFlight = new Gauge({
   name: 'http_requests_in_flight',
   help: 'In-flight HTTP requests',
   labelNames: ['service'] as const,
