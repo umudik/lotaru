@@ -2,7 +2,7 @@
   "name": "@umudik/lotaru-mcp",
   "version": "0.1.1",
   "private": false,
-  "description": "MCP server for Lotaru — create and run tasks from Cursor",
+  "description": "MCP server for Lotaru - create and run tasks from Cursor",
   "type": "module",
   "license": "MIT",
   "publishConfig": {

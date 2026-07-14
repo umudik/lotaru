@@ -88,7 +88,10 @@ jobs:
           const pkg = JSON.parse(readFileSync(path, 'utf8'));
           let published = '0.0.0';
           try {
-            published = execSync('npm view @umudik/lotaru-mcp version', { encoding: 'utf8' }).trim();
+            published = execSync('npm view @umudik/lotaru-mcp version', {
+              encoding: 'utf8',
+              env: process.env,
+            }).trim();
           } catch {}
           const parse = (v) => v.split('.').map((n) => Number(n));
           const cmp = (a, b) => {
@@ -114,6 +117,7 @@ jobs:
           npm install --package-lock-only
           npm run build -w @umudik/lotaru-mcp
           npm publish -w @umudik/lotaru-mcp --access public
+          npm access public @umudik/lotaru-mcp || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
