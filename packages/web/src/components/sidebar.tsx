@@ -61,7 +61,6 @@ export function Sidebar(props: {
         </div>
         <div className="flex flex-col items-start">
           <span className="text-sm font-semibold tracking-tight">Lotaru</span>
-          <span className="text-[10px] text-muted-foreground">Local Task Runner</span>
         </div>
       </button>
 

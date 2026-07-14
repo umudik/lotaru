@@ -14,7 +14,7 @@ export function BrandSplash(props: {
           <div className="text-lg font-semibold tracking-tight">{props.title}</div>
           <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
             <span>by</span>
-            <FookieCloudMark size="md" className="inline-flex items-baseline gap-0 text-sm font-semibold tracking-tight" />
+            <FookieCloudMark size="md" />
           </div>
           {props.subtitle !== undefined ? (
             <p className="pt-2 text-xs text-muted-foreground">{props.subtitle}</p>

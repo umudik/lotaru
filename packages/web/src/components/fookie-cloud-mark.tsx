@@ -13,7 +13,7 @@ export function FookieCloudMark(props: {
       href={href}
       className={
         props.className ??
-        `inline-flex items-baseline gap-0 ${text} font-bold tracking-[-0.04em] hover:opacity-90 transition-opacity`
+        `inline-flex items-baseline gap-0 ${text} font-bold tracking-[-0.02em] hover:opacity-90 transition-opacity`
       }
     >
       <span className="text-foreground">Fookie</span>

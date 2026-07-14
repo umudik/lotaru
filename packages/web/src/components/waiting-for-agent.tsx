@@ -34,7 +34,6 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
             </div>
             <div>
               <div className="text-lg font-semibold tracking-tight">Lotaru</div>
-              <div className="text-sm text-muted-foreground">Local Task Runner</div>
             </div>
           </div>
 

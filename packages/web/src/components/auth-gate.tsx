@@ -10,6 +10,16 @@ import {
   tokenStillValid,
 } from '@/lib/auth';
 
+const MIN_SPLASH_MS = 2000;
+
+function waitAtLeast(startedAt: number): Promise<void> {
+  const left = MIN_SPLASH_MS - (Date.now() - startedAt);
+  if (left <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, left);
+  });
+}
+
 interface Props {
   children: React.ReactNode;
 }
@@ -25,6 +35,16 @@ export function AuthGate(props: Props): React.JSX.Element {
       return;
     }
 
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    async function goSignIn(): Promise<void> {
+      const href = await signInUrl();
+      await waitAtLeast(startedAt);
+      if (cancelled) return;
+      location.href = href;
+    }
+
     const url = new URL(location.href);
     if (url.pathname === '/callback') {
       const code = url.searchParams.get('code');
@@ -36,36 +56,58 @@ export function AuthGate(props: Props): React.JSX.Element {
       }
       setBoot('auth');
       void exchangeCode(code, state)
-        .then(() => {
+        .then(async () => {
+          await waitAtLeast(startedAt);
+          if (cancelled) return;
           history.replaceState({}, '', '/');
           setBoot('ready');
         })
         .catch((err: unknown) => {
           clearSession();
-          setBoot('error');
-          setAuthError(err instanceof Error ? err.message : 'Auth failed');
+          if (!cancelled) {
+            setBoot('error');
+            setAuthError(err instanceof Error ? err.message : 'Auth failed');
+          }
         });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     const token = getAccessToken();
     if (token === null) {
-      void signInUrl().then((href) => {
-        location.href = href;
+      void goSignIn().catch((err: unknown) => {
+        if (!cancelled) {
+          setBoot('error');
+          setAuthError(err instanceof Error ? err.message : 'Sign in failed');
+        }
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    void tokenStillValid(token).then((ok) => {
-      if (ok) {
-        setBoot('ready');
-        return;
-      }
-      clearSession();
-      void signInUrl().then((href) => {
-        location.href = href;
+    void tokenStillValid(token)
+      .then(async (ok) => {
+        if (ok) {
+          await waitAtLeast(startedAt);
+          if (cancelled) return;
+          setBoot('ready');
+          return;
+        }
+        clearSession();
+        await goSignIn();
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setBoot('error');
+          setAuthError(err instanceof Error ? err.message : 'Auth failed');
+        }
       });
-    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (boot === 'skip' || boot === 'ready') {
@@ -97,7 +139,7 @@ export function AuthGate(props: Props): React.JSX.Element {
   return (
     <BrandSplash
       title="Lotaru"
-      subtitle={boot === 'auth' ? 'Signing in…' : 'Redirecting to sign in…'}
+      subtitle={boot === 'auth' ? 'Signing in…' : 'Loading…'}
     />
   );
 }
