@@ -11,16 +11,16 @@ export function CloudTopBar(props: {
   }
 
   const online = props.agentOnline === true;
+  const host = props.agentInfo?.hostname?.trim();
   let statusLabel = 'Waiting for agent';
   if (online) {
-    const host = props.agentInfo?.hostname;
-    statusLabel = host !== undefined && host.length > 0 ? host : 'Agent connected';
+    statusLabel = host !== undefined && host.length > 0 ? `Agent · ${host}` : 'Agent connected';
   }
 
   return (
-    <div className="sticky top-0 z-30 flex h-10 items-center justify-between gap-3 border-b border-border/60 bg-background/85 px-4 backdrop-blur-md">
-      <FookieCloudMark size="sm" />
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur-md">
+      <FookieCloudMark size="md" />
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className={
             online
@@ -28,7 +28,7 @@ export function CloudTopBar(props: {
               : 'inline-block h-1.5 w-1.5 rounded-full bg-warn animate-pulse'
           }
         />
-        <span className="truncate max-w-[14rem]">{statusLabel}</span>
+        <span className="truncate max-w-[16rem] font-medium tracking-tight">{statusLabel}</span>
       </div>
     </div>
   );

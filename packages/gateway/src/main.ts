@@ -160,9 +160,13 @@ async function main(): Promise<void> {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.body !== undefined) {
       body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     }
-    const headers: Record<string, string> = {
-      'content-type': req.headers['content-type'] ?? 'application/json',
-    };
+    const headers: Record<string, string> = {};
+    const contentType = req.headers['content-type'];
+    if (typeof contentType === 'string' && contentType.length > 0) {
+      headers['content-type'] = contentType;
+    } else if (body !== null && body.length > 0) {
+      headers['content-type'] = 'application/json';
+    }
     try {
       const res = await proxyHttp(user.id, req.method, path, headers, body);
       for (const [k, v] of Object.entries(res.headers)) {

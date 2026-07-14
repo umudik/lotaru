@@ -127,6 +127,11 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
       }
     }
     const body = typeof msg['body'] === 'string' ? msg['body'] : undefined;
+    const hasPayload = body !== undefined && body.length > 0;
+    if (!hasPayload) {
+      delete headers['content-type'];
+      delete headers['Content-Type'];
+    }
     try {
       type InjectResult = {
         statusCode: number;
@@ -143,7 +148,7 @@ export function connectCloudBridge(opts: BridgeOptions): { stop: () => void } {
         method,
         url: path,
         headers,
-        ...(body !== undefined ? { payload: body } : {}),
+        ...(hasPayload ? { payload: body } : {}),
       });
       const outHeaders: Record<string, string> = {};
       for (const [k, v] of Object.entries(res.headers)) {
