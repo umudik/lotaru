@@ -6,18 +6,14 @@ export function FookieCloudMark(props: {
   className?: string;
 }): React.JSX.Element {
   const href = props.href ?? FOOKIE_CLOUD;
-  const size = props.size ?? 'sm';
-  const text = size === 'md' ? 'text-[1.05rem]' : 'text-[0.95rem]';
+  const size = props.size ?? 'md';
+  const sizeClass = size === 'sm' ? 'fookie-cloud-mark--sm' : '';
+  const classes = ['fookie-cloud-mark', sizeClass, props.className]
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .join(' ');
   return (
-    <a
-      href={href}
-      className={
-        props.className ??
-        `inline-flex items-baseline gap-0 ${text} font-bold tracking-[-0.02em] hover:opacity-90 transition-opacity`
-      }
-    >
-      <span className="text-foreground">Fookie</span>
-      <span className="fookie-cloud-word">Cloud</span>
+    <a href={href} className={classes}>
+      Fookie<span className="fookie-cloud-word">Cloud</span>
     </a>
   );
 }

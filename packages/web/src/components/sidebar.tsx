@@ -46,7 +46,7 @@ export function Sidebar(props: {
     <aside
       className={cn(
         'fixed left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col',
-        cloud ? 'top-12' : 'top-0',
+        cloud ? 'top-14' : 'top-0',
       )}
     >
       <button
@@ -54,14 +54,9 @@ export function Sidebar(props: {
         onClick={() => {
           navigate('/');
         }}
-        className="flex items-center gap-2.5 px-4 h-14 border-b hover:bg-secondary/40 transition-colors w-full text-left"
+        className="flex items-center px-4 h-14 border-b hover:bg-secondary/40 transition-colors w-full text-left"
       >
-        <div className="w-7 h-7 rounded-lg bg-primary grid place-items-center text-primary-foreground font-bold text-sm">
-          L
-        </div>
-        <div className="flex flex-col items-start">
-          <span className="text-sm font-semibold tracking-tight">Lotaru</span>
-        </div>
+        <span className="text-sm font-semibold tracking-tight">Lotaru</span>
       </button>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">

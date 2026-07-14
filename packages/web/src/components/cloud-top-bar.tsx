@@ -18,7 +18,7 @@ export function CloudTopBar(props: {
   }
 
   return (
-    <div className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur-md">
+    <div className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-6 backdrop-blur-md">
       <FookieCloudMark size="md" />
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span

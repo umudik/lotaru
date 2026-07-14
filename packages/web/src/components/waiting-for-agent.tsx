@@ -28,13 +28,8 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
       <CloudTopBar agentOnline={false} agentInfo={null} />
       <div className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-lg space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary grid place-items-center text-primary-foreground font-bold">
-              L
-            </div>
-            <div>
-              <div className="text-lg font-semibold tracking-tight">Lotaru</div>
-            </div>
+          <div>
+            <div className="text-lg font-semibold tracking-tight">Lotaru</div>
           </div>
 
           <div className="rounded-xl border bg-card/50 p-5 space-y-3">
