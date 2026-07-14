@@ -39,7 +39,18 @@ export function connectStream(): Stream {
         return;
       }
       const rec = parsed as Record<string, unknown>;
-      if (rec['type'] === 'agent.status' || rec['type'] === 'agent.welcome') {
+      if (rec['type'] === 'agent.status') {
+        window.dispatchEvent(
+          new CustomEvent('lotaru:agent', {
+            detail: {
+              online: rec['online'] === true,
+              info: (rec['info'] as { hostname: string; version: string; connectedAt: number } | null) ?? null,
+            },
+          }),
+        );
+        return;
+      }
+      if (rec['type'] === 'agent.welcome') {
         return;
       }
       const msg = parsed as ServerMessage;

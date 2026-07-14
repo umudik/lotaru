@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
+import { WaitingForAgent } from '@/components/waiting-for-agent';
+import { useAgentConnection } from '@/hooks/use-agent-connection';
+import { isCloudHost } from '@/lib/auth';
 import { useBootstrap, useStore } from '@/state/store';
 import { DashboardView } from '@/views/Dashboard';
 import { WorkspaceView } from '@/views/Workspace';
@@ -92,7 +95,7 @@ function useRouteWithRedirect(): { route: Route; taskRedirect: string | null } {
   return parsed;
 }
 
-export function App(): React.JSX.Element {
+function ConnectedApp(): React.JSX.Element {
   const { ready } = useBootstrap();
   const { route, taskRedirect } = useRouteWithRedirect();
 
@@ -127,4 +130,20 @@ export function App(): React.JSX.Element {
       </main>
     </div>
   );
+}
+
+export function App(): React.JSX.Element {
+  const agent = useAgentConnection();
+
+  if (isCloudHost()) {
+    if (agent.checking) {
+      return <BootSplash />;
+    }
+    if (!agent.online) {
+      return <WaitingForAgent info={agent.info} />;
+    }
+    return <ConnectedApp key="connected" />;
+  }
+
+  return <ConnectedApp />;
 }

@@ -29,10 +29,11 @@ export async function start(opts: StartOptions): Promise<void> {
   const logsDir = join(opts.dataDir, 'logs');
   mkdirSync(logsDir, { recursive: true });
 
-  const cloudEnabled = process.env['LOTARU_CLOUD'] === '1';
+  const cloudEnabled = process.env['LOTARU_OFFLINE'] !== '1';
   if (cloudEnabled) {
+    console.log('\n  Sign in with Fookie to connect this machine as your Lotaru backend…\n');
     const creds = await ensureAuth(opts.dataDir);
-    console.log(`  cloud mode — signed in as ${creds.user.email ?? creds.user.id}`);
+    console.log(`  signed in as ${creds.user.email ?? creds.user.id}`);
   }
 
   const store = openStore(dbPath);
@@ -101,11 +102,12 @@ export async function start(opts: StartOptions): Promise<void> {
   });
 
   await app.listen({ port: opts.port, host: '127.0.0.1' });
-  app.log.info(`lotaru ready on http://127.0.0.1:${String(opts.port)}`);
+  app.log.info(`lotaru agent on http://127.0.0.1:${String(opts.port)}`);
 
   if (cloudEnabled) {
     const bridge = connectCloudBridge({ dataDir: opts.dataDir, app, bus });
     bridgeStop = bridge.stop;
+    console.log('  waiting for cloud console…');
   }
 }
 
