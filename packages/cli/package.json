@@ -1,6 +1,6 @@
 {
   "name": "@umudik/lotaru",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Lotaru local agent — Fookie auth + cloud console task orchestration",
   "type": "module",
   "license": "MIT",
