@@ -1,6 +1,7 @@
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { BrandSplash } from '@/components/brand-splash';
+import { FookieCloudMark } from '@/components/fookie-cloud-mark';
 import { Button } from '@/components/ui/button';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
 
@@ -25,8 +26,9 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
     <div className="min-h-screen flex flex-col">
       <div className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-lg space-y-6">
-          <div>
+          <div className="flex items-center justify-between gap-4">
             <div className="text-lg font-semibold tracking-tight">Lotaru</div>
+            <FookieCloudMark size="sm" />
           </div>
 
           <div className="rounded-xl border bg-card/50 p-5 space-y-3">
