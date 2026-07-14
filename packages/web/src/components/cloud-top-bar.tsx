@@ -1,6 +1,7 @@
-import { FookieCloudMark } from '@/components/fookie-cloud-mark';
 import { isCloudHost } from '@/lib/auth';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
+
+const FOOKIE_CLOUD = 'https://fookiecloud.com';
 
 export function CloudTopBar(props: {
   agentOnline?: boolean;
@@ -18,8 +19,13 @@ export function CloudTopBar(props: {
   }
 
   return (
-    <div className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-6 backdrop-blur-md">
-      <FookieCloudMark size="md" />
+    <div className="sticky top-0 z-30 flex h-10 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur-md">
+      <a
+        href={FOOKIE_CLOUD}
+        className="text-xs font-medium tracking-tight text-muted-foreground hover:text-foreground transition-colors"
+      >
+        Apps
+      </a>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className={

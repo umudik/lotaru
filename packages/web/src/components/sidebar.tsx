@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Cable, Plus } from 'lucide-react';
+import { FookieCloudMark } from '@/components/fookie-cloud-mark';
 import { isCloudHost } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
@@ -46,7 +47,7 @@ export function Sidebar(props: {
     <aside
       className={cn(
         'fixed left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col',
-        cloud ? 'top-14' : 'top-0',
+        cloud ? 'top-10' : 'top-0',
       )}
     >
       <button
@@ -100,13 +101,18 @@ export function Sidebar(props: {
         </div>
       </nav>
 
-      <div className="shrink-0 border-t px-2 py-2">
+      <div className="shrink-0 border-t px-2 py-2 space-y-1">
         <NavItem
           href="/mcp"
           active={props.activePage === 'mcp'}
           icon={<Cable className="w-4 h-4" />}
           label="MCP"
         />
+        {cloud ? (
+          <div className="px-2.5 py-2">
+            <FookieCloudMark size="sm" />
+          </div>
+        ) : null}
       </div>
     </aside>
   );

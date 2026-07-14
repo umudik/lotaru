@@ -139,21 +139,22 @@
 .fookie-cloud-mark {
   display: inline-flex;
   align-items: baseline;
-  font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  color: hsl(var(--foreground));
+  color: hsl(var(--muted-foreground));
   text-decoration: none;
   transition: opacity 0.15s ease;
 }
 
 .fookie-cloud-mark:hover {
   opacity: 0.9;
+  color: hsl(var(--foreground));
 }
 
 .fookie-cloud-mark--sm {
-  font-size: 0.95rem;
+  font-size: 0.75rem;
 }
 
 .fookie-cloud-word {
