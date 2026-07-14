@@ -42,7 +42,7 @@ function pkcePair(): { verifier: string; challenge: string } {
 function openBrowser(url: string): void {
   let child;
   if (process.platform === 'win32') {
-    child = spawn('cmd', ['/c', 'start', '', url], {
+    child = spawn('cmd', ['/c', 'start', '', url.replaceAll('&', '^&')], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,

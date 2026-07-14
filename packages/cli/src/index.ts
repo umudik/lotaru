@@ -60,7 +60,7 @@ async function loadStart(): Promise<StartFn> {
 function openBrowser(url: string): void {
   let child: ReturnType<typeof spawn>;
   if (process.platform === 'win32') {
-    child = spawn('cmd', ['/c', 'start', '', url], {
+    child = spawn('cmd', ['/c', 'start', '', url.replaceAll('&', '^&')], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
