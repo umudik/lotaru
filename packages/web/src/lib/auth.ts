@@ -7,6 +7,9 @@ const USER_KEY = 'lotaru_user';
 const PKCE_VERIFIER_KEY = 'lotaru_pkce_verifier';
 const OAUTH_STATE_KEY = 'lotaru_oauth_state';
 
+let exchangeInFlight: Promise<void> | null = null;
+let exchangeInFlightCode: string | null = null;
+
 function isCloudHost(): boolean {
   return window.location.hostname === 'lotaru.fookiecloud.com';
 }
@@ -51,7 +54,7 @@ function clearSession(): void {
   localStorage.removeItem(USER_KEY);
 }
 
-async function exchangeCode(code: string, state: string): Promise<void> {
+async function doExchange(code: string, state: string): Promise<void> {
   const expected = sessionStorage.getItem(OAUTH_STATE_KEY);
   const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
   if (expected === null || state !== expected || verifier === null) {
@@ -93,6 +96,21 @@ async function exchangeCode(code: string, state: string): Promise<void> {
   }
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
+}
+
+async function exchangeCode(code: string, state: string): Promise<void> {
+  if (exchangeInFlight !== null && exchangeInFlightCode === code) {
+    return exchangeInFlight;
+  }
+  if (getAccessToken() !== null && sessionStorage.getItem(OAUTH_STATE_KEY) === null) {
+    return;
+  }
+  exchangeInFlightCode = code;
+  exchangeInFlight = doExchange(code, state).finally(() => {
+    exchangeInFlight = null;
+    exchangeInFlightCode = null;
+  });
+  return exchangeInFlight;
 }
 
 async function tokenStillValid(token: string): Promise<boolean> {
