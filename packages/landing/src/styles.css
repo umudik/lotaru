@@ -4,82 +4,45 @@
 
 @layer base {
   :root {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
-    --card: 240 8% 7%;
-    --card-foreground: 0 0% 98%;
-    --primary: 232 60% 60%;
+    --background: 220 14% 96%;
+    --foreground: 220 18% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 18% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 18% 12%;
+    --primary: 214 90% 48%;
     --primary-foreground: 0 0% 100%;
-    --muted: 240 5% 12%;
-    --muted-foreground: 240 5% 65%;
-    --border: 240 5% 16%;
-    --secondary: 240 5% 14%;
-    --destructive: 0 75% 60%;
-    --success: 142 60% 50%;
-    --warn: 38 90% 60%;
-    --radius: 0.75rem;
+    --secondary: 220 12% 94%;
+    --secondary-foreground: 220 18% 18%;
+    --muted: 220 12% 94%;
+    --muted-foreground: 220 8% 42%;
+    --accent: 220 12% 94%;
+    --accent-foreground: 220 18% 12%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 12% 88%;
+    --input: 220 12% 88%;
+    --ring: 214 90% 48%;
+    --success: 142 55% 36%;
+    --warn: 38 92% 42%;
+    --running: 214 90% 48%;
+    --radius: 0.375rem;
   }
 
-  html {
-    scroll-behavior: smooth;
+  * {
+    @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: 'cv11', 'ss01';
-  }
-
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
-  }
-
-  *::-webkit-scrollbar {
-    width: 7px;
-    height: 7px;
-  }
-
-  *::-webkit-scrollbar-track {
-    background: hsl(var(--muted) / 0.25);
-    border-radius: 999px;
-  }
-
-  *::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.22);
-    border-radius: 999px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-
-  *::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.4);
-    background-clip: padding-box;
-  }
-
-  *::-webkit-scrollbar-thumb:active {
-    background: hsl(var(--primary) / 0.5);
-    background-clip: padding-box;
-  }
-
-  *::-webkit-scrollbar-corner {
-    background: transparent;
-  }
-}
-
-@layer utilities {
-  .landing-grid {
-    background-image:
-      linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 20%, transparent 75%);
-  }
-
-  .landing-glow {
-    background: radial-gradient(
-      ellipse 70% 50% at 50% -10%,
-      hsl(var(--primary) / 0.22),
-      transparent 65%
-    );
   }
 }
