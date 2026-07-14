@@ -79,11 +79,49 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Publish MCP package
+        run: |
+          node <<'NODE'
+          const { execSync } = require('node:child_process');
+          const { readFileSync, writeFileSync } = require('node:fs');
+          const path = 'packages/mcp/package.json';
+          const pkg = JSON.parse(readFileSync(path, 'utf8'));
+          let published = '0.0.0';
+          try {
+            published = execSync('npm view @umudik/lotaru-mcp version', { encoding: 'utf8' }).trim();
+          } catch {}
+          const parse = (v) => v.split('.').map((n) => Number(n));
+          const cmp = (a, b) => {
+            for (let i = 0; i < 3; i += 1) {
+              if (a[i] > b[i]) return 1;
+              if (a[i] < b[i]) return -1;
+            }
+            return 0;
+          };
+          const inc = (v) => {
+            const p = parse(v);
+            p[2] += 1;
+            return p.join('.');
+          };
+          let next = pkg.version;
+          if (cmp(parse(pkg.version), parse(published)) <= 0) {
+            next = inc(cmp(parse(published), parse(pkg.version)) > 0 ? published : pkg.version);
+            pkg.version = next;
+            writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          }
+          console.log(`mcp npm=${published} -> ${next}`);
+          NODE
+          npm install --package-lock-only
+          npm run build -w @umudik/lotaru-mcp
+          npm publish -w @umudik/lotaru-mcp --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Push version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json packages/cli/package.json
+          git add package.json package-lock.json packages/cli/package.json packages/mcp/package.json
           git diff --staged --quiet && exit 0
           git commit -m "chore(release): v${{ steps.bump.outputs.version }} [skip ci]"
           git push

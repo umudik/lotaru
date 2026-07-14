@@ -2,9 +2,13 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const AUTH_ISSUER = process.env['FOOKIE_AUTH_ISSUER'] ?? 'https://auth.fookiecloud.com';
 const CLIENT_ID = process.env['LOTARU_CLIENT_ID'] ?? 'lotaru';
+const PLATFORM_CLIENT_ID = 'fookie';
+const TOKEN_USE_API_KEY = 'api_key';
 const JWKS_URL = new URL(`${AUTH_ISSUER}/.well-known/jwks.json`);
 
 const jwks = createRemoteJWKSet(JWKS_URL);
+
+const introspectCache = new Map<string, { active: boolean; expiresAt: number }>();
 
 export interface AuthUser {
   id: string;
@@ -13,8 +17,33 @@ export interface AuthUser {
   clientId: string;
 }
 
-export async function verifyAccessToken(token: string): Promise<AuthUser> {
-  const { payload } = await jwtVerify(token, jwks, {
+async function introspectApiKey(token: string): Promise<boolean> {
+  const cached = introspectCache.get(token);
+  if (cached !== undefined && cached.expiresAt > Date.now()) {
+    return cached.active;
+  }
+  try {
+    const res = await fetch(`${AUTH_ISSUER}/v1/introspect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) {
+      introspectCache.set(token, { active: false, expiresAt: Date.now() + 15_000 });
+      return false;
+    }
+    const data = (await res.json()) as { active?: boolean };
+    const active = data.active === true;
+    introspectCache.set(token, { active, expiresAt: Date.now() + 60_000 });
+    return active;
+  } catch {
+    introspectCache.set(token, { active: false, expiresAt: Date.now() + 15_000 });
+    return false;
+  }
+}
+
+export async function verifyAccessToken(raw: string): Promise<AuthUser> {
+  const { payload } = await jwtVerify(raw, jwks, {
     issuer: AUTH_ISSUER,
     algorithms: ['RS256'],
   });
@@ -30,9 +59,17 @@ export async function verifyAccessToken(token: string): Promise<AuthUser> {
         : typeof payload.aud === 'string'
           ? payload.aud
           : '';
-  if (clientId !== CLIENT_ID) {
+  const tokenUse = typeof payload['token_use'] === 'string' ? payload['token_use'] : '';
+
+  if (tokenUse === TOKEN_USE_API_KEY && clientId === PLATFORM_CLIENT_ID) {
+    const active = await introspectApiKey(raw);
+    if (!active) {
+      throw new Error('api key revoked');
+    }
+  } else if (clientId !== CLIENT_ID) {
     throw new Error('invalid client');
   }
+
   return {
     id: sub,
     email: typeof payload['email'] === 'string' ? payload['email'] : null,
