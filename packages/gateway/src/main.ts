@@ -14,6 +14,7 @@ import {
   removeConsole,
   unregisterAgent,
 } from './registry.js';
+import { registerObservability } from './observability.js';
 
 const PORT = Number.parseInt(process.env['PORT'] ?? '8080', 10);
 const PUBLIC_URL = process.env['PUBLIC_URL'] ?? 'https://lotaru.fookiecloud.com';
@@ -77,7 +78,11 @@ async function attachAuthedSocket(
 }
 
 async function main(): Promise<void> {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+    trustProxy: true,
+  });
+  await registerObservability(app);
   await app.register(fastifyWebsocket);
 
   app.get('/healthz', async () => ({ ok: true }));
