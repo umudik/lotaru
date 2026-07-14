@@ -1,5 +1,7 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Plus } from 'lucide-react';
+import { FookieCloudBack } from '@/components/fookie-cloud-back';
+import { isCloudHost } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { WorkspaceTaskDots } from '@/components/workspace-task-dots';
 import { useStore } from '@/state/store';
@@ -95,6 +97,11 @@ export function Sidebar(props: { activeWorkspaceId?: string }): React.JSX.Elemen
           </div>
         </div>
       </nav>
+      {isCloudHost() && (
+        <div className="px-4 py-3 border-t">
+          <FookieCloudBack />
+        </div>
+      )}
     </aside>
   );
 }

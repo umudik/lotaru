@@ -1,5 +1,6 @@
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
+import { FookieCloudBack } from '@/components/fookie-cloud-back';
 import { Button } from '@/components/ui/button';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
 
@@ -23,6 +24,7 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
   return (
     <div className="min-h-screen grid place-items-center px-6">
       <div className="w-full max-w-lg space-y-6">
+        <FookieCloudBack />
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary grid place-items-center text-primary-foreground font-bold">
             L

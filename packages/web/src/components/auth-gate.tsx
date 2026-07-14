@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FookieCloudBack } from '@/components/fookie-cloud-back';
 import {
   clearSession,
   exchangeCode,
@@ -87,6 +88,7 @@ export function AuthGate(props: Props): React.JSX.Element {
         >
           Try again
         </button>
+        <FookieCloudBack />
       </div>
     );
   }
