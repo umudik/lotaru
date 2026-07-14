@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { BrandSplash } from '@/components/brand-splash';
-import { CloudTopBar } from '@/components/cloud-top-bar';
 import { Sidebar } from '@/components/sidebar';
 import { WaitingForAgent } from '@/components/waiting-for-agent';
 import { useAgentConnection } from '@/hooks/use-agent-connection';
@@ -88,30 +87,21 @@ function Shell(props: {
   children: React.ReactNode;
   activeWorkspaceId?: string | undefined;
   activePage?: 'list' | 'mcp' | undefined;
-  agentOnline: boolean;
-  agentInfo: ReturnType<typeof useAgentConnection>['info'];
 }): React.JSX.Element {
-  const cloud = isCloudHost();
   return (
     <div className="min-h-screen flex flex-col">
-      {cloud ? <CloudTopBar agentOnline={props.agentOnline} agentInfo={props.agentInfo} /> : null}
       <div className="relative flex-1">
         <Sidebar
           activeWorkspaceId={props.activeWorkspaceId}
           activePage={props.activePage}
         />
-        <main className={cloud ? 'pl-60 pt-0 min-h-[calc(100vh-2.5rem)]' : 'pl-60 min-h-screen'}>
-          {props.children}
-        </main>
+        <main className="pl-60 min-h-screen">{props.children}</main>
       </div>
     </div>
   );
 }
 
-function ConnectedApp(props: {
-  agentOnline: boolean;
-  agentInfo: ReturnType<typeof useAgentConnection>['info'];
-}): React.JSX.Element {
+function ConnectedApp(): React.JSX.Element {
   const { ready } = useBootstrap();
   const { route, taskRedirect } = useRouteWithRedirect();
 
@@ -125,11 +115,7 @@ function ConnectedApp(props: {
 
   if (route.kind === 'workspace') {
     return (
-      <Shell
-        activeWorkspaceId={route.id}
-        agentOnline={props.agentOnline}
-        agentInfo={props.agentInfo}
-      >
+      <Shell activeWorkspaceId={route.id}>
         <div className="w-full px-8 py-6">
           <WorkspaceView workspaceId={route.id} />
         </div>
@@ -139,7 +125,7 @@ function ConnectedApp(props: {
 
   if (route.kind === 'mcp') {
     return (
-      <Shell activePage="mcp" agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
+      <Shell activePage="mcp">
         <div className="max-w-[1600px] mx-auto px-8 py-8">
           <McpView />
         </div>
@@ -148,7 +134,7 @@ function ConnectedApp(props: {
   }
 
   return (
-    <Shell activePage="list" agentOnline={props.agentOnline} agentInfo={props.agentInfo}>
+    <Shell activePage="list">
       <div className="max-w-[1600px] mx-auto px-8 py-8">
         <DashboardView />
       </div>
@@ -166,10 +152,8 @@ export function App(): React.JSX.Element {
     if (!agent.online) {
       return <WaitingForAgent info={agent.info} />;
     }
-    return (
-      <ConnectedApp key="connected" agentOnline={agent.online} agentInfo={agent.info} />
-    );
+    return <ConnectedApp key="connected" />;
   }
 
-  return <ConnectedApp agentOnline={true} agentInfo={null} />;
+  return <ConnectedApp />;
 }

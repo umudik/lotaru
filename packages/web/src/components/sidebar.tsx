@@ -44,12 +44,7 @@ export function Sidebar(props: {
   const cloud = isCloudHost();
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 bottom-0 w-60 bg-card/40 border-r flex flex-col',
-        cloud ? 'top-10' : 'top-0',
-      )}
-    >
+    <aside className="fixed left-0 top-0 bottom-0 w-60 bg-card/40 border-r flex flex-col">
       <button
         type="button"
         onClick={() => {

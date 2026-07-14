@@ -1,7 +1,6 @@
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { BrandSplash } from '@/components/brand-splash';
-import { CloudTopBar } from '@/components/cloud-top-bar';
 import { McpSetup } from '@/components/mcp-setup';
 import { Button } from '@/components/ui/button';
 import type { AgentInfo } from '@/hooks/use-agent-connection';
@@ -25,7 +24,6 @@ export function WaitingForAgent(_props: Props): React.JSX.Element {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <CloudTopBar agentOnline={false} agentInfo={null} />
       <div className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-lg space-y-6">
           <div>
