@@ -1,8 +1,21 @@
 import type { ProjectExportBundle } from '../lib/project-export.js';
 import type { Workspace, Task, Execution, Environment, RunningSnapshot } from '../types.js';
+import { getAccessToken, isCloudHost } from '@/lib/auth';
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  const headers = new Headers(extra);
+  if (isCloudHost()) {
+    const token = getAccessToken();
+    if (token !== null) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+  }
+  return headers;
+}
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const headers = authHeaders(init?.headers);
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${String(res.status)}: ${text}`);

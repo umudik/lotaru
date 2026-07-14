@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app.js';
+import { AuthGate } from '@/components/auth-gate';
 import { Toaster } from '@/components/ui/sonner';
 import './styles.css';
 
@@ -11,7 +12,9 @@ if (rootEl === null) {
 
 createRoot(rootEl).render(
   <StrictMode>
-    <App />
-    <Toaster />
+    <AuthGate>
+      <App />
+      <Toaster />
+    </AuthGate>
   </StrictMode>,
 );

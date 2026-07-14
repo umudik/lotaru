@@ -8,9 +8,9 @@ COPY packages/web/package.json packages/web/
 COPY packages/cli/package.json packages/cli/
 RUN npm ci
 COPY . .
-RUN npm --workspace @lotaru/landing run build
+RUN npm --workspace @lotaru/web run build
 RUN npm --workspace @lotaru/gateway run build
-RUN mkdir -p packages/gateway/public && cp -R packages/landing/dist/. packages/gateway/public/
+RUN mkdir -p packages/gateway/public && cp -R packages/web/dist/. packages/gateway/public/
 
 FROM node:26-bookworm-slim
 WORKDIR /app

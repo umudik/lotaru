@@ -1,4 +1,5 @@
 import type { ServerMessage } from '../types.js';
+import { getAccessToken, isCloudHost } from '@/lib/auth';
 
 export type StreamListener = (msg: ServerMessage) => void;
 
@@ -18,18 +19,32 @@ export function connectStream(): Stream {
     if (window.location.protocol === 'https:') {
       proto = 'wss';
     }
-    const url = `${proto}://${window.location.host}/api/v1/stream`;
-    const socket = new WebSocket(url);
+    const url = new URL(`${proto}://${window.location.host}/api/v1/stream`);
+    if (isCloudHost()) {
+      const token = getAccessToken();
+      if (token !== null) {
+        url.searchParams.set('token', token);
+      }
+    }
+    const socket = new WebSocket(url.toString());
     ws = socket;
     socket.onmessage = (ev: MessageEvent<string>) => {
-      let parsed: ServerMessage;
+      let parsed: unknown;
       try {
-        parsed = JSON.parse(ev.data) as ServerMessage;
+        parsed = JSON.parse(ev.data) as unknown;
       } catch (_e: unknown) {
         return;
       }
+      if (typeof parsed !== 'object' || parsed === null) {
+        return;
+      }
+      const rec = parsed as Record<string, unknown>;
+      if (rec['type'] === 'agent.status' || rec['type'] === 'agent.welcome') {
+        return;
+      }
+      const msg = parsed as ServerMessage;
       for (const l of listeners) {
-        l(parsed);
+        l(msg);
       }
     };
     socket.onclose = () => {

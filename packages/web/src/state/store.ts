@@ -580,21 +580,26 @@ export function useBootstrap(): { ready: boolean } {
     const stream = connectStream();
     const unsub = stream.subscribe(handleMessage);
     void (async () => {
-      await actions.refreshWorkspaces();
-      await actions.refreshRunningExecutions();
-      const ws = state.workspaces;
-      for (const w of ws) {
-        await actions.refreshTasks(w.id);
-        const taskList = selectTasksOf(state, w.id);
-        const ids: string[] = [];
-        for (const t of taskList) {
-          ids.push(t.id);
+      try {
+        await actions.refreshWorkspaces();
+        await actions.refreshRunningExecutions();
+        const ws = state.workspaces;
+        for (const w of ws) {
+          await actions.refreshTasks(w.id);
+          const taskList = selectTasksOf(state, w.id);
+          const ids: string[] = [];
+          for (const t of taskList) {
+            ids.push(t.id);
+          }
+          await actions.prefetchExecutionsForTasks(ids, 20);
         }
-        await actions.prefetchExecutionsForTasks(ids, 20);
+        await actions.refreshRecentExecutions();
+        await actions.refreshRunningExecutions();
+      } catch {
+        void 0;
+      } finally {
+        setReady(true);
       }
-      await actions.refreshRecentExecutions();
-      await actions.refreshRunningExecutions();
-      setReady(true);
     })();
     return () => {
       unsub();

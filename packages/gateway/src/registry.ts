@@ -170,7 +170,7 @@ export function handleAgentMessage(userId: string, raw: string): void {
     return;
   }
   if (rec['type'] === 'event') {
-    fanout(userId, msg);
+    fanout(userId, rec['payload'] ?? msg);
   }
 }
 

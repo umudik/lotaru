@@ -23,8 +23,8 @@ function staticRoot(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, '..', 'public'),
-    join(here, '..', '..', 'landing', 'dist'),
-    join(here, '..', '..', '..', 'packages', 'landing', 'dist'),
+    join(here, '..', '..', 'web', 'dist'),
+    join(here, '..', '..', '..', 'packages', 'web', 'dist'),
   ];
   for (const c of candidates) {
     if (existsSync(join(c, 'index.html'))) {
@@ -32,6 +32,48 @@ function staticRoot(): string | null {
     }
   }
   return null;
+}
+
+async function attachAuthedSocket(
+  socket: import('ws').WebSocket,
+  req: { url: string; headers: { authorization?: string | undefined } },
+  kind: 'agent' | 'console',
+): Promise<void> {
+  const url = new URL(req.url, 'http://localhost');
+  const qToken = url.searchParams.get('token');
+  const headerToken = bearerFromHeader(req.headers.authorization);
+  const token = qToken ?? headerToken;
+  if (token === null) {
+    socket.close(4401, 'unauthorized');
+    return;
+  }
+  let user;
+  try {
+    user = await verifyAccessToken(token);
+  } catch {
+    socket.close(4401, 'unauthorized');
+    return;
+  }
+  if (kind === 'agent') {
+    const info = {
+      hostname: url.searchParams.get('hostname') ?? 'unknown',
+      version: url.searchParams.get('version') ?? '0.0.0',
+      connectedAt: Date.now(),
+    };
+    registerAgent(user.id, socket, info);
+    socket.send(JSON.stringify({ type: 'agent.welcome', userId: user.id }));
+    socket.on('message', (data) => {
+      handleAgentMessage(user.id, data.toString());
+    });
+    socket.on('close', () => {
+      unregisterAgent(user.id, socket);
+    });
+    return;
+  }
+  addConsole(user.id, socket);
+  socket.on('close', () => {
+    removeConsole(user.id, socket);
+  });
 }
 
 async function main(): Promise<void> {
@@ -87,7 +129,22 @@ async function main(): Promise<void> {
     }
   });
 
+  app.get('/api/v1/stream', { websocket: true }, (socket, req) => {
+    void attachAuthedSocket(socket, req, 'console');
+  });
+
+  app.get('/v1/console', { websocket: true }, (socket, req) => {
+    void attachAuthedSocket(socket, req, 'console');
+  });
+
+  app.get('/v1/agent', { websocket: true }, (socket, req) => {
+    void attachAuthedSocket(socket, req, 'agent');
+  });
+
   app.all('/api/v1/*', async (req, reply) => {
+    if (req.headers.upgrade?.toLowerCase() === 'websocket') {
+      return reply.code(400).send({ error: 'use websocket endpoint' });
+    }
     const token = bearerFromHeader(req.headers.authorization);
     if (token === null) {
       return reply.code(401).send({ error: 'unauthorized' });
@@ -98,8 +155,7 @@ async function main(): Promise<void> {
     } catch {
       return reply.code(401).send({ error: 'unauthorized' });
     }
-    const url = req.raw.url ?? '/api/v1';
-    const path = url;
+    const path = req.raw.url ?? '/api/v1';
     let body: string | null = null;
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.body !== undefined) {
       body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
@@ -115,7 +171,10 @@ async function main(): Promise<void> {
         }
         void reply.header(k, v);
       }
-      return reply.code(res.status).type(res.headers['content-type'] ?? 'application/json').send(res.body);
+      return reply
+        .code(res.status)
+        .type(res.headers['content-type'] ?? 'application/json')
+        .send(res.body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'proxy failed';
       if (message.includes('offline')) {
@@ -123,63 +182,6 @@ async function main(): Promise<void> {
       }
       return reply.code(502).send({ error: 'agent_error', message });
     }
-  });
-
-  app.get('/v1/agent', { websocket: true }, (socket, req) => {
-    void (async () => {
-      const url = new URL(req.url, 'http://localhost');
-      const qToken = url.searchParams.get('token');
-      const headerToken = bearerFromHeader(req.headers.authorization);
-      const token = qToken ?? headerToken;
-      if (token === null) {
-        socket.close(4401, 'unauthorized');
-        return;
-      }
-      let user;
-      try {
-        user = await verifyAccessToken(token);
-      } catch {
-        socket.close(4401, 'unauthorized');
-        return;
-      }
-      const info = {
-        hostname: url.searchParams.get('hostname') ?? 'unknown',
-        version: url.searchParams.get('version') ?? '0.0.0',
-        connectedAt: Date.now(),
-      };
-      registerAgent(user.id, socket, info);
-      socket.send(JSON.stringify({ type: 'agent.welcome', userId: user.id }));
-      socket.on('message', (data) => {
-        handleAgentMessage(user.id, data.toString());
-      });
-      socket.on('close', () => {
-        unregisterAgent(user.id, socket);
-      });
-    })();
-  });
-
-  app.get('/v1/console', { websocket: true }, (socket, req) => {
-    void (async () => {
-      const url = new URL(req.url, 'http://localhost');
-      const qToken = url.searchParams.get('token');
-      const headerToken = bearerFromHeader(req.headers.authorization);
-      const token = qToken ?? headerToken;
-      if (token === null) {
-        socket.close(4401, 'unauthorized');
-        return;
-      }
-      let user;
-      try {
-        user = await verifyAccessToken(token);
-      } catch {
-        socket.close(4401, 'unauthorized');
-        return;
-      }
-      addConsole(user.id, socket);
-      socket.on('close', () => {
-        removeConsole(user.id, socket);
-      });
-    })();
   });
 
   const root = staticRoot();
