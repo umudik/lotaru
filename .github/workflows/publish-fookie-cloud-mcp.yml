@@ -17,12 +17,21 @@ jobs:
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
+          always-auth: true
 
       - name: Build and publish
         working-directory: cloud/packages/mcp
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
+          npm whoami
           npm ci
           npm run build
-          npm publish --access public
+          test -f dist/index.js
+          head -n 1 dist/index.js
+          npm pkg fix || true
+          npm publish --access public --loglevel verbose
+          sleep 5
+          npm view @umudik/fookie-cloud-mcp version
+          npm view @umudik/fookie-cloud-mcp bin
