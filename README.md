@@ -1,24 +1,17 @@
-# lotaru
+﻿# Lotaru (moved)
 
-Local-first task orchestration for your machine. Define shell tasks on a project folder, trigger them on save, schedule, or manually, and watch logs in the browser.
+This repository is empty.
 
-## Run
+**Script Manager** (formerly Lotaru) now lives in the Fookie Cloud monorepo:
+
+https://github.com/fookiejs/cloud/tree/main/apps/script-manager
+
+Install locally:
 
 ```bash
-npx -y @umudik/lotaru@latest
+git clone https://github.com/fookiejs/cloud.git
+cd cloud/apps/script-manager
+npm install
+npm run build
+npx script-manager
 ```
-
-Opens http://127.0.0.1:4317 and stores data in `~/.lotaru/`.
-
-### Requirements
-
-- Node.js 20+
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (only for **Docker** runtime tasks)
-
-Shell tasks run on your machine (`gh`, `ollama`, `npm`, etc.). Use **Docker** runtime in a task for an isolated container.
-
-### Environment variables
-
-| Variable      | Default | Purpose   |
-| ------------- | ------- | --------- |
-| `LOTARU_PORT` | `4317`  | HTTP port |
