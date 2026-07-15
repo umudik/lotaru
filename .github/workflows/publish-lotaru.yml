@@ -1,0 +1,38 @@
+name: Publish @umudik/lotaru
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Fookie Cloud
+        uses: actions/checkout@v4
+        with:
+          repository: fookiejs/cloud
+          path: cloud
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: Build publish bundle
+        working-directory: cloud/apps/script-manager
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build:publish
+
+      - name: Publish
+        working-directory: cloud/apps/script-manager/packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "whoami=$(npm whoami)"
+          npm publish --access public
+          sleep 5
+          npm view @umudik/lotaru version
+          npm view @umudik/lotaru bin

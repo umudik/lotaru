@@ -1,17 +1,9 @@
-﻿# Lotaru (moved)
+﻿# Lotaru / Script Manager agent
 
-This repository is empty.
-
-**Script Manager** (formerly Lotaru) now lives in the Fookie Cloud monorepo:
-
-https://github.com/fookiejs/cloud/tree/main/apps/script-manager
-
-Install locally:
+Local agent for [Script Manager](https://script.fookiecloud.com).
 
 ```bash
-git clone https://github.com/fookiejs/cloud.git
-cd cloud/apps/script-manager
-npm install
-npm run build
-npx script-manager
+npx -y @umudik/lotaru@latest
 ```
+
+Source of truth: https://github.com/fookiejs/cloud/tree/main/apps/script-manager
