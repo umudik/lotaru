@@ -17,21 +17,33 @@ jobs:
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
-          always-auth: true
 
-      - name: Build and publish
+      - name: Make existing package public (if present)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "whoami=$(npm whoami)"
+          npm access public @umudik/fookie-cloud-mcp || echo "access public failed (may not exist yet)"
+          npm access ls-packages || true
+          sleep 5
+          if npm view @umudik/fookie-cloud-mcp version; then
+            echo "PACKAGE_VISIBLE=1" >> "$GITHUB_ENV"
+          else
+            echo "PACKAGE_VISIBLE=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish if still invisible
+        if: env.PACKAGE_VISIBLE != '1'
         working-directory: cloud/packages/mcp
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          npm whoami
           npm ci
           npm run build
-          test -f dist/index.js
-          head -n 1 dist/index.js
-          npm pkg fix || true
-          npm publish --access public --loglevel verbose
-          sleep 5
+          npm publish --access public
+          npm access public @umudik/fookie-cloud-mcp
+          sleep 8
           npm view @umudik/fookie-cloud-mcp version
           npm view @umudik/fookie-cloud-mcp bin
