@@ -13,6 +13,10 @@ const INTERVAL_MS: Readonly<Record<string, number>> = {
   '0 */15 * * * *': 900_000,
   '0 */20 * * * *': 1_200_000,
   '0 0 * * * *': 3_600_000,
+  '0 0 */6 * * *': 21_600_000,
+  '0 0 9 * * *': 86_400_000,
+  '0 0 9 * * 1': 604_800_000,
+  '0 0 9 1 * *': 2_592_000_000,
 };
 
 export function cronIntervalMs(expression: string): number {
@@ -53,9 +57,14 @@ export function formatCronCountdown(expression: string, nowMs: number): string {
     const s = Math.ceil((remaining % 60_000) / 1000);
     return `${String(m)}m ${String(s)}s`;
   }
-  const h = Math.floor(remaining / 3_600_000);
-  const m = Math.ceil((remaining % 3_600_000) / 60_000);
-  return `${String(h)}h ${String(m)}m`;
+  if (remaining < 86_400_000) {
+    const h = Math.floor(remaining / 3_600_000);
+    const m = Math.ceil((remaining % 3_600_000) / 60_000);
+    return `${String(h)}h ${String(m)}m`;
+  }
+  const d = Math.floor(remaining / 86_400_000);
+  const h = Math.ceil((remaining % 86_400_000) / 3_600_000);
+  return `${String(d)}d ${String(h)}h`;
 }
 
 export function resolvedCronIntervalMs(stored: string | null): number {
