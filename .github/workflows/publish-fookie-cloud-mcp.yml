@@ -1,0 +1,28 @@
+name: Publish fookie-cloud-mcp
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Fookie Cloud
+        uses: actions/checkout@v4
+        with:
+          repository: fookiejs/cloud
+          path: cloud
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Build and publish
+        working-directory: cloud/packages/mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci
+          npm run build
+          npm publish --access public
