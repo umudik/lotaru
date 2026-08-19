@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing in — Fookie Cloud</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="callback-wrap">
+    <div>
+      <p class="mark mark-sm">Fookie<span>Cloud</span></p>
+      <h1 id="status">Signing you in…</h1>
+      <p id="detail">One moment.</p>
+    </div>
+  </main>
+  <script>
+    (async () => {
+      const AUTH = "https://auth.fookiecloud.com";
+      const OAUTH_STATE_KEY = "fookie_oauth_state";
+      const PKCE_VERIFIER_KEY = "fookie_pkce_verifier";
+      const CODE_LOCK_KEY = "fookie_oauth_code_lock";
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+      const state = params.get("state");
+      const err = params.get("error");
+      const status = document.getElementById("status");
+      const detail = document.getElementById("detail");
+
+      if (err) {
+        status.textContent = "Sign-in stopped";
+        detail.textContent = err;
+        return;
+      }
+      if (!code) {
+        location.replace("/");
+        return;
+      }
+
+      const expected = sessionStorage.getItem(OAUTH_STATE_KEY);
+      const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
+      if (!expected || !state || state !== expected || !verifier) {
+        status.textContent = "Couldn’t finish sign-in";
+        detail.textContent = "Invalid OAuth state. Try again.";
+        sessionStorage.removeItem(OAUTH_STATE_KEY);
+        sessionStorage.removeItem(PKCE_VERIFIER_KEY);
+        return;
+      }
+
+      if (sessionStorage.getItem(CODE_LOCK_KEY) === code) {
+        if (localStorage.getItem("fookie_access_token")) {
+          location.replace(sessionStorage.getItem("fookie_after_login") || "/");
+          return;
+        }
+        status.textContent = "Couldn’t finish sign-in";
+        detail.textContent = "Sign-in already in progress. Try again.";
+        return;
+      }
+      sessionStorage.setItem(CODE_LOCK_KEY, code);
+      history.replaceState({}, "", "/callback");
+
+      try {
+        const res = await fetch(`${AUTH}/v1/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code,
+            client_id: "web",
+            redirect_uri: "https://fookiecloud.com/callback",
+            code_verifier: verifier,
+          }),
+        });
+        sessionStorage.removeItem(OAUTH_STATE_KEY);
+        sessionStorage.removeItem(PKCE_VERIFIER_KEY);
+        const data = await res.json();
+        if (!res.ok) {
+          sessionStorage.removeItem(CODE_LOCK_KEY);
+          status.textContent = "Couldn’t finish sign-in";
+          detail.textContent = data.error_description || data.error || "Try again.";
+          return;
+        }
+
+        localStorage.setItem("fookie_access_token", data.access_token);
+        if (data.refresh_token) {
+          localStorage.setItem("fookie_refresh_token", data.refresh_token);
+        }
+
+        const me = await fetch(`${AUTH}/v1/userinfo`, {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (me.ok) {
+          localStorage.setItem("fookie_user", JSON.stringify(await me.json()));
+        }
+
+        let next = sessionStorage.getItem("fookie_after_login") || "/";
+        sessionStorage.removeItem("fookie_after_login");
+        sessionStorage.removeItem(CODE_LOCK_KEY);
+        if (!next.startsWith("/") || next.startsWith("//")) {
+          next = "/";
+        }
+        location.replace(next);
+      } catch (e) {
+        sessionStorage.removeItem(CODE_LOCK_KEY);
+        status.textContent = "Auth unreachable";
+        detail.textContent = String(e);
+      }
+    })();
+  </script>
+</body>
+</html>

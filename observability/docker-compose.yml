@@ -1,0 +1,264 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    user: root
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=48h
+      - --storage.tsdb.retention.size=512MB
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --web.external-url=https://prometheus.fookiecloud.com
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./metrics_token:/etc/prometheus/metrics_token:ro
+      - prometheus-data:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - observability
+      - fookie-obs
+
+  loki:
+    image: grafana/loki:3.5.0
+    command:
+      - -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+    networks:
+      - observability
+
+  geoip-init:
+    image: alpine:3.21
+    volumes:
+      - ./geoip-download.sh:/download.sh:ro
+      - geoip-data:/geoip
+    environment:
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+    entrypoint: ["/bin/sh", "/download.sh"]
+    restart: "no"
+    networks:
+      - observability
+
+  alloy:
+    image: grafana/alloy:v1.8.1
+    volumes:
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy-config-nogeo.alloy:/etc/alloy/config-nogeo.alloy:ro
+      - ./alloy-entrypoint.sh:/entrypoint.sh:ro
+      - geoip-data:/geoip:ro
+      - alloy-data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    depends_on:
+      geoip-init:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - observability
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    configs:
+      - source: otel_config
+        target: /etc/otelcol-contrib/config.yaml
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+    networks:
+      - observability
+      - fookie-obs
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-https://grafana.fookiecloud.com}
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-Forwarded-Email
+      GF_AUTH_PROXY_HEADER_PROPERTY: email
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_HEADERS: "Name:X-Forwarded-User Email:X-Forwarded-Email"
+      GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN: "false"
+      GF_INSTALL_PLUGINS: ""
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/fookie-live-map.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+    networks:
+      - observability
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.8.1
+    environment:
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_OIDC_ISSUER_URL: https://auth.fookiecloud.com
+      OAUTH2_PROXY_CLIENT_ID: grafana
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: https://grafana.fookiecloud.com/oauth2/callback
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_DOMAINS: .fookiecloud.com
+      OAUTH2_PROXY_WHITELIST_DOMAINS: .fookiecloud.com
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/authenticated-emails.txt
+      OAUTH2_PROXY_UPSTREAMS: http://grafana:3000/
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "false"
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_SCOPE: openid email profile
+      OAUTH2_PROXY_OIDC_EMAIL_CLAIM: email
+      OAUTH2_PROXY_USER_ID_CLAIM: email
+      OAUTH2_PROXY_INSECURE_OIDC_SKIP_NONCE: "true"
+    configs:
+      - source: oauth2_emails
+        target: /etc/oauth2-proxy/authenticated-emails.txt
+    depends_on:
+      - grafana
+    restart: unless-stopped
+    networks:
+      - observability
+
+  oauth2-proxy-prometheus:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.8.1
+    environment:
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_OIDC_ISSUER_URL: https://auth.fookiecloud.com
+      OAUTH2_PROXY_CLIENT_ID: grafana
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: https://prometheus.fookiecloud.com/oauth2/callback
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_DOMAINS: .fookiecloud.com
+      OAUTH2_PROXY_WHITELIST_DOMAINS: .fookiecloud.com
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/authenticated-emails.txt
+      OAUTH2_PROXY_UPSTREAMS: http://prometheus:9090/
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4181
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "false"
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_SCOPE: openid email profile
+      OAUTH2_PROXY_OIDC_EMAIL_CLAIM: email
+      OAUTH2_PROXY_USER_ID_CLAIM: email
+      OAUTH2_PROXY_INSECURE_OIDC_SKIP_NONCE: "true"
+    configs:
+      - source: oauth2_emails
+        target: /etc/oauth2-proxy/authenticated-emails.txt
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - observability
+
+  ops-metrics:
+    build:
+      context: ./ops-metrics
+      dockerfile: Dockerfile
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      TASK_BRIDGE_URL: https://task.fookiecloud.com
+      FOOKIE_API_KEY: ${OPS_FOOKIE_API_KEY}
+      TB_PROJECT_ID: ${OPS_TB_PROJECT_ID:-cloud}
+      OPS_INTERVAL_MS: ${OPS_INTERVAL_MS:-21600000}
+      OPS_WINDOW: ${OPS_WINDOW:-6h}
+      OPS_RUN_ON_START: ${OPS_RUN_ON_START:-1}
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
+  fookie-obs:
+    name: fookie-obs
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  geoip-data:
+  alloy-data:
+
+configs:
+  oauth2_emails:
+    content: |
+      ${OAUTH2_ALLOWED_EMAIL:-}
+
+  otel_config:
+    content: |
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+      processors:
+        batch:
+          timeout: 5s
+          send_batch_size: 1024
+        memory_limiter:
+          check_interval: 2s
+          limit_mib: 512
+      exporters:
+        prometheus:
+          endpoint: 0.0.0.0:8889
+          namespace: fookie
+        prometheusremotewrite:
+          endpoint: http://prometheus:9090/api/v1/write
+          tls:
+            insecure: true
+        loki:
+          endpoint: http://loki:3100/loki/api/v1/push
+          default_labels_enabled:
+            exporter: true
+            job: true
+        debug:
+          verbosity: basic
+      service:
+        pipelines:
+          metrics:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [prometheusremotewrite, prometheus]
+          logs:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [loki]
+          traces:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [debug]
+        telemetry:
+          metrics:
+            address: 0.0.0.0:8888

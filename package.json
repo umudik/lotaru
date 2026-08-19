@@ -1,0 +1,19 @@
+{
+  "name": "lotaru",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lotaru monorepo",
+  "scripts": {
+    "build:shared": "npm --prefix packages/shared run build",
+    "build:mcp": "npm --prefix packages/mcp run build",
+    "build:script-manager": "npm --prefix apps/script-manager run build",
+    "build:task-bridge": "npm --prefix apps/task-bridge run build",
+    "build:lotaru": "node apps/cloud-platform/scripts/build-publish.mjs",
+    "dev": "npm --prefix apps/cloud-platform run dev",
+    "start": "node packages/cli/dist/index.js",
+    "test": "npm --prefix apps/cloud-platform run test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

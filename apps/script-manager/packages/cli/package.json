@@ -1,0 +1,53 @@
+{
+  "name": "@fookiejs/script",
+  "version": "0.2.38",
+  "description": "Script Manager agent (Fookie Cloud) — run shell tasks on your machine from the browser",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umudik/lotaru.git",
+    "directory": "apps/script-manager/packages/cli"
+  },
+  "homepage": "https://script.fookiecloud.com",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "script": "dist/index.js",
+    "script-manager": "dist/index.js"
+  },
+  "files": [
+    "dist/index.js",
+    "dist-server/**/*.js",
+    "dist-server/**/*.sql",
+    "public/**"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "^9.1.3",
+    "@fastify/websocket": "^11.2.0",
+    "chokidar": "^4.0.1",
+    "dockerode": "^5.0.1",
+    "fastify": "^5.8.5",
+    "jose": "^6.0.11",
+    "micromatch": "^4.0.8",
+    "nanoid": "^5.0.9",
+    "node-cron": "^4.5.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@script/server": "0.1.0",
+    "@types/node": "^26.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

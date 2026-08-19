@@ -7,11 +7,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Fookie Cloud
-        uses: actions/checkout@v4
-        with:
-          repository: fookiejs/cloud
-          path: cloud
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -35,7 +31,7 @@ jobs:
 
       - name: Publish if still invisible
         if: env.PACKAGE_VISIBLE != '1'
-        working-directory: cloud/packages/mcp
+        working-directory: packages/mcp
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

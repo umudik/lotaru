@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  - job_name: fookie-apps
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        regex: "(?i).*(auth|lotaru|script|task-bridge|taskbridge|fookie-cloud).*"
+        action: keep
+      - source_labels: [__meta_docker_port_private]
+        regex: "^(8080|3000)$"
+        action: keep
+      - source_labels: [__meta_docker_container_name]
+        regex: "(?i).*(auth).*"
+        target_label: service
+        replacement: auth
+      - source_labels: [__meta_docker_container_name]
+        regex: "(?i).*(lotaru|script).*"
+        target_label: service
+        replacement: script
+      - source_labels: [__meta_docker_container_name]
+        regex: "(?i).*(task-bridge|taskbridge).*"
+        target_label: service
+        replacement: task-bridge
+      - source_labels: [__meta_docker_container_name]
+        regex: "(?i).*(fookie-cloud).*"
+        target_label: service
+        replacement: cloud
+      - source_labels: [__meta_docker_container_name]
+        regex: "/?(.*)"
+        target_label: container

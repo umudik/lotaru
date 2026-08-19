@@ -7,26 +7,33 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Fookie Cloud
-        uses: actions/checkout@v4
-        with:
-          repository: fookiejs/cloud
-          path: cloud
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
 
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y python3 make g++
+
+      - name: Install task-bridge backend
+        working-directory: apps/task-bridge/apps/backend
+        run: npm ci
+
+      - name: Install cloud-platform
+        working-directory: apps/cloud-platform
+        run: npm ci
+
+      - name: Install cli
+        working-directory: packages/cli
+        run: npm ci
+
       - name: Build publish bundle
-        working-directory: cloud/apps/script-manager
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build:publish
+        run: node apps/cloud-platform/scripts/build-publish.mjs
 
       - name: Publish
-        working-directory: cloud/apps/script-manager/packages/cli
+        working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

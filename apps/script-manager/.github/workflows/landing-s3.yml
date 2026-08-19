@@ -1,0 +1,101 @@
+name: Deploy landing to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/landing/**'
+      - 'package-lock.json'
+      - '.github/workflows/landing-s3.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: landing-s3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-central-1
+      LANDING_S3_BUCKET: script-landing
+      LANDING_PUBLIC_HOST: lotaro.com
+      DIST_DIR: packages/landing/dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build:landing
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: ${{ vars.AWS_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Require existing S3 bucket
+        id: bucket
+        run: |
+          set -euo pipefail
+          BUCKET="$LANDING_S3_BUCKET"
+          echo "name=${BUCKET}" >> "$GITHUB_OUTPUT"
+          aws s3api head-bucket --bucket "$BUCKET"
+
+      - name: Sync site to S3
+        run: |
+          set -euo pipefail
+          BUCKET="${{ steps.bucket.outputs.name }}"
+          aws s3 sync "$DIST_DIR" "s3://${BUCKET}" --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "index.html"
+          aws s3 cp "$DIST_DIR/index.html" "s3://${BUCKET}/index.html" \
+            --cache-control "public,max-age=0,must-revalidate" \
+            --content-type "text/html"
+
+      - name: Invalidate CloudFront
+        if: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+      - name: Website URL
+        id: deploy
+        run: |
+          BUCKET="${{ steps.bucket.outputs.name }}"
+          if [ "$AWS_REGION" = "us-east-1" ]; then
+            URL="http://${BUCKET}.s3-website-us-east-1.amazonaws.com"
+          else
+            URL="http://${BUCKET}.s3-website-${AWS_REGION}.amazonaws.com"
+          fi
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
+          echo "website_url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "public_host=${LANDING_PUBLIC_HOST}" >> "$GITHUB_OUTPUT"
+          echo "Deployed to ${URL} (public host ${LANDING_PUBLIC_HOST})"
+
+      - name: Summary
+        run: |
+          echo "### Landing deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Bucket: \`${{ steps.deploy.outputs.bucket }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- S3 website: ${{ steps.deploy.outputs.website_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Public host: https://${{ steps.deploy.outputs.public_host }}" >> "$GITHUB_STEP_SUMMARY"

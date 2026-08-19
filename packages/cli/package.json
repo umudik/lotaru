@@ -1,0 +1,53 @@
+{
+  "name": "@umudik/lotaru",
+  "version": "0.3.0",
+  "description": "Lotaru — local tasks, scripts, and notes",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "lotaru": "dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umudik/lotaru.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/umudik/lotaru",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist/index.js",
+    "apps"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/http-proxy": "^11.6.0",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^9.1.3",
+    "@fastify/websocket": "^11.2.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.11.1",
+    "dockerode": "^5.0.1",
+    "dotenv": "^17.4.2",
+    "fastify": "5.8.5",
+    "http-proxy": "^1.18.1",
+    "jose": "^6.0.11",
+    "nanoid": "^5.0.9",
+    "node-cron": "^4.5.0",
+    "prom-client": "^15.1.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

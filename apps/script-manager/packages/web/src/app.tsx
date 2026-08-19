@@ -1,0 +1,167 @@
+import { useEffect, useState } from 'react';
+import { BrandSplash } from '@/components/brand-splash';
+import { Sidebar } from '@/components/sidebar';
+import { WaitingForAgent } from '@/components/waiting-for-agent';
+import { useAgentConnection } from '@/hooks/use-agent-connection';
+import { isCloudHost } from '@/lib/auth';
+import { useBootstrap, useStore } from '@/state/store';
+import { DashboardView } from '@/views/Dashboard';
+import { WorkspaceView } from '@/views/Workspace';
+
+type Route =
+  | { kind: 'list' }
+  | { kind: 'workspace'; id: string };
+
+const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+function appPath(pathname: string): string {
+  if (!BASE_PATH) return pathname;
+  if (pathname === BASE_PATH) return '/';
+  return pathname.startsWith(`${BASE_PATH}/`) ? pathname.slice(BASE_PATH.length) : pathname;
+}
+
+function appUrl(pathname: string): string {
+  const clean = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${BASE_PATH}${clean}` || '/';
+}
+
+function parsePathWithTaskRedirect(pathname: string): {
+  route: Route;
+  taskRedirect: string | null;
+} {
+  const clean = appPath(pathname).replace(/^\/+/, '').replace(/\/+$/, '');
+  if (clean === '' || clean === 'dashboard') {
+    return { route: { kind: 'list' }, taskRedirect: null };
+  }
+  const parts = clean.split('/');
+  if (parts.length === 2 && parts[0] === 'workspace' && typeof parts[1] === 'string') {
+    return { route: { kind: 'workspace', id: parts[1] }, taskRedirect: null };
+  }
+  if (parts.length === 2 && parts[0] === 'task' && typeof parts[1] === 'string') {
+    return { route: { kind: 'list' }, taskRedirect: parts[1] };
+  }
+  return { route: { kind: 'list' }, taskRedirect: null };
+}
+
+export function navigate(path: string): void {
+  let p = path;
+  if (!p.startsWith('/')) {
+    p = `/${p}`;
+  }
+  const target = appUrl(p);
+  if (window.location.pathname === target) {
+    return;
+  }
+  window.history.pushState({}, '', target);
+  window.dispatchEvent(new Event('script:navigate'));
+}
+
+function TaskRedirect(props: { taskId: string }): React.JSX.Element {
+  const tasksByWorkspace = useStore((s) => s.tasksByWorkspace);
+  useEffect(() => {
+    for (const key of Object.keys(tasksByWorkspace)) {
+      const list = tasksByWorkspace[key];
+      if (list === undefined) {
+        continue;
+      }
+      for (const t of list) {
+        if (t.id === props.taskId) {
+          navigate(`/workspace/${t.workspace_id}`);
+          return;
+        }
+      }
+    }
+    navigate('/');
+  }, [props.taskId, tasksByWorkspace]);
+  return (
+    <Shell>
+      <div className="max-w-[1600px] mx-auto px-8 py-8">
+        <ContentSkeleton />
+      </div>
+    </Shell>
+  );
+}
+
+function ContentSkeleton(): React.JSX.Element {
+  return (
+    <div className="space-y-4">
+      <div className="h-6 w-48 rounded bg-muted animate-pulse" />
+      <div className="h-24 w-full rounded bg-muted animate-pulse" />
+      <div className="h-24 w-full rounded bg-muted animate-pulse" />
+      <div className="h-24 w-full rounded bg-muted animate-pulse" />
+    </div>
+  );
+}
+
+function useRouteWithRedirect(): { route: Route; taskRedirect: string | null } {
+  const [parsed, setParsed] = useState(() => parsePathWithTaskRedirect(window.location.pathname));
+  useEffect(() => {
+    const handler = (): void => {
+      setParsed(parsePathWithTaskRedirect(window.location.pathname));
+    };
+    window.addEventListener('popstate', handler);
+    window.addEventListener('script:navigate', handler);
+    return () => {
+      window.removeEventListener('popstate', handler);
+      window.removeEventListener('script:navigate', handler);
+    };
+  }, []);
+  return parsed;
+}
+
+function Shell(props: {
+  children: React.ReactNode;
+  activeWorkspaceId?: string | undefined;
+}): React.JSX.Element {
+  return (
+    <div className="min-h-screen flex flex-col">
+      <div className="relative flex-1">
+        <Sidebar activeWorkspaceId={props.activeWorkspaceId} />
+        <main className="pl-60 min-h-screen">{props.children}</main>
+      </div>
+    </div>
+  );
+}
+
+function ConnectedApp(): React.JSX.Element {
+  const { ready } = useBootstrap();
+  const { route, taskRedirect } = useRouteWithRedirect();
+
+  if (taskRedirect !== null) {
+    return <TaskRedirect taskId={taskRedirect} />;
+  }
+
+  if (route.kind === 'workspace') {
+    return (
+      <Shell activeWorkspaceId={route.id}>
+        <div className="w-full px-8 py-6">
+          {ready ? <WorkspaceView workspaceId={route.id} /> : <ContentSkeleton />}
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <div className="max-w-[1600px] mx-auto px-8 py-8">
+        {ready ? <DashboardView /> : <ContentSkeleton />}
+      </div>
+    </Shell>
+  );
+}
+
+export function App(): React.JSX.Element {
+  const agent = useAgentConnection();
+
+  if (isCloudHost()) {
+    if (agent.checking) {
+      return <BrandSplash title="Script Manager" subtitle="Checking agent…" />;
+    }
+    if (!agent.online) {
+      return <WaitingForAgent info={agent.info} />;
+    }
+    return <ConnectedApp key="connected" />;
+  }
+
+  return <ConnectedApp />;
+}

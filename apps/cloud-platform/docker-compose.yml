@@ -1,0 +1,35 @@
+services:
+  fookie-cloud:
+    container_name: fookie-cloud
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: apps/cloud-platform/Dockerfile
+    ports:
+      - "11222:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATA_DIR: /data
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:11222}
+      DATABASE_PATH: /data/tasks/bridge.db
+      SCRIPT_DATA_DIR: /data/script
+      SCRIPT_WORKSPACES_HOST_DIR: ${SCRIPT_WORKSPACES_HOST_DIR:-}
+      SCRIPT_SANDBOX_IMAGE: ${SCRIPT_SANDBOX_IMAGE:-node:22-bookworm}
+      SCRIPT_MEMORY_LIMIT_MB: ${SCRIPT_MEMORY_LIMIT_MB:-1024}
+      SCRIPT_CPU_LIMIT: ${SCRIPT_CPU_LIMIT:-1}
+      FOOKIE_ADMIN_EMAIL: ${FOOKIE_ADMIN_EMAIL:-}
+      FOOKIE_ADMIN_PASSWORD: ${FOOKIE_ADMIN_PASSWORD:-}
+      FOOKIE_ADMIN_NAME: ${FOOKIE_ADMIN_NAME:-Admin}
+    volumes:
+      - fookie-cloud-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  fookie-cloud-data:
