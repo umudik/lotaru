@@ -282,7 +282,7 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
             }}
           />
 
-          <div className="rounded-lg border bg-muted/20 p-3 flex flex-col gap-3 shrink-0">
+          <div className="rounded-lg border border-white/[0.1] bg-[#111111] p-3 flex flex-col gap-3 shrink-0">
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5 min-w-0">
                 <Label className="text-xs text-muted-foreground">Trigger</Label>

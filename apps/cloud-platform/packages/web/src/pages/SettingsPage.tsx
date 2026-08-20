@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Volume2, Languages, Cpu, Pause, Github, Bot } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { Loader2, Volume2, Languages, Cpu, Pause, Github } from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +61,16 @@ function defaultVoiceId(
   return first.id;
 }
 
+function voicesForGender(voices: TtsVoiceOption[], gender: string): TtsVoiceOption[] {
+  const matched: TtsVoiceOption[] = [];
+  for (const voice of voices) {
+    if (voice.gender === gender) {
+      matched.push(voice);
+    }
+  }
+  return matched;
+}
+
 function localeGroups(voices: TtsVoiceOption[]): string[] {
   const locales: string[] = [];
   const seen = new Set<string>();
@@ -74,6 +86,7 @@ function localeGroups(voices: TtsVoiceOption[]): string[] {
 
 export function SettingsPage(): React.JSX.Element {
   const session = useSession();
+  const location = useLocation();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [languages, setLanguages] = useState<TargetLanguage[]>([]);
   const [models, setModels] = useState<string[]>([]);
@@ -81,7 +94,6 @@ export function SettingsPage(): React.JSX.Element {
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [ollamaError, setOllamaError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [testingVoice, setTestingVoice] = useState(false);
@@ -90,10 +102,13 @@ export function SettingsPage(): React.JSX.Element {
   const [githubConnected, setGithubConnected] = useState(false);
   const [savingGithub, setSavingGithub] = useState(false);
   const [agent, setAgent] = useState<AgentProfile | null>(null);
-  const [savingAgent, setSavingAgent] = useState(false);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef<string | null>(null);
   const previewGen = useRef(0);
+  const saveGen = useRef(0);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
+  const agentGen = useRef(0);
+  const agentTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
 
   async function loadVoicesFor(engine: "edge" | "qwen", next: AppSettings): Promise<AppSettings> {
     setLoadingVoices(true);
@@ -152,6 +167,20 @@ export function SettingsPage(): React.JSX.Element {
     })();
   }, [session]);
 
+  useEffect(() => {
+    if (loading || settings === null) {
+      return;
+    }
+    if (location.hash !== "#github") {
+      return;
+    }
+    const section = document.getElementById("github");
+    if (section === null) {
+      return;
+    }
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loading, settings, location.hash]);
+
   function stopVoicePreview(): void {
     previewGen.current += 1;
     if (voiceAudioRef.current !== null) {
@@ -168,6 +197,12 @@ export function SettingsPage(): React.JSX.Element {
 
   useEffect(() => {
     return () => {
+      if (persistTimer.current !== 0) {
+        clearTimeout(persistTimer.current);
+      }
+      if (agentTimer.current !== 0) {
+        clearTimeout(agentTimer.current);
+      }
       if (voiceAudioRef.current !== null) {
         voiceAudioRef.current.pause();
       }
@@ -177,6 +212,45 @@ export function SettingsPage(): React.JSX.Element {
     };
   }, []);
 
+  async function persistSettings(next: AppSettings): Promise<void> {
+    const gen = saveGen.current + 1;
+    saveGen.current = gen;
+    try {
+      const saved = await saveAppSettings(session, next);
+      if (saveGen.current !== gen) {
+        return;
+      }
+      setSettings(saved.settings);
+    } catch (err) {
+      if (saveGen.current === gen) {
+        toast.error(err instanceof Error ? err.message : "Failed to save");
+      }
+    }
+  }
+
+  function applySettings(next: AppSettings): AppSettings {
+    setSettings(next);
+    return next;
+  }
+
+  function saveNow(next: AppSettings): void {
+    if (persistTimer.current !== 0) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = 0;
+    }
+    void persistSettings(next);
+  }
+
+  function saveSoon(next: AppSettings): void {
+    if (persistTimer.current !== 0) {
+      clearTimeout(persistTimer.current);
+    }
+    persistTimer.current = setTimeout(() => {
+      persistTimer.current = 0;
+      void persistSettings(next);
+    }, 400);
+  }
+
   async function handleEngineChange(engine: "edge" | "qwen"): Promise<void> {
     if (settings === null) {
       return;
@@ -184,7 +258,8 @@ export function SettingsPage(): React.JSX.Element {
     stopVoicePreview();
     const next = Object.assign({}, settings, { ttsEngine: engine, ttsVoice: "" });
     const withVoices = await loadVoicesFor(engine, next);
-    setSettings(withVoices);
+    applySettings(withVoices);
+    saveNow(withVoices);
   }
 
   async function handleTestVoice(): Promise<void> {
@@ -231,20 +306,43 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
-  async function handleSave(): Promise<void> {
-    if (settings === null) {
-      return;
-    }
-    setSaving(true);
+  async function persistAgent(next: AgentProfile): Promise<void> {
+    const gen = agentGen.current + 1;
+    agentGen.current = gen;
     try {
-      const saved = await saveAppSettings(session, settings);
-      setSettings(saved.settings);
-      toast.success("Settings saved");
+      const saved = await saveAgentSettings(session, next);
+      if (agentGen.current !== gen) {
+        return;
+      }
+      setAgent(saved.profile);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
+      if (agentGen.current === gen) {
+                toast.error(err instanceof Error ? err.message : "Failed to save proposal runtime");
+      }
     }
+  }
+
+  function saveAgentNow(next: AgentProfile): void {
+    if (agentTimer.current !== 0) {
+      clearTimeout(agentTimer.current);
+      agentTimer.current = 0;
+    }
+    void persistAgent(next);
+  }
+
+  function saveAgentSoon(next: AgentProfile): void {
+    if (agentTimer.current !== 0) {
+      clearTimeout(agentTimer.current);
+    }
+    agentTimer.current = setTimeout(() => {
+      agentTimer.current = 0;
+      void persistAgent(next);
+    }, 400);
+  }
+
+  function applyAgent(next: AgentProfile): AgentProfile {
+    setAgent(next);
+    return next;
   }
 
   async function handleSaveGithub(): Promise<void> {
@@ -265,22 +363,6 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
-  async function handleSaveAgent(): Promise<void> {
-    if (agent === null) {
-      return;
-    }
-    setSavingAgent(true);
-    try {
-      const saved = await saveAgentSettings(session, agent);
-      setAgent(saved.profile);
-      toast.success("Agent profile saved");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save agent");
-    } finally {
-      setSavingAgent(false);
-    }
-  }
-
   if (loading || settings === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -297,27 +379,68 @@ export function SettingsPage(): React.JSX.Element {
   const grouped = localeGroups(voices);
 
   return (
-    <div className="note-desk flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-8 px-6 py-10">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Ollama sits above every project. Knowledge asks an agent to propose docs and
-            diagrams — Cursor, Claude Code, Codex, or local Ollama. Lotaru does not store API
-            keys; log in to the CLI yourself.
-          </p>
-        </div>
+    <div className="note-desk flex min-h-0 flex-1 flex-col">
+      <PageHeader title="Settings" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-3xl space-y-8 px-6 py-6">
+        <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+          Local workflow engine. Knowledge drafts come from a runtime you pick — Cursor,
+          Claude Code, Codex, or local Ollama. Lotaru does not store API keys; log in to the
+          CLI yourself.
+        </p>
+
+        <section id="github" className="panel-card space-y-5 p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
+              <Github className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">GitHub</h2>
+              <p className="text-xs text-muted-foreground">
+                Token used to record pull request events from this machine’s project remotes
+              </p>
+            </div>
+            {githubConnected ? (
+              <span className="ml-auto text-xs text-success">Connected</span>
+            ) : (
+              <span className="ml-auto text-xs text-muted-foreground">Not connected</span>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="github-token">Token</Label>
+            <div className="flex gap-2">
+              <Input
+                id="github-token"
+                type="password"
+                value={githubToken}
+                placeholder={githubConnected ? "Paste a new token to replace" : "ghp_…"}
+                onChange={(event) => {
+                  setGithubToken(event.target.value);
+                }}
+              />
+              <Button type="button" variant="outline" disabled={savingGithub} onClick={() => void handleSaveGithub()}>
+                {savingGithub ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
+              <p className="text-xs text-muted-foreground">
+                Paste a personal access token with repo scope. Lotaru polls github.com remotes on
+                your project folders; you do not need a reaction first.
+              </p>
+          </div>
+        </section>
 
         {agent !== null ? (
           <section className="panel-card space-y-5 p-6">
             <div className="flex items-center gap-3">
               <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-                <Bot className="h-4 w-4" />
+                  <Cpu className="h-4 w-4" />
               </div>
               <div>
-                <h2 className="text-base font-semibold">Agent</h2>
+                <h2 className="text-base font-semibold">Agent runtime</h2>
                 <p className="text-xs text-muted-foreground">
-                  Knowledge proposals run this runtime. No API keys in Lotaru.
+                  Shared by knowledge templates (when an event fires) and the voice intent scanner
+                  (when speech becomes a bus event). No API keys in Lotaru.
                 </p>
               </div>
             </div>
@@ -334,7 +457,7 @@ export function SettingsPage(): React.JSX.Element {
                     kind === "claude" ||
                     kind === "codex"
                   ) {
-                    setAgent(Object.assign({}, agent, { kind }));
+                    saveAgentNow(applyAgent(Object.assign({}, agent, { kind })));
                   }
                 }}
               >
@@ -352,7 +475,7 @@ export function SettingsPage(): React.JSX.Element {
                 onChange={(event) => {
                   const mode = event.target.value;
                   if (mode === "ask" || mode === "plan" || mode === "execute") {
-                    setAgent(Object.assign({}, agent, { mode }));
+                    saveAgentNow(applyAgent(Object.assign({}, agent, { mode })));
                   }
                 }}
               >
@@ -368,14 +491,15 @@ export function SettingsPage(): React.JSX.Element {
                 value={agent.command}
                 placeholder="leave empty for agent / claude / codex"
                 onChange={(event) => {
-                  setAgent(Object.assign({}, agent, { command: event.target.value }));
+                  saveAgentSoon(applyAgent(Object.assign({}, agent, { command: event.target.value })));
+                }}
+                onBlur={(event) => {
+                  saveAgentNow(
+                    applyAgent(Object.assign({}, agent, { command: event.target.value })),
+                  );
                 }}
               />
             </div>
-            <Button type="button" disabled={savingAgent} onClick={() => void handleSaveAgent()}>
-              {savingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Save agent
-            </Button>
           </section>
         ) : null}
 
@@ -402,9 +526,13 @@ export function SettingsPage(): React.JSX.Element {
               <Input
                 id="ollama-host"
                 value={current.ollamaHost}
-                onChange={(event) =>
-                  setSettings(Object.assign({}, current, { ollamaHost: event.target.value }))
-                }
+                onChange={(event) => {
+                  const next = applySettings(Object.assign({}, current, { ollamaHost: event.target.value }));
+                  saveSoon(next);
+                }}
+                onBlur={() => {
+                  saveNow(current);
+                }}
               />
               <Button
                 type="button"
@@ -426,9 +554,10 @@ export function SettingsPage(): React.JSX.Element {
               id="ollama-model"
               value={current.ollamaModel}
               disabled={modelChoices.length === 0}
-              onChange={(event) =>
-                setSettings(Object.assign({}, current, { ollamaModel: event.target.value }))
-              }
+              onChange={(event) => {
+                const next = applySettings(Object.assign({}, current, { ollamaModel: event.target.value }));
+                saveNow(next);
+              }}
             >
               <option value="">
                 {probing ? "Loading models…" : "Choose a model"}
@@ -473,7 +602,8 @@ export function SettingsPage(): React.JSX.Element {
                   current.ttsEngine,
                 );
                 stopVoicePreview();
-                setSettings(Object.assign({}, current, { targetLanguage, ttsVoice }));
+                const next = applySettings(Object.assign({}, current, { targetLanguage, ttsVoice }));
+                saveNow(next);
               }}
             >
               {languages.map((lang) => (
@@ -493,7 +623,8 @@ export function SettingsPage(): React.JSX.Element {
             <div>
               <h2 className="text-base font-semibold">Read aloud</h2>
               <p className="text-xs text-muted-foreground">
-                Microsoft neural voices from Edge TTS, or the nine Qwen3-TTS CustomVoice speakers.
+                Microsoft neural voices, or Qwen3-TTS speakers. Male and female
+                are listed separately.
               </p>
             </div>
           </div>
@@ -524,17 +655,31 @@ export function SettingsPage(): React.JSX.Element {
                   disabled={loadingVoices || voices.length === 0}
                   onChange={(event) => {
                     stopVoicePreview();
-                    setSettings(Object.assign({}, current, { ttsVoice: event.target.value }));
+                    const next = applySettings(
+                      Object.assign({}, current, { ttsVoice: event.target.value }),
+                    );
+                    saveNow(next);
                   }}
                 >
                   {voices.length === 0 ? (
                     <option value="">{loadingVoices ? "Loading voices…" : "No voices"}</option>
                   ) : current.ttsEngine === "qwen" ? (
-                    voices.map((voice) => (
-                      <option key={voice.id} value={voice.id}>
-                        {voice.label}
-                      </option>
-                    ))
+                    [
+                      <optgroup key="male" label="Male">
+                        {voicesForGender(voices, "male").map((voice) => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.label}
+                          </option>
+                        ))}
+                      </optgroup>,
+                      <optgroup key="female" label="Female">
+                        {voicesForGender(voices, "female").map((voice) => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.label}
+                          </option>
+                        ))}
+                      </optgroup>,
+                    ]
                   ) : (
                     grouped.map((locale) => (
                       <optgroup key={locale} label={locale}>
@@ -561,7 +706,7 @@ export function SettingsPage(): React.JSX.Element {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Hear a short sample in the target language. You do not need to save first.
+                Ryan and Aiden are male English voices.
               </p>
             </div>
           </div>
@@ -572,9 +717,13 @@ export function SettingsPage(): React.JSX.Element {
                 id="qwen-url"
                 value={current.qwenTtsUrl}
                 placeholder="http://127.0.0.1:8880"
-                onChange={(event) =>
-                  setSettings(Object.assign({}, current, { qwenTtsUrl: event.target.value }))
-                }
+                onChange={(event) => {
+                  const next = applySettings(Object.assign({}, current, { qwenTtsUrl: event.target.value }));
+                  saveSoon(next);
+                }}
+                onBlur={() => {
+                  saveNow(current);
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 Leave empty to keep using Microsoft neural voices until a Qwen server is running.
@@ -582,53 +731,7 @@ export function SettingsPage(): React.JSX.Element {
             </div>
           ) : null}
         </section>
-
-        <section className="panel-card space-y-5 p-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Github className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">GitHub</h2>
-              <p className="text-xs text-muted-foreground">
-                Token used only to poll pull requests after you add a reaction
-              </p>
-            </div>
-            {githubConnected ? (
-              <span className="ml-auto text-xs text-success">Connected</span>
-            ) : (
-              <span className="ml-auto text-xs text-muted-foreground">Not connected</span>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="github-token">Token</Label>
-            <div className="flex gap-2">
-              <Input
-                id="github-token"
-                type="password"
-                value={githubToken}
-                placeholder={githubConnected ? "Paste a new token to replace" : "ghp_…"}
-                onChange={(event) => {
-                  setGithubToken(event.target.value);
-                }}
-              />
-              <Button type="button" variant="outline" disabled={savingGithub} onClick={() => void handleSaveGithub()}>
-                {savingGithub ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Save
-              </Button>
-            </div>
-              <p className="text-xs text-muted-foreground">
-                Paste a personal access token here. Lotaru does not sign in to GitHub until you do.
-              </p>
-          </div>
-        </section>
-
-        <div className="flex justify-end">
-          <Button type="button" disabled={saving} onClick={() => void handleSave()}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save
-          </Button>
-        </div>
+      </div>
       </div>
     </div>
   );

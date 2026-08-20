@@ -40,6 +40,10 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
         success: { DEFAULT: "hsl(var(--success))" },
         warn: { DEFAULT: "hsl(var(--warn))" },
       },

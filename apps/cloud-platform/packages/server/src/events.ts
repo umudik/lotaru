@@ -7,6 +7,7 @@ export const EVENT_APP_STARTED = "app.started";
 export const EVENT_GITHUB_PR_OPENED = "github.pull_request.opened";
 export const EVENT_GITHUB_PR_UPDATED = "github.pull_request.updated";
 export const EVENT_GITHUB_PR_MERGED = "github.pull_request.merged";
+export const EVENT_VOICE_INTENT = "voice.intent";
 
 export const CLOCK_TICK_MS = 10000;
 
@@ -17,6 +18,7 @@ export const BUS_EVENT_TYPES = [
   EVENT_GITHUB_PR_OPENED,
   EVENT_GITHUB_PR_UPDATED,
   EVENT_GITHUB_PR_MERGED,
+  EVENT_VOICE_INTENT,
 ];
 
 export type LotaruEvent = {

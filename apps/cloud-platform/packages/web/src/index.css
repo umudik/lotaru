@@ -30,7 +30,6 @@
     --success: 142 60% 50%;
     --warn: 38 90% 60%;
     --radius: 0.75rem;
-    --cloud-grad: linear-gradient(90deg, #ec4899, #a855f7, #22d3ee);
   }
 
   * {
@@ -178,37 +177,4 @@
       transform: translateX(0);
     }
   }
-}
-
-.fookie-cloud-mark {
-  display: inline-flex;
-  align-items: center;
-  font-family: inherit;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1;
-  color: hsl(var(--foreground));
-  text-decoration: none;
-  transition: opacity 0.15s ease;
-}
-
-.fookie-cloud-mark:hover {
-  opacity: 0.9;
-}
-
-.fookie-cloud-mark--sm {
-  font-size: 0.75rem;
-  color: hsl(var(--muted-foreground));
-}
-
-.fookie-cloud-mark--sm:hover {
-  color: hsl(var(--foreground));
-}
-
-.fookie-cloud-word {
-  background-image: var(--cloud-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }

@@ -16,7 +16,9 @@ import {
   EVENT_APP_STARTED,
   EVENT_CLOCK_TICK,
   EVENT_FILE_CHANGED,
+  canonicalBusEventType,
   eventRunReason,
+  isBusEventType,
   relativeWatchPath,
   replayPayloadsFromStored,
   scriptListensToEvent,
@@ -25,26 +27,29 @@ import {
 } from "../events.js";
 import { ensureEventLogSchema, eventsById, listProjectEvents, recordEvent } from "../event-log.js";
 import { createFileWatchers } from "../file-watch.js";
-import { pollGithubOnce, startGithubPoller } from "../github-poll.js";
+import { mergeGithubWatches, pollGithubOnce, startGithubPoller, type GithubWatch } from "../github-poll.js";
 import { listGithubReposAt } from "../github-remote.js";
 import { createIntentTask } from "../intent-task.js";
-import { runKnowledgeAutomation } from "./knowledge.js";
+import { fireKnowledgeTemplatesForEvent } from "./knowledge-templates.js";
+import { setLotaruEventPublisher } from "../event-bus.js";
 import {
   claimReactionFire,
   deleteReaction,
   ensureReactionSchema,
   insertReaction,
+  listEnabledGithubRepos,
   listReactions,
   loadGithubToken,
   parseReactionInput,
   releaseReactionFire,
 } from "../reaction-store.js";
 import {
+  eventListenerRefs,
   reactionEventTypesForClient,
   reactionFireFingerprint,
   reactionMatchesEvent,
   REACTION_CREATE_TASK,
-  REACTION_PROPOSE_KNOWLEDGE,
+  type NamedEventScript,
 } from "../reactions.js";
 
 type RuntimeKind = "shell" | "docker";
@@ -475,19 +480,6 @@ export async function registerScriptRunnerModule(
     return rows.map(toScript);
   }
 
-  function resolveActiveEnvVars(project: ProjectSettings): Record<string, string> {
-    if (project.active_environment_id === null) {
-      return {};
-    }
-    const row = db
-      .prepare("SELECT * FROM script_environments WHERE id = ?")
-      .get(project.active_environment_id) as EnvironmentRow | undefined;
-    if (row === undefined) {
-      return {};
-    }
-    return toEnvironment(row).vars;
-  }
-
   const sockets = new Map<string, Set<WebSocket>>();
   const running = new Map<
     string,
@@ -663,12 +655,11 @@ export async function registerScriptRunnerModule(
     function run(): void {
       try {
         const cwd = projectCwd(script.project_id);
-        const customEnv = resolveActiveEnvVars(project);
         write(`[script] cwd=${cwd}`, "out");
         const spec = hostShellSpawn(process.platform, script.command);
         const childProc = spawn(spec.cmd, spec.args, {
           cwd,
-          env: hostProcessEnv(customEnv),
+          env: hostProcessEnv({}),
           stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
         });
@@ -763,7 +754,7 @@ export async function registerScriptRunnerModule(
       detail: string;
     },
     emitKind: "live" | "replay",
-  ): void {
+  ): LotaruEvent {
     const event: LotaruEvent = {
       id: nanoid(12),
       type: partial.type,
@@ -794,16 +785,6 @@ export async function registerScriptRunnerModule(
         if (reaction.action === REACTION_CREATE_TASK) {
           createIntentTask(event, reaction);
         }
-        if (reaction.action === REACTION_PROPOSE_KNOWLEDGE) {
-          void runKnowledgeAutomation({
-            databasePath: options.databasePath,
-            itemId: reaction.knowledgeItemId,
-            projectId: event.projectId,
-            outputs: reaction.knowledgeOutputs,
-          }).catch((err) => {
-            app.log.error({ err, type: event.type }, "knowledge automation failed");
-          });
-        }
       } catch (err) {
         if (skipClaim !== true) {
           releaseReactionFire(db, fingerprint);
@@ -811,15 +792,25 @@ export async function registerScriptRunnerModule(
         app.log.error({ err, type: event.type }, "reaction failed");
       }
     }
+    void fireKnowledgeTemplatesForEvent({
+      databasePath: options.databasePath,
+      projectId: event.projectId,
+      eventId: event.id,
+      eventType: event.type,
+      path: event.path,
+      detail: event.detail,
+    }).catch((err) => {
+      app.log.error({ err, type: event.type }, "knowledge template fire failed");
+    });
     if (event.scriptId.length > 0) {
       const targeted = getScript(event.scriptId);
       if (targeted === null) {
-        return;
+        return event;
       }
       if (scriptListensToEvent(listenerScript(targeted), event)) {
         triggerScript(targeted, reason);
       }
-      return;
+      return event;
     }
     const scripts = listScripts(event.projectId);
     for (const script of scripts) {
@@ -827,7 +818,10 @@ export async function registerScriptRunnerModule(
         triggerScript(script, reason);
       }
     }
+    return event;
   }
+
+  setLotaruEventPublisher(emitLotaruEvent);
 
   function projectIdForGithubRepo(repo: string): string {
     const row = db
@@ -837,6 +831,21 @@ export async function registerScriptRunnerModule(
       return "";
     }
     return row.project_id;
+  }
+
+  async function loadGithubWatches(): Promise<GithubWatch[]> {
+    const fromReactions: GithubWatch[] = [];
+    for (const repo of listEnabledGithubRepos(db)) {
+      fromReactions.push({ repo, projectId: projectIdForGithubRepo(repo) });
+    }
+    const fromRemotes: GithubWatch[] = [];
+    for (const project of refreshProjectRegistry()) {
+      const remotes = await listGithubReposAt(project.repoPath);
+      for (const repo of remotes) {
+        fromRemotes.push({ repo, projectId: project.id });
+      }
+    }
+    return mergeGithubWatches(fromReactions, fromRemotes);
   }
 
   function emitGithubPoll(payload: { type: string; projectId: string; path: string; detail: string }): void {
@@ -1008,7 +1017,7 @@ export async function registerScriptRunnerModule(
     },
   );
 
-  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string; cursor?: string; type?: string } }>(
     "/api/v1/projects/:projectId/events",
     async (request, reply) => {
       const user = await requireUser(request);
@@ -1019,14 +1028,66 @@ export async function registerScriptRunnerModule(
       if (project === null) {
         return reply.code(404).send({ error: "not found" });
       }
-      let limit = 50;
+      let limit = 40;
       if (typeof request.query.limit === "string") {
         const n = Number.parseInt(request.query.limit, 10);
         if (Number.isFinite(n) && n > 0 && n <= 200) {
           limit = n;
         }
       }
-      return { events: listProjectEvents(db, project.project_id, limit) };
+      let type = "";
+      if (typeof request.query.type === "string") {
+        type = canonicalBusEventType(request.query.type.trim());
+      }
+      if (type.length > 0 && isBusEventType(type) !== true) {
+        return reply.code(400).send({ error: "Unknown event type" });
+      }
+      let cursor = "";
+      if (typeof request.query.cursor === "string") {
+        cursor = request.query.cursor.trim();
+      }
+      let stored;
+      try {
+        stored = listProjectEvents(db, {
+          projectId: project.project_id,
+          limit,
+          type,
+          cursor,
+        });
+      } catch (failure) {
+        if (failure instanceof Error && failure.message === "Invalid event cursor") {
+          return reply.code(400).send({ error: "Invalid event cursor" });
+        }
+        throw failure;
+      }
+      const reactions = listReactions(db, project.project_id);
+      const scripts: NamedEventScript[] = [];
+      for (const script of listScripts(project.project_id)) {
+        const listen = listenerScript(script);
+        scripts.push({
+          id: listen.id,
+          projectId: listen.projectId,
+          triggerType: listen.triggerType,
+          triggerGlob: listen.triggerGlob,
+          enabled: listen.enabled,
+          name: script.name,
+        });
+      }
+      const events = [];
+      for (const event of stored.events) {
+        events.push({
+          id: event.id,
+          type: event.type,
+          projectId: event.projectId,
+          scriptId: event.scriptId,
+          path: event.path,
+          detail: event.detail,
+          createdAt: event.createdAt,
+          replayable: replayPayloadsFromStored(event).length > 0,
+          listeners: eventListenerRefs(event, reactions, scripts),
+        });
+      }
+      return { events, next: stored.next };
     },
   );
 
@@ -1577,7 +1638,11 @@ export async function registerScriptRunnerModule(
         const reaction = insertReaction(db, project.project_id, input);
         refreshFileWatches();
         if (input.eventType.startsWith("github.")) {
-          void pollGithubOnce(db, projectIdForGithubRepo, emitGithubPoll);
+          void loadGithubWatches()
+            .then((watches) => pollGithubOnce(db, watches, emitGithubPoll))
+            .catch(() => {
+              return;
+            });
         }
         return reply.code(201).send({ reaction });
       } catch (err) {
@@ -1606,7 +1671,7 @@ export async function registerScriptRunnerModule(
     },
   );
 
-  startGithubPoller(db, projectIdForGithubRepo, emitGithubPoll);
+  startGithubPoller(db, loadGithubWatches, emitGithubPoll);
 
   app.addHook("onClose", async () => {
     if (clockTimer !== undefined) {

@@ -1,86 +1,70 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useSession } from "@/hooks/useSession";
 import {
-  approveKnowledgeOutput,
-  createKnowledgeItem,
-  deleteKnowledgeItem,
+  createKnowledgeTemplate,
+  deleteKnowledgeArtifact,
+  deleteKnowledgeTemplate,
   fetchAppSettings,
-  fetchKnowledgeItem,
-  fetchKnowledgeItems,
-  patchKnowledgeItem,
-  patchKnowledgeOutput,
-  proposeKnowledgeOutput,
-  type KnowledgeAudience,
-  type KnowledgeIntent,
-  type KnowledgeItem,
-  type KnowledgeOutput,
-  type KnowledgeView,
+  fetchKnowledgeArtifact,
+  fetchKnowledgeArtifacts,
+  fetchKnowledgeTemplates,
+  patchKnowledgeArtifact,
+  type KnowledgeArtifact,
+  type KnowledgeKind,
+  type KnowledgeTemplate,
   type TargetLanguage,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { CATALOG_EVENT_TYPES, catalogEventLabel } from "@/lib/event-catalog";
+import { formatMillis } from "@/lib/utils";
 
 function knowledgeBase(projectId: string): string {
   return `/projects/${projectId}/knowledge`;
 }
 
-function intentLabel(intent: KnowledgeIntent): string {
-  if (intent === "process") {
-    return "Process";
-  }
-  if (intent === "api") {
-    return "API";
-  }
-  return "Overview";
-}
-
-function audienceLabel(audience: KnowledgeAudience): string {
-  if (audience === "ops") {
-    return "Ops";
-  }
-  if (audience === "frontend") {
-    return "Frontend";
-  }
-  return "Developer";
-}
-
-function outputCounts(item: KnowledgeItem): { docs: number; diagrams: number } {
-  let docs = 0;
-  if (item.document.currentVersion > 0 || item.document.proposedVersion > 0) {
-    docs = 1;
-  }
-  let diagrams = 0;
-  if (item.diagram.currentVersion > 0 || item.diagram.proposedVersion > 0) {
-    diagrams = 1;
-  }
-  return { docs, diagrams };
-}
-
-function KnowledgeList(props: { projectId: string; view: KnowledgeView }): React.JSX.Element {
+function TemplatesPage(props: {
+  projectId: string;
+  kind: KnowledgeKind;
+}): React.JSX.Element {
   const session = useSession();
   const base = knowledgeBase(props.projectId);
-  const [items, setItems] = useState<KnowledgeItem[]>([]);
+  const [templates, setTemplates] = useState<KnowledgeTemplate[]>([]);
   const [languages, setLanguages] = useState<TargetLanguage[]>([]);
-  const [subject, setSubject] = useState("");
-  const [intent, setIntent] = useState<KnowledgeIntent>("process");
-  const [audience, setAudience] = useState<KnowledgeAudience>("developer");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [eventType, setEventType] = useState("file.changed");
+  const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("tr");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const navigate = useNavigate();
+
+  let projectLabel = "Project";
+  if (session !== null && session.projectName !== null) {
+    projectLabel = session.projectName;
+  } else if (props.projectId.length > 0) {
+    projectLabel = props.projectId;
+  }
+
+  let heading = "Document templates";
+  let listPath = `${base}/documentation/list`;
+  if (props.kind === "diagram") {
+    heading = "Diagram templates";
+    listPath = `${base}/diagrams/list`;
+  }
 
   const load = useCallback(async (): Promise<void> => {
     if (session === null) {
       return;
     }
-    const data = await fetchKnowledgeItems(session, props.projectId, props.view);
-    setItems(data.items);
-  }, [session, props.projectId, props.view]);
+    const data = await fetchKnowledgeTemplates(session, props.projectId, props.kind);
+    setTemplates(data.templates);
+  }, [session, props.projectId, props.kind]);
 
   useEffect(() => {
     void load().catch((err: unknown) => {
@@ -98,26 +82,35 @@ function KnowledgeList(props: { projectId: string; view: KnowledgeView }): React
     });
   }, [session]);
 
-  async function createItem(): Promise<void> {
+  function closeCreate(): void {
+    setCreateOpen(false);
+    setTitle("");
+    setDescription("");
+    setError("");
+  }
+
+  async function createTemplate(): Promise<void> {
     if (session === null) {
       return;
     }
-    const trimmed = subject.trim();
+    const trimmed = title.trim();
     if (trimmed.length === 0) {
       return;
     }
     setSaving(true);
-    setError(null);
+    setError("");
     try {
-      const created = await createKnowledgeItem(session, {
+      await createKnowledgeTemplate(session, {
         projectId: props.projectId,
-        subject: trimmed,
-        intent,
-        audience,
+        kind: props.kind,
+        title: trimmed,
+        eventType,
+        description: description.trim(),
         language,
+        enabled: true,
       });
-      setSubject("");
-      navigate(`${base}/${created.id}`);
+      closeCreate();
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "create failed");
     } finally {
@@ -125,158 +118,307 @@ function KnowledgeList(props: { projectId: string; view: KnowledgeView }): React
     }
   }
 
-  let heading = "Knowledge";
-  if (props.view === "documentation") {
-    heading = "Documentation";
-  }
-  if (props.view === "diagrams") {
-    heading = "Diagrams";
+  async function removeTemplate(templateId: string): Promise<void> {
+    if (session === null) {
+      return;
+    }
+    await deleteKnowledgeTemplate(session, templateId);
+    await load();
   }
 
   return (
-    <div className="note-desk flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>
-            <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              A brief is the question. Documentation and diagrams are two views of the same
-              answer. You own the current text; the agent only proposes.
-            </p>
-          </div>
-        </div>
-
-        <form
-          className="panel-card space-y-3 p-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void createItem();
-          }}
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Label htmlFor="knowledge-subject">Subject</Label>
-              <Input
-                id="knowledge-subject"
-                value={subject}
-                placeholder="Transfer"
-                onChange={(event) => {
-                  setSubject(event.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <Label htmlFor="knowledge-intent">Intent</Label>
-              <Select
-                id="knowledge-intent"
-                value={intent}
-                onChange={(event) => {
-                  setIntent(event.target.value as KnowledgeIntent);
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        context={projectLabel}
+        title={heading}
+        actions={
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              setCreateOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            New template
+          </Button>
+        }
+      />
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {templates.length === 0 ? (
+            <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
+              <p className="text-sm text-muted-foreground">
+                No templates yet. Templates define what gets created when an event fires.
+              </p>
+              <Button
+                className="mt-4"
+                size="sm"
+                onClick={() => {
+                  setCreateOpen(true);
                 }}
               >
-                <option value="process">Process</option>
-                <option value="api">API</option>
-                <option value="overview">Overview</option>
-              </Select>
+                <Plus className="h-4 w-4" />
+                New template
+              </Button>
             </div>
-            <div>
-              <Label htmlFor="knowledge-audience">Audience</Label>
-              <Select
-                id="knowledge-audience"
-                value={audience}
-                onChange={(event) => {
-                  setAudience(event.target.value as KnowledgeAudience);
-                }}
-              >
-                <option value="developer">Developer</option>
-                <option value="frontend">Frontend</option>
-                <option value="ops">Ops</option>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="knowledge-language">Language</Label>
-              <Select
-                id="knowledge-language"
-                value={language}
-                onChange={(event) => {
-                  setLanguage(event.target.value);
-                }}
-              >
-                {languages.map((lang) => (
-                  <option key={lang.id} value={lang.id}>
-                    {lang.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            {error ? <p className="text-xs text-destructive">{error}</p> : <span />}
-            <Button type="submit" disabled={saving || subject.trim().length === 0}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              New
-            </Button>
-          </div>
-        </form>
-
-        {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No knowledge yet. Start with a brief.</p>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => {
-              const counts = outputCounts(item);
-              return (
-                <Link
-                  key={item.id}
-                  to={`${base}/${item.id}`}
-                  className="panel-card block px-5 py-4 transition-colors hover:bg-secondary/40"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-base font-medium">{item.subject}</p>
-                    {item.stale ? (
-                      <span className="text-[11px] font-medium text-warn">Stale</span>
+          ) : (
+            <ul className="space-y-2">
+              {templates.map((template) => (
+                <li key={template.id} className="panel-card flex items-start justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{template.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {catalogEventLabel(template.eventType)} · {template.language.toUpperCase()}
+                    </p>
+                    {template.description.length > 0 ? (
+                      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                        {template.description}
+                      </p>
                     ) : null}
                   </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      void removeTemplate(template.id);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-4 text-xs text-muted-foreground">
+            Created outputs land in{" "}
+            <Link className="underline underline-offset-2" to={listPath}>
+              the list
+            </Link>
+            .
+          </p>
+        </div>
+        {createOpen ? (
+          <aside className="flex w-[380px] shrink-0 flex-col border-l border-white/[0.07] bg-[#0a0a0a]">
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+              <h2 className="text-sm font-semibold">New template</h2>
+              <Button type="button" variant="ghost" size="sm" onClick={closeCreate}>
+                Close
+              </Button>
+            </div>
+            <form
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void createTemplate();
+              }}
+            >
+              <div className="space-y-2">
+                <Label htmlFor="template-title">Title</Label>
+                <Input
+                  id="template-title"
+                  value={title}
+                  autoFocus
+                  placeholder="Kod kalite standartlarını değerlendirme raporu"
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-event">When</Label>
+                <Select
+                  id="template-event"
+                  value={eventType}
+                  onChange={(event) => {
+                    setEventType(event.target.value);
+                  }}
+                >
+                  {CATALOG_EVENT_TYPES.map((typeName) => (
+                    <option key={typeName} value={typeName}>
+                      {catalogEventLabel(typeName)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-description">Description</Label>
+                <textarea
+                  id="template-description"
+                  className="min-h-[8rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 text-sm"
+                  value={description}
+                  placeholder="Create a document with this structure and tone…"
+                  onChange={(event) => {
+                    setDescription(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-language">Language</Label>
+                <Select
+                  id="template-language"
+                  value={language}
+                  onChange={(event) => {
+                    setLanguage(event.target.value);
+                  }}
+                >
+                  {languages.map((lang) => (
+                    <option key={lang.id} value={lang.id}>
+                      {lang.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {error.length > 0 ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="mt-auto flex gap-2 border-t border-white/[0.06] pt-4">
+                <Button type="button" variant="outline" className="flex-1" onClick={closeCreate}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1" disabled={saving || title.trim().length === 0}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Save
+                </Button>
+              </div>
+            </form>
+          </aside>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ArtifactsPage(props: {
+  projectId: string;
+  kind: KnowledgeKind;
+}): React.JSX.Element {
+  const session = useSession();
+  const base = knowledgeBase(props.projectId);
+  const [artifacts, setArtifacts] = useState<KnowledgeArtifact[]>([]);
+  const [error, setError] = useState("");
+
+  let projectLabel = "Project";
+  if (session !== null && session.projectName !== null) {
+    projectLabel = session.projectName;
+  } else if (props.projectId.length > 0) {
+    projectLabel = props.projectId;
+  }
+
+  let heading = "Documents";
+  let templatesPath = `${base}/documentation/templates`;
+  if (props.kind === "diagram") {
+    heading = "Diagrams";
+    templatesPath = `${base}/diagrams/templates`;
+  }
+
+  const load = useCallback(async (): Promise<void> => {
+    if (session === null) {
+      return;
+    }
+    const data = await fetchKnowledgeArtifacts(session, props.projectId, props.kind);
+    setArtifacts(data.artifacts);
+  }, [session, props.projectId, props.kind]);
+
+  useEffect(() => {
+    void load().catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : "load failed");
+    });
+  }, [load]);
+
+  async function removeArtifact(artifactId: string): Promise<void> {
+    if (session === null) {
+      return;
+    }
+    await deleteKnowledgeArtifact(session, artifactId);
+    await load();
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader context={projectLabel} title={heading} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+        {artifacts.length === 0 ? (
+          <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
+            <p className="text-sm font-semibold text-foreground">
+              {props.kind === "diagram" ? "No diagrams yet" : "No documents yet"}
+            </p>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+              When a template’s event fires, a new output appears here. Start by defining a template.
+            </p>
+            <Link
+              to={templatesPath}
+              className="mt-4 inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
+            >
+              Open templates
+            </Link>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {artifacts.map((artifact) => (
+              <li key={artifact.id} className="panel-card flex items-start justify-between gap-3 p-4">
+                <Link
+                  to={`${base}/${props.kind === "diagram" ? "diagrams" : "documentation"}/list/${artifact.id}`}
+                  className="min-w-0 flex-1"
+                >
+                  <p className="text-sm font-semibold">{artifact.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {intentLabel(item.intent)} · {audienceLabel(item.audience)} · {item.language.toUpperCase()}
-                  </p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    {counts.docs} doc · {counts.diagrams} diagram
+                    Template: {artifact.templateTitle} · {catalogEventLabel(artifact.eventType)} ·{" "}
+                    {formatMillis(Date.parse(artifact.createdAt))}
                   </p>
                 </Link>
-              );
-            })}
-          </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    void removeArtifact(artifact.id);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
   );
 }
 
-function KnowledgeDetail(props: { projectId: string; tab: "document" | "diagram" }): React.JSX.Element {
-  const { itemId } = useParams();
+function ArtifactDetail(props: {
+  projectId: string;
+  kind: KnowledgeKind;
+}): React.JSX.Element {
+  const { artifactId } = useParams();
   const session = useSession();
-  const base = knowledgeBase(props.projectId);
   const navigate = useNavigate();
-  const [item, setItem] = useState<KnowledgeItem | null>(null);
-  const [currentBody, setCurrentBody] = useState("");
-  const [proposedBody, setProposedBody] = useState("");
-  const [sourcesText, setSourcesText] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const base = knowledgeBase(props.projectId);
+  const [artifact, setArtifact] = useState<KnowledgeArtifact | null>(null);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [proposing, setProposing] = useState(false);
+
+  let projectLabel = "Project";
+  if (session !== null && session.projectName !== null) {
+    projectLabel = session.projectName;
+  } else if (props.projectId.length > 0) {
+    projectLabel = props.projectId;
+  }
+
+  let listPath = `${base}/documentation/list`;
+  if (props.kind === "diagram") {
+    listPath = `${base}/diagrams/list`;
+  }
 
   const load = useCallback(async (): Promise<void> => {
-    if (session === null || typeof itemId !== "string") {
+    if (session === null || typeof artifactId !== "string") {
       return;
     }
-    const next = await fetchKnowledgeItem(session, itemId);
-    setItem(next);
-    const output = props.tab === "document" ? next.document : next.diagram;
-    setCurrentBody(output.currentBody);
-    setProposedBody(output.proposedBody);
-    setSourcesText(output.sourcesText);
-  }, [session, itemId, props.tab]);
+    const next = await fetchKnowledgeArtifact(session, artifactId);
+    setArtifact(next);
+    setBody(next.body);
+  }, [session, artifactId]);
 
   useEffect(() => {
     void load().catch((err: unknown) => {
@@ -284,17 +426,15 @@ function KnowledgeDetail(props: { projectId: string; tab: "document" | "diagram"
     });
   }, [load]);
 
-  async function saveCurrent(): Promise<void> {
-    if (session === null || item === null) {
+  async function save(): Promise<void> {
+    if (session === null || artifact === null) {
       return;
     }
     setSaving(true);
     try {
-      const next = await patchKnowledgeOutput(session, item.id, props.tab, {
-        currentBody,
-        sourcesText,
-      });
-      setItem(next);
+      const next = await patchKnowledgeArtifact(session, artifact.id, { body });
+      setArtifact(next);
+      setBody(next.body);
     } catch (err) {
       setError(err instanceof Error ? err.message : "save failed");
     } finally {
@@ -302,197 +442,49 @@ function KnowledgeDetail(props: { projectId: string; tab: "document" | "diagram"
     }
   }
 
-  async function saveProposed(): Promise<void> {
-    if (session === null || item === null) {
-      return;
-    }
-    setSaving(true);
-    try {
-      const next = await patchKnowledgeOutput(session, item.id, props.tab, {
-        proposedBody,
-        sourcesText,
-      });
-      setItem(next);
-      setProposedBody(next[props.tab === "document" ? "document" : "diagram"].proposedBody);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function approve(): Promise<void> {
-    if (session === null || item === null) {
-      return;
-    }
-    setSaving(true);
-    try {
-      const next = await approveKnowledgeOutput(session, item.id, props.tab);
-      setItem(next);
-      const output = props.tab === "document" ? next.document : next.diagram;
-      setCurrentBody(output.currentBody);
-      setProposedBody(output.proposedBody);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "approve failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function propose(): Promise<void> {
-    if (session === null || item === null) {
-      return;
-    }
-    setProposing(true);
-    setError(null);
-    try {
-      const next = await proposeKnowledgeOutput(session, item.id, props.tab);
-      setItem(next);
-      const output = props.tab === "document" ? next.document : next.diagram;
-      setProposedBody(output.proposedBody);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "agent failed");
-    } finally {
-      setProposing(false);
-    }
-  }
-
-  async function remove(): Promise<void> {
-    if (session === null || item === null) {
-      return;
-    }
-    await deleteKnowledgeItem(session, item.id);
-    navigate(base);
-  }
-
-  async function clearStale(): Promise<void> {
-    if (session === null || item === null) {
-      return;
-    }
-    const next = await patchKnowledgeItem(session, item.id, { stale: false });
-    setItem(next);
-  }
-
-  if (item === null) {
+  if (artifact === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {error ?? "Opening…"}
+        {error.length > 0 ? error : "Opening…"}
       </div>
     );
   }
 
-  const output: KnowledgeOutput = props.tab === "document" ? item.document : item.diagram;
-
   return (
-    <div className="note-desk flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <Link to={base} className="text-xs text-muted-foreground hover:text-foreground">
-              Knowledge
-            </Link>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{item.subject}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {intentLabel(item.intent)} · {audienceLabel(item.audience)} · {item.language.toUpperCase()}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {item.stale ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => void clearStale()}>
-                Mark current
-              </Button>
-            ) : null}
-            <Button type="button" variant="ghost" size="sm" onClick={() => void remove()}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Link
-            to={`${base}/${item.id}`}
-            className={cn(
-              "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium",
-              props.tab === "document"
-                ? "bg-primary text-primary-foreground"
-                : "border border-white/[0.1] bg-[#111111] text-muted-foreground hover:text-foreground",
-            )}
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        context={projectLabel}
+        breadcrumb={[{ label: props.kind === "diagram" ? "Diagrams" : "Documents", to: listPath }]}
+        title={artifact.title}
+        subtitle={`Template: ${artifact.templateTitle} · ${catalogEventLabel(artifact.eventType)}`}
+        actions={
+          <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save
+          </Button>
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+        <textarea
+          className="min-h-[24rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
+          value={body}
+          onChange={(event) => {
+            setBody(event.target.value);
+          }}
+        />
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              navigate(listPath);
+            }}
           >
-            Documentation
-          </Link>
-          <Link
-            to={`${base}/${item.id}/diagrams`}
-            className={cn(
-              "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium",
-              props.tab === "diagram"
-                ? "bg-primary text-primary-foreground"
-                : "border border-white/[0.1] bg-[#111111] text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Diagrams
-          </Link>
+            Back to list
+          </Button>
         </div>
-
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-        <section className="panel-card space-y-3 p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium">Current v{output.currentVersion}</h2>
-            <Button type="button" size="sm" disabled={saving} onClick={() => void saveCurrent()}>
-              Save
-            </Button>
-          </div>
-          <textarea
-            className="min-h-[14rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
-            value={currentBody}
-            onChange={(event) => {
-              setCurrentBody(event.target.value);
-            }}
-          />
-        </section>
-
-        <section className="panel-card space-y-3 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">Proposed v{output.proposedVersion}</h2>
-            <div className="flex gap-2">
-              <Button type="button" size="sm" variant="outline" disabled={proposing} onClick={() => void propose()}>
-                {proposing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Ask agent
-              </Button>
-              <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => void saveProposed()}>
-                Save draft
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={saving || proposedBody.trim().length === 0}
-                onClick={() => void approve()}
-              >
-                Approve
-              </Button>
-            </div>
-          </div>
-          <textarea
-            className="min-h-[14rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
-            value={proposedBody}
-            placeholder="Agent output lands here. Edit it, then approve."
-            onChange={(event) => {
-              setProposedBody(event.target.value);
-            }}
-          />
-        </section>
-
-        <section className="panel-card space-y-2 p-5">
-          <Label htmlFor="knowledge-sources">Sources</Label>
-          <Input
-            id="knowledge-sources"
-            value={sourcesText}
-            placeholder="PR #182, Meeting #12, Note #17"
-            onChange={(event) => {
-              setSourcesText(event.target.value);
-            }}
-          />
-        </section>
       </div>
     </div>
   );
@@ -502,18 +494,31 @@ export function KnowledgeFeature(props: { projectId: string }): React.JSX.Elemen
   const base = knowledgeBase(props.projectId);
   return (
     <Routes>
-      <Route index element={<KnowledgeList projectId={props.projectId} view="all" />} />
+      <Route index element={<Navigate to={`${base}/documentation/templates`} replace />} />
+      <Route path="documentation" element={<Navigate to={`${base}/documentation/templates`} replace />} />
       <Route
-        path="documentation"
-        element={<KnowledgeList projectId={props.projectId} view="documentation" />}
+        path="documentation/templates"
+        element={<TemplatesPage projectId={props.projectId} kind="document" />}
       />
-      <Route path="diagrams" element={<KnowledgeList projectId={props.projectId} view="diagrams" />} />
-      <Route path=":itemId" element={<KnowledgeDetail projectId={props.projectId} tab="document" />} />
       <Route
-        path=":itemId/diagrams"
-        element={<KnowledgeDetail projectId={props.projectId} tab="diagram" />}
+        path="documentation/list"
+        element={<ArtifactsPage projectId={props.projectId} kind="document" />}
       />
-      <Route path="*" element={<Navigate to={base} replace />} />
+      <Route
+        path="documentation/list/:artifactId"
+        element={<ArtifactDetail projectId={props.projectId} kind="document" />}
+      />
+      <Route path="diagrams" element={<Navigate to={`${base}/diagrams/templates`} replace />} />
+      <Route
+        path="diagrams/templates"
+        element={<TemplatesPage projectId={props.projectId} kind="diagram" />}
+      />
+      <Route path="diagrams/list" element={<ArtifactsPage projectId={props.projectId} kind="diagram" />} />
+      <Route
+        path="diagrams/list/:artifactId"
+        element={<ArtifactDetail projectId={props.projectId} kind="diagram" />}
+      />
+      <Route path="*" element={<Navigate to={`${base}/documentation/templates`} replace />} />
     </Routes>
   );
 }

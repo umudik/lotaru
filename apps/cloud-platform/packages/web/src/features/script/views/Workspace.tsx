@@ -11,7 +11,6 @@ import { Switch } from '@script/components/ui/switch';
 import { ScriptTile } from '@script/components/script-tile';
 import { ScriptDetailPanel } from '@script/components/script-detail-panel';
 import { api } from '@script/api/client';
-import { ProjectEnvironmentDialog } from '@script/components/workspace-environment-dialog';
 import { downloadProjectBundle, exportFileName } from '@script/lib/project-export';
 import { BLANK_SCRIPT_BODY } from '@script/lib/project-templates';
 import type { InspectTarget } from '@script/components/run-dots';
@@ -261,10 +260,6 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
               <h1 className="text-lg font-semibold truncate">Scripts</h1>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <ProjectEnvironmentDialog
-                projectId={props.projectId}
-                activeEnvironmentId={settings.active_environment_id}
-              />
               <div className="flex items-center gap-2 px-2">
                 <Switch
                   checked={!settings.paused}

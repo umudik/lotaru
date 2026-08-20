@@ -467,7 +467,7 @@ export function MarketplacePage() {
     if (!session) return;
     if (listing.owned && listing.purchasedTemplateId) {
       if (selectForProject) {
-        navigate(`/projects/${projectId}/tasks/workflow-templates`);
+        navigate(`/projects/${projectId}/pipeline`);
       }
       return;
     }
@@ -479,7 +479,7 @@ export function MarketplacePage() {
       );
       await reload();
       if (selectForProject) {
-        navigate(`/projects/${projectId}/tasks/workflow-templates`);
+        navigate(`/projects/${projectId}/pipeline`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Purchase failed");
@@ -621,7 +621,7 @@ export function MarketplacePage() {
                     size="sm"
                     variant="outline"
                     onClick={() =>
-                      navigate(`/projects/${projectId}/tasks/workflow-templates`)
+                      navigate(`/projects/${projectId}/pipeline`)
                     }
                   >
                     Use in project

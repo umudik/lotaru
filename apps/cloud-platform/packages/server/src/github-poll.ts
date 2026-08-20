@@ -2,7 +2,6 @@ import type Database from "better-sqlite3";
 import { classifyPullChange, parseGithubPulls, splitGithubRepo, type PullSnapshot } from "./github-pulls.js";
 import {
   isGithubRepoPrimed,
-  listEnabledGithubRepos,
   loadGithubToken,
   loadPullSeen,
   markGithubRepoPrimed,
@@ -16,13 +15,43 @@ export type GithubPollEmit = (event: {
   detail: string;
 }) => void;
 
+export type GithubWatch = {
+  repo: string;
+  projectId: string;
+};
+
+export function mergeGithubWatches(
+  fromReactions: readonly GithubWatch[],
+  fromRemotes: readonly GithubWatch[],
+): GithubWatch[] {
+  const watches: GithubWatch[] = [];
+  const seen = new Set<string>();
+  const groups: readonly (readonly GithubWatch[])[] = [fromReactions, fromRemotes];
+  for (const group of groups) {
+    for (const watch of group) {
+      const repo = watch.repo.trim();
+      const projectId = watch.projectId.trim();
+      if (repo.length === 0 || projectId.length === 0) {
+        continue;
+      }
+      const key = `${projectId}:${repo}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      watches.push({ repo, projectId });
+    }
+  }
+  return watches;
+}
+
 async function fetchRepoPulls(token: string, owner: string, name: string): Promise<PullSnapshot[]> {
   const url = `https://api.github.com/repos/${owner}/${name}/pulls?state=all&sort=updated&direction=desc&per_page=30`;
   const res = await fetch(url, {
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/vnd.github+json",
-      "x-github-api-version": "2026-03-10",
+      "x-github-api-version": "2022-11-28",
       "user-agent": "Lotaru",
     },
   });
@@ -35,27 +64,22 @@ async function fetchRepoPulls(token: string, owner: string, name: string): Promi
 
 export async function pollGithubOnce(
   db: Database.Database,
-  projectIdForRepo: (repo: string) => string,
+  watches: readonly GithubWatch[],
   emit: GithubPollEmit,
 ): Promise<void> {
   const token = loadGithubToken(db);
   if (token.length === 0) {
     return;
   }
-  const repos = listEnabledGithubRepos(db);
-  for (const repo of repos) {
-    const split = splitGithubRepo(repo);
+  for (const watch of watches) {
+    const split = splitGithubRepo(watch.repo);
     if (split.owner.length === 0) {
       continue;
     }
-    const projectId = projectIdForRepo(repo);
-    if (projectId.length === 0) {
-      continue;
-    }
     const pulls = await fetchRepoPulls(token, split.owner, split.name);
-    const primed = isGithubRepoPrimed(db, repo);
+    const primed = isGithubRepoPrimed(db, watch.repo);
     for (const pull of pulls) {
-      const seen = loadPullSeen(db, repo, pull.number);
+      const seen = loadPullSeen(db, watch.repo, pull.number);
       let previous: PullSnapshot | false = false;
       if (seen !== false) {
         previous = {
@@ -67,29 +91,48 @@ export async function pollGithubOnce(
         };
       }
       const kind = classifyPullChange(previous, pull, primed);
-      savePullSeen(db, repo, pull.number, pull.updatedAt, pull.mergedAt, pull.state);
+      savePullSeen(db, watch.repo, pull.number, pull.updatedAt, pull.mergedAt, pull.state);
       if (kind.length === 0) {
         continue;
       }
       emit({
         type: kind,
-        projectId,
-        path: repo,
+        projectId: watch.projectId,
+        path: watch.repo,
         detail: String(pull.number),
       });
     }
-    markGithubRepoPrimed(db, repo);
+    markGithubRepoPrimed(db, watch.repo);
+  }
+}
+
+let pollTick: (() => void) | false = false;
+
+export function requestGithubPoll(): void {
+  const tick = pollTick;
+  if (tick === false) {
+    return;
+  }
+  try {
+    tick();
+  } catch {
+    return;
   }
 }
 
 export function startGithubPoller(
   db: Database.Database,
-  projectIdForRepo: (repo: string) => string,
+  loadWatches: () => Promise<GithubWatch[]>,
   emit: GithubPollEmit,
 ): void {
   const tick = (): void => {
-    void pollGithubOnce(db, projectIdForRepo, emit);
+    void loadWatches()
+      .then((watches) => pollGithubOnce(db, watches, emit))
+      .catch(() => {
+        return;
+      });
   };
+  pollTick = tick;
   tick();
   setInterval(tick, 30_000);
 }

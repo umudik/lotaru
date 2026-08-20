@@ -5,14 +5,14 @@ import {
   EVENT_GITHUB_PR_MERGED,
   EVENT_GITHUB_PR_OPENED,
   EVENT_GITHUB_PR_UPDATED,
+  EVENT_VOICE_INTENT,
   canonicalBusEventType,
+  scriptListensToEvent,
+  type EventListenerScript,
   type LotaruEvent,
 } from "./events.js";
 
 export const REACTION_CREATE_TASK = "create_task";
-export const REACTION_PROPOSE_KNOWLEDGE = "propose_knowledge";
-
-export type KnowledgeOutputKind = "document" | "diagram";
 
 type ReactionBase = {
   id: string;
@@ -28,46 +28,7 @@ export type TaskReaction = ReactionBase & {
   titleTemplate: string;
 };
 
-export type KnowledgeReaction = ReactionBase & {
-  action: "propose_knowledge";
-  knowledgeItemId: string;
-  knowledgeOutputs: readonly KnowledgeOutputKind[];
-};
-
-export type LotaruReaction = TaskReaction | KnowledgeReaction;
-
-export function parseKnowledgeOutputs(value: string): KnowledgeOutputKind[] {
-  let kinds: readonly KnowledgeOutputKind[] = [];
-  const chunks = value.split(",");
-  for (const chunk of chunks) {
-    const part = chunk.trim();
-    if (part !== "document" && part !== "diagram") {
-      continue;
-    }
-    let seen = false;
-    for (const existing of kinds) {
-      if (existing === part) {
-        seen = true;
-      }
-    }
-    if (seen !== true) {
-      kinds = kinds.concat([part]);
-    }
-  }
-  return kinds.slice();
-}
-
-export function knowledgeOutputsText(outputs: readonly KnowledgeOutputKind[]): string {
-  let text = "";
-  for (const kind of outputs) {
-    if (text.length === 0) {
-      text = kind;
-      continue;
-    }
-    text = `${text},${kind}`;
-  }
-  return text;
-}
+export type LotaruReaction = TaskReaction;
 
 export const REACTION_EVENT_TYPES = [
   EVENT_GITHUB_PR_OPENED,
@@ -76,6 +37,7 @@ export const REACTION_EVENT_TYPES = [
   EVENT_FILE_CHANGED,
   EVENT_CLOCK_TICK,
   EVENT_APP_STARTED,
+  EVENT_VOICE_INTENT,
 ];
 
 export function reactionEventTypesForClient(githubReady: boolean): string[] {
@@ -112,19 +74,10 @@ export function reactionMatchesEvent(reaction: LotaruReaction, event: LotaruEven
   if (eventFieldsMatch(reaction, event) !== true) {
     return false;
   }
-  if (reaction.action === REACTION_CREATE_TASK) {
-    return true;
-  }
-  if (reaction.knowledgeItemId.length === 0) {
-    return false;
-  }
-  return reaction.knowledgeOutputs.length > 0;
+  return reaction.action === REACTION_CREATE_TASK;
 }
 
 export function reactionFireFingerprint(reaction: LotaruReaction, event: LotaruEvent): string {
-  if (reaction.action === REACTION_PROPOSE_KNOWLEDGE) {
-    return `${reaction.id}:${event.id}`;
-  }
   return reactionFingerprint(reaction.id, event);
 }
 
@@ -148,4 +101,51 @@ export function fillReactionTitle(template: string, event: LotaruEvent): string 
 
 export function reactionFingerprint(reactionId: string, event: LotaruEvent): string {
   return `${reactionId}:${event.type}:${event.path}:${event.detail}`;
+}
+
+export type EventListenerRef = {
+  kind: "reaction" | "script";
+  id: string;
+  label: string;
+};
+
+export type NamedEventScript = EventListenerScript & {
+  name: string;
+};
+
+export function reactionListenerLabel(reaction: LotaruReaction): string {
+  const title = reaction.titleTemplate.trim();
+  if (title.length > 0) {
+    return title;
+  }
+  return "Create a task";
+}
+
+export function eventListenerRefs(
+  event: LotaruEvent,
+  reactions: readonly LotaruReaction[],
+  scripts: readonly NamedEventScript[],
+): EventListenerRef[] {
+  const refs: EventListenerRef[] = [];
+  for (const reaction of reactions) {
+    if (reactionMatchesEvent(reaction, event) !== true) {
+      continue;
+    }
+    refs.push({
+      kind: "reaction",
+      id: reaction.id,
+      label: reactionListenerLabel(reaction),
+    });
+  }
+  for (const script of scripts) {
+    if (scriptListensToEvent(script, event) !== true) {
+      continue;
+    }
+    refs.push({
+      kind: "script",
+      id: script.id,
+      label: script.name,
+    });
+  }
+  return refs;
 }

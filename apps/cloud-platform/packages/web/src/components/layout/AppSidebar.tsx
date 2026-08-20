@@ -1,4 +1,4 @@
-import { NavLink, matchPath, useLocation } from "react-router-dom";
+import { Link, matchPath, useLocation } from "react-router-dom";
 import {
   FolderKanban,
   ListTodo,
@@ -6,21 +6,24 @@ import {
   Settings,
   Terminal,
   BookOpen,
-  Brain,
   Activity,
   FileText,
   GitBranch,
-  List,
+  ListOrdered,
+  Zap,
+  Mic,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { FookieCloudMark } from "@/components/FookieCloudMark";
+import { BrandMark } from "@/components/BrandMark";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/useSession";
+import { useVoiceListen } from "@/features/voice/VoiceListenContext";
 
 export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) {
   const { pathname } = useLocation();
   const session = useSession();
+  const voice = useVoiceListen();
 
   const projectMatch = matchPath("/projects/:projectId/*", pathname);
   let activeProjectId: string | null = null;
@@ -45,7 +48,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
   return (
     <aside className={cn("app-sidebar", props.mobileOpen && "is-open")}>
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
-        <FookieCloudMark href="/projects" />
+        <BrandMark compact />
         <button
           type="button"
           onClick={props.onClose}
@@ -62,29 +65,48 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
         </div>
 
         {projectId ? (
-          <div className="space-y-0.5">
+          <div className="space-y-3">
             <p className="truncate px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {projectName}
             </p>
-            <NavItem to={`/projects/${projectId}/knowledge`} label="Knowledge" icon={Brain} />
-            <div className="ml-6 space-y-0.5 pb-1">
-              <NavItem to={`/projects/${projectId}/knowledge`} label="All" icon={List} end />
-              <NavItem
-                to={`/projects/${projectId}/knowledge/documentation`}
-                label="Documentation"
-                icon={FileText}
-              />
-              <NavItem
-                to={`/projects/${projectId}/knowledge/diagrams`}
-                label="Diagrams"
-                icon={GitBranch}
-              />
-            </div>
-            <NavItem to={`/projects/${projectId}/notes`} label="Notes" icon={NotebookPen} />
-            <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
-            <NavItem to={`/projects/${projectId}/tasks`} label="Tasks" icon={ListTodo} />
-            <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={Terminal} />
-            <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
+            <NavGroup label="State">
+              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
+              <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
+              <NavItem to={`/projects/${projectId}/reactions`} label="Reactions" icon={Zap} />
+              <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={Terminal} />
+            </NavGroup>
+            <NavGroup label="Work">
+              <NavItem to={`/projects/${projectId}/tasks`} label="Tasks" icon={ListTodo} />
+              <NavItem to={`/projects/${projectId}/pipeline`} label="Pipeline" icon={ListOrdered} />
+            </NavGroup>
+            <NavGroup label="Knowledge">
+              <NavGroup label="Documentation">
+                <NavItem
+                  to={`/projects/${projectId}/knowledge/documentation/templates`}
+                  label="Templates"
+                  icon={FileText}
+                />
+                <NavItem
+                  to={`/projects/${projectId}/knowledge/documentation/list`}
+                  label="Documents"
+                  icon={FileText}
+                />
+              </NavGroup>
+              <NavGroup label="Diagrams">
+                <NavItem
+                  to={`/projects/${projectId}/knowledge/diagrams/templates`}
+                  label="Templates"
+                  icon={GitBranch}
+                />
+                <NavItem
+                  to={`/projects/${projectId}/knowledge/diagrams/list`}
+                  label="Diagrams"
+                  icon={GitBranch}
+                />
+              </NavGroup>
+              <NavItem to={`/projects/${projectId}/notes`} label="Notes" icon={NotebookPen} />
+              <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
+            </NavGroup>
           </div>
         ) : fallbackProjectId ? (
           <div className="space-y-0.5">
@@ -99,10 +121,42 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
           </div>
         ) : null}
       </nav>
-      <div className="shrink-0 border-t border-border/70 px-2 py-2">
+      <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
+        {projectId !== null ? (
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+              voice.listening && voice.projectId === projectId
+                ? "bg-destructive/15 text-destructive"
+                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+            )}
+            onClick={() => {
+              if (voice.listening && voice.projectId === projectId) {
+                voice.stop();
+                return;
+              }
+              void voice.start(projectId);
+            }}
+          >
+            <Mic className="h-4 w-4" />
+            {voice.listening && voice.projectId === projectId ? "Listening" : "Listen"}
+          </button>
+        ) : null}
         <NavItem to="/settings" label="Settings" icon={Settings} />
       </div>
     </aside>
+  );
+}
+
+function NavGroup(props: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="space-y-0.5">
+      <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        {props.label}
+      </p>
+      {props.children}
+    </div>
   );
 }
 
@@ -112,9 +166,11 @@ type NavItemProps = {
   icon: LucideIcon;
   badge: number | null;
   end: boolean | null;
+  active: boolean | null;
 };
 
 function NavItem(rawProps: Partial<NavItemProps> & Pick<NavItemProps, "to" | "label" | "icon">) {
+  const { pathname } = useLocation();
   let badge = 0;
   if ("badge" in rawProps && typeof rawProps.badge === "number") {
     badge = rawProps.badge;
@@ -124,19 +180,21 @@ function NavItem(rawProps: Partial<NavItemProps> & Pick<NavItemProps, "to" | "la
     end = true;
   }
   const { to, label, icon: Icon } = rawProps;
+  let on = matchPath({ path: to, end }, pathname) !== null;
+  if ("active" in rawProps && typeof rawProps.active === "boolean") {
+    on = rawProps.active;
+  }
 
   return (
-    <NavLink
+    <Link
       to={to}
-      end={end}
-      className={({ isActive }) =>
-        cn(
-          "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors",
-          isActive
-            ? "bg-secondary text-foreground"
-            : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-        )
-      }
+      aria-current={on ? "page" : undefined}
+      className={cn(
+        "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors",
+        on
+          ? "bg-secondary text-foreground"
+          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+      )}
     >
       <Icon className="h-4 w-4 shrink-0 opacity-90" />
       <span className="flex-1 truncate">{label}</span>
@@ -149,6 +207,6 @@ function NavItem(rawProps: Partial<NavItemProps> & Pick<NavItemProps, "to" | "la
       >
         {badge > 0 ? badge : 0}
       </span>
-    </NavLink>
+    </Link>
   );
 }

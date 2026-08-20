@@ -59,3 +59,41 @@ export function formatDuration(ms: number | null) {
   const rest = seconds % 60;
   return `${minutes}m ${rest}s`;
 }
+
+export function formatMillis(ms: number): string {
+  if (Number.isFinite(ms) !== true) {
+    return "—";
+  }
+  if (ms <= 0) {
+    return "—";
+  }
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleString();
+}
+
+export function formatAge(ms: number): string {
+  if (Number.isFinite(ms) !== true) {
+    return "—";
+  }
+  const deltaSec = Math.round((ms - Date.now()) / 1000);
+  if (Number.isFinite(deltaSec) !== true) {
+    return "—";
+  }
+  const fmt = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+  const absSec = Math.abs(deltaSec);
+  if (absSec < 60) {
+    return fmt.format(deltaSec, "second");
+  }
+  const deltaMin = Math.round(deltaSec / 60);
+  if (Math.abs(deltaMin) < 60) {
+    return fmt.format(deltaMin, "minute");
+  }
+  const deltaHour = Math.round(deltaMin / 60);
+  if (Math.abs(deltaHour) < 24) {
+    return fmt.format(deltaHour, "hour");
+  }
+  return fmt.format(Math.round(deltaHour / 24), "day");
+}

@@ -3,13 +3,12 @@ import { describe, it } from "node:test";
 import { EVENT_CLOCK_TICK, EVENT_FILE_CHANGED, EVENT_GITHUB_PR_OPENED } from "./events.js";
 import {
   fillReactionTitle,
+  eventListenerRefs,
   reactionEventTypesForClient,
   reactionFingerprint,
   reactionFireFingerprint,
   reactionMatchesEvent,
   REACTION_CREATE_TASK,
-  REACTION_PROPOSE_KNOWLEDGE,
-  type KnowledgeReaction,
   type LotaruReaction,
   type TaskReaction,
 } from "./reactions.js";
@@ -35,6 +34,7 @@ function prEvent(id: string): {
 }
 
 function taskReaction(patch: {
+  id?: string;
   eventType?: string;
   repo?: string;
   enabled?: boolean;
@@ -49,30 +49,6 @@ function taskReaction(patch: {
       repo: "umudik/lotaru",
       action: REACTION_CREATE_TASK,
       titleTemplate: "Review PR #{{detail}}",
-      enabled: true,
-      createdAt: 1,
-    },
-    patch,
-  );
-}
-
-function knowledgeReaction(patch: {
-  eventType?: string;
-  repo?: string;
-  enabled?: boolean;
-  knowledgeItemId?: string;
-  knowledgeOutputs?: ReadonlyArray<"document" | "diagram">;
-}): KnowledgeReaction {
-  return Object.assign(
-    {},
-    {
-      id: "r1",
-      projectId: "proj-a",
-      eventType: EVENT_GITHUB_PR_OPENED,
-      repo: "umudik/lotaru",
-      action: REACTION_PROPOSE_KNOWLEDGE,
-      knowledgeItemId: "k1",
-      knowledgeOutputs: ["document", "diagram"],
       enabled: true,
       createdAt: 1,
     },
@@ -105,19 +81,6 @@ describe("reactionMatchesEvent", () => {
     assert.equal(reactionMatchesEvent(taskReaction({ eventType: "schedule.fired", repo: "" }), tick), true);
     assert.equal(reactionMatchesEvent(taskReaction({ eventType: EVENT_CLOCK_TICK, repo: "" }), tick), true);
   });
-
-  it("matches knowledge automation without creating a task path", () => {
-    const event = prEvent("e1");
-    assert.equal(reactionMatchesEvent(knowledgeReaction({}), event), true);
-    assert.equal(
-      reactionMatchesEvent(knowledgeReaction({ knowledgeItemId: "" }), event),
-      false,
-    );
-    assert.equal(
-      reactionMatchesEvent(knowledgeReaction({ knowledgeOutputs: [] }), event),
-      false,
-    );
-  });
 });
 
 describe("fillReactionTitle", () => {
@@ -136,15 +99,12 @@ describe("reactionFingerprint", () => {
 });
 
 describe("reactionFireFingerprint", () => {
-  it("keeps task fingerprints stable per PR and knowledge fingerprints unique per event", () => {
+  it("keeps task fingerprints stable per PR", () => {
     const first = prEvent("e1");
     const second = prEvent("e2");
     const task: LotaruReaction = taskReaction({});
     assert.equal(reactionFireFingerprint(task, first), reactionFingerprint(task.id, first));
     assert.equal(reactionFireFingerprint(task, first), reactionFireFingerprint(task, second));
-    const knowledge = knowledgeReaction({});
-    assert.equal(reactionFireFingerprint(knowledge, first), "r1:e1");
-    assert.equal(reactionFireFingerprint(knowledge, second), "r1:e2");
   });
 });
 
@@ -162,5 +122,49 @@ describe("reactionEventTypesForClient", () => {
     assert.equal(hidden.includes(EVENT_CLOCK_TICK), true);
     const shown = reactionEventTypesForClient(true);
     assert.equal(shown.includes(EVENT_GITHUB_PR_OPENED), true);
+  });
+});
+
+describe("eventListenerRefs", () => {
+  it("names the reactions and scripts that listen to a stored event", () => {
+    const tick = {
+      id: "e-tick",
+      type: EVENT_CLOCK_TICK,
+      projectId: "proj-a",
+      scriptId: "",
+      path: "",
+      detail: "",
+      createdAt: 1,
+    };
+    const refs = eventListenerRefs(
+      tick,
+      [
+        taskReaction({ eventType: EVENT_CLOCK_TICK, repo: "", titleTemplate: "Sweep inbox" }),
+        taskReaction({ id: "r2", eventType: EVENT_FILE_CHANGED, repo: "" }),
+      ],
+      [
+        {
+          id: "script-clock",
+          projectId: "proj-a",
+          triggerType: "scheduled",
+          triggerGlob: "",
+          enabled: true,
+          name: "Nightly backup",
+        },
+        {
+          id: "script-save",
+          projectId: "proj-a",
+          triggerType: "save",
+          triggerGlob: "",
+          enabled: true,
+          name: "On save",
+        },
+      ],
+    );
+    assert.equal(refs.length, 2);
+    assert.equal(refs[0]?.kind, "reaction");
+    assert.equal(refs[0]?.label, "Sweep inbox");
+    assert.equal(refs[1]?.kind, "script");
+    assert.equal(refs[1]?.label, "Nightly backup");
   });
 });

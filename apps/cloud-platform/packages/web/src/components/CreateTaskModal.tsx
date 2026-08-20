@@ -39,7 +39,7 @@ export function CreateTaskModal({
   const isSaving = saving === true;
   const canCreate = title.trim().length > 0 && !isSaving;
 
-  let labelText = "this epic";
+  let labelText = "this task";
   if (targetLabel !== null) {
     labelText = targetLabel;
   }

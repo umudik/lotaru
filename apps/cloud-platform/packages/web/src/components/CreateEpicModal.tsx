@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, ListTodo } from "lucide-react";
 import { DescriptionEditor } from "@/components/DescriptionEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,12 +43,12 @@ export function CreateEpicModal({ open, onOpenChange, saving, onCreate }: Create
         <DialogHeader className="border-b border-white/[0.06] px-6 py-5">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <Sparkles className="h-4 w-4" />
+              <ListTodo className="h-4 w-4" />
             </div>
             <div>
-              <DialogTitle>New epic</DialogTitle>
+              <DialogTitle>New task</DialogTitle>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Starts the pipeline — add context so the team and agents know the goal.
+                Starts the pipeline — add context so the team knows the goal.
               </p>
             </div>
           </div>
@@ -56,9 +56,9 @@ export function CreateEpicModal({ open, onOpenChange, saving, onCreate }: Create
 
         <div className="max-h-[calc(92vh-10rem)] space-y-5 overflow-y-auto px-6 py-5">
           <div className="space-y-2">
-            <Label htmlFor="epic-title">Title</Label>
+            <Label htmlFor="task-title">Title</Label>
             <Input
-              id="epic-title"
+              id="task-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="e.g. User onboarding redesign"
@@ -93,7 +93,7 @@ export function CreateEpicModal({ open, onOpenChange, saving, onCreate }: Create
           </Button>
           <Button type="button" disabled={!canCreate} onClick={submit}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Create epic
+            Create task
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -234,11 +234,13 @@ export function TaskPage() {
   }
 
   const tasksPath = `/projects/${projectId}/tasks`;
-  const crumbs = [
-    { label: "Projects", to: "/projects" },
-    { label: session !== null && session.projectName !== null ? session.projectName : projectId !== null ? projectId : "Project", to: tasksPath },
-    { label: "Epics", to: tasksPath },
-  ];
+  let projectLabel = "Project";
+  if (session !== null && session.projectName !== null) {
+    projectLabel = session.projectName;
+  } else if (projectId !== null) {
+    projectLabel = projectId;
+  }
+  const crumbs = [{ label: "Tasks", to: tasksPath }];
   if (detail !== null && detail.parent !== null) {
     crumbs.push({ label: detail.parent.title, to: `${tasksPath}/${detail.parent.taskId}` });
   }
@@ -251,6 +253,7 @@ export function TaskPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
+        context={projectLabel}
         breadcrumb={crumbs}
         title={loading ? "Loading…" : pageTitle}
       />

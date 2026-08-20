@@ -13,6 +13,7 @@ import { listOllamaModels } from "../ollama.js";
 import { synthesizeSpeech } from "../tts.js";
 import { voicesForEngine } from "../tts-voices.js";
 import { loadAgentProfile, openAgentDb, parseAgentProfileInput, saveAgentProfile } from "../agent-store.js";
+import { requestGithubPoll } from "../github-poll.js";
 import { ensureReactionSchema, loadGithubToken, saveGithubToken } from "../reaction-store.js";
 import type { Identity } from "./identity.js";
 
@@ -128,6 +129,9 @@ export async function registerSettingsModule(
     }
     saveGithubToken(db, parsed.data.token);
     const token = loadGithubToken(db);
+    if (token.length > 0) {
+      requestGithubPoll();
+    }
     return { connected: token.length > 0 };
   });
 

@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_APP_SETTINGS, parseSettingsInput, type AppSettings } from "./app-settings.js";
-import { resolveEdgeVoice, resolveQwenVoice, resolveSpeakVoice } from "./tts.js";
+import { resolveEdgeVoice, resolveQwenVoice, resolveSpeakVoice, qwenSpeechPayload, synthesizeSpeech } from "./tts.js";
 import {
   canonicalQwenSpeaker,
   isQwenSpeaker,
   looksLikeEdgeVoice,
   parseEdgeVoiceList,
   qwenDefaultForLanguage,
+  qwenLanguageName,
   qwenSpeakers,
 } from "./tts-voices.js";
 
@@ -19,13 +20,13 @@ describe("qwen speaker catalog", () => {
   it("lists the nine official CustomVoice speakers", () => {
     const ids = qwenSpeakers().map((voice) => voice.id);
     assert.deepEqual(ids, [
-      "Vivian",
-      "Serena",
+      "Ryan",
+      "Aiden",
       "Uncle_Fu",
       "Dylan",
       "Eric",
-      "Ryan",
-      "Aiden",
+      "Vivian",
+      "Serena",
       "Ono_Anna",
       "Sohee",
     ]);
@@ -44,6 +45,13 @@ describe("qwen speaker catalog", () => {
     assert.equal(qwenDefaultForLanguage("zh"), "Vivian");
     assert.equal(qwenDefaultForLanguage("ja"), "Ono_Anna");
     assert.equal(qwenDefaultForLanguage("ko"), "Sohee");
+  });
+
+  it("maps target languages to Qwen language names", () => {
+    assert.equal(qwenLanguageName("tr"), "Auto");
+    assert.equal(qwenLanguageName("en"), "English");
+    assert.equal(qwenLanguageName("zh"), "Chinese");
+    assert.equal(qwenLanguageName("de"), "German");
   });
 });
 
@@ -85,7 +93,9 @@ describe("edge voice ids", () => {
     ]);
     assert.equal(voices.length, 3);
     assert.equal(voices[0]?.id, "en-US-JennyNeural");
+    assert.equal(voices[0]?.gender, "female");
     assert.equal(voices[1]?.id, "tr-TR-AhmetNeural");
+    assert.equal(voices[1]?.gender, "male");
     assert.equal(voices[2]?.id, "tr-TR-EmelNeural");
   });
 });
@@ -106,6 +116,48 @@ describe("resolveSpeakVoice", () => {
   it("uses a selected Microsoft neural voice on Edge", () => {
     const settings = settingsWith({ ttsEngine: "edge", ttsVoice: "tr-TR-AhmetNeural" });
     assert.equal(resolveSpeakVoice(settings, "tr"), "tr-TR-AhmetNeural");
+  });
+});
+
+describe("qwenSpeechPayload", () => {
+  it("sends speaker, voice, and language so CustomVoice servers switch timbre", () => {
+    const payload = qwenSpeechPayload("Merhaba", "Ryan", "tr");
+    assert.equal(payload.model, "tts-1");
+    assert.equal(payload.input, "Merhaba");
+    assert.equal(payload.voice, "Ryan");
+    assert.equal(payload.speaker, "Ryan");
+    assert.equal(payload.language, "Auto");
+  });
+
+  it("canonicalizes speaker case and maps English", () => {
+    const payload = qwenSpeechPayload("Hello", "aiden", "en");
+    assert.equal(payload.voice, "Aiden");
+    assert.equal(payload.speaker, "Aiden");
+    assert.equal(payload.language, "English");
+  });
+});
+
+describe("synthesizeSpeech qwen failure", () => {
+  it("does not fall back to a Microsoft female voice when Qwen is selected", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("nope", { status: 502 });
+    try {
+      await assert.rejects(
+        () =>
+          synthesizeSpeech(
+            settingsWith({
+              ttsEngine: "qwen",
+              qwenTtsUrl: "http://127.0.0.1:8880",
+              ttsVoice: "Ryan",
+            }),
+            "hello",
+            "en",
+          ),
+        /Qwen TTS failed/,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

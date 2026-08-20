@@ -1,5 +1,3 @@
-import { FookieCloudMark } from "@/components/FookieCloudMark";
-
 export function BrandSplash(props: {
   title: string;
   subtitle?: string;
@@ -21,7 +19,6 @@ export function BrandSplash(props: {
           Try again
         </button>
       ) : null}
-      <FookieCloudMark size="sm" />
     </div>
   );
 }

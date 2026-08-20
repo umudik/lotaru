@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  nextRetryDelayMs,
+  ollamaChatRequestBody,
+  ollamaJobRetryKey,
+  OLLAMA_MODEL_REQUIRED,
   parseOllamaChat,
   parseOllamaTags,
   polishSystemPrompt,
+  shouldRetryOllama,
   summarySystemPrompt,
   translationSystemPrompt,
 } from "./ollama.js";
@@ -19,10 +24,33 @@ describe("parseOllamaChat", () => {
     );
   });
 
+  it("rejects empty assistant content", () => {
+    assert.throws(
+      () =>
+        parseOllamaChat({
+          message: { role: "assistant", content: "   ", thinking: "reasoned in silence" },
+          done: true,
+        }),
+      { message: /empty text/ },
+    );
+  });
+
   it("rejects a missing message", () => {
     assert.throws(() => parseOllamaChat({ done: true }), {
       message: "Ollama returned an unexpected response",
     });
+  });
+});
+
+describe("ollamaChatRequestBody", () => {
+  it("turns thinking off at the top level", () => {
+    const body = ollamaChatRequestBody("qwen3.6:latest", "system", "hello");
+    assert.equal(body.think, false);
+    assert.equal(body.stream, false);
+    assert.equal(body.options.num_predict, 4096);
+    assert.equal(body.keep_alive, "30m");
+    assert.equal(body.messages[0]?.role, "system");
+    assert.equal(body.messages[1]?.content, "hello");
   });
 });
 
@@ -63,5 +91,34 @@ describe("summarySystemPrompt", () => {
     const prompt = summarySystemPrompt();
     assert.match(prompt, /summary/i);
     assert.match(prompt, /same language/);
+  });
+});
+
+describe("shouldRetryOllama", () => {
+  it("does not retry a missing model", () => {
+    assert.equal(shouldRetryOllama(OLLAMA_MODEL_REQUIRED), false);
+  });
+
+  it("retries empty replies and network failures", () => {
+    assert.equal(shouldRetryOllama("Ollama returned empty text. Retry, or pick a smaller model in Settings."), true);
+    assert.equal(shouldRetryOllama("Ollama is not reachable (500)"), true);
+    assert.equal(shouldRetryOllama("fetch failed"), true);
+  });
+});
+
+describe("nextRetryDelayMs", () => {
+  it("backs off then caps at 30 seconds", () => {
+    assert.equal(nextRetryDelayMs(1), 2000);
+    assert.equal(nextRetryDelayMs(2), 4000);
+    assert.equal(nextRetryDelayMs(3), 8000);
+    assert.equal(nextRetryDelayMs(4), 16000);
+    assert.equal(nextRetryDelayMs(5), 30000);
+    assert.equal(nextRetryDelayMs(9), 30000);
+  });
+});
+
+describe("ollamaJobRetryKey", () => {
+  it("joins kind and page id", () => {
+    assert.equal(ollamaJobRetryKey("translate", "page-1"), "translate:page-1");
   });
 });

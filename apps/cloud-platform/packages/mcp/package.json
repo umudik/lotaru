@@ -1,0 +1,26 @@
+{
+  "name": "@lotaru/local-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Lotaru MCP — events, voice, reactions, scripts, tasks, pipeline",
+  "type": "module",
+  "bin": {
+    "lotaru-local-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}

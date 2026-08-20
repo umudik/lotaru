@@ -6,24 +6,26 @@ export type TtsVoiceOption = {
   id: string;
   label: string;
   locale: string;
+  gender: string;
 };
 
 type QwenSpeaker = {
   id: string;
   label: string;
   locale: string;
+  gender: string;
 };
 
 export const QWEN_SPEAKERS: readonly QwenSpeaker[] = [
-  { id: "Vivian", label: "Vivian — Chinese · bright young female", locale: "zh" },
-  { id: "Serena", label: "Serena — Chinese · warm young female", locale: "zh" },
-  { id: "Uncle_Fu", label: "Uncle_Fu — Chinese · seasoned male", locale: "zh" },
-  { id: "Dylan", label: "Dylan — Chinese (Beijing) · youthful male", locale: "zh" },
-  { id: "Eric", label: "Eric — Chinese (Sichuan) · lively male", locale: "zh" },
-  { id: "Ryan", label: "Ryan — English · dynamic male", locale: "en" },
-  { id: "Aiden", label: "Aiden — English · sunny American male", locale: "en" },
-  { id: "Ono_Anna", label: "Ono_Anna — Japanese · playful female", locale: "ja" },
-  { id: "Sohee", label: "Sohee — Korean · warm female", locale: "ko" },
+  { id: "Ryan", label: "Ryan — male · English, rhythmic", locale: "en", gender: "male" },
+  { id: "Aiden", label: "Aiden — male · English, American", locale: "en", gender: "male" },
+  { id: "Uncle_Fu", label: "Uncle_Fu — male · Chinese, low", locale: "zh", gender: "male" },
+  { id: "Dylan", label: "Dylan — male · Chinese (Beijing)", locale: "zh", gender: "male" },
+  { id: "Eric", label: "Eric — male · Chinese (Sichuan)", locale: "zh", gender: "male" },
+  { id: "Vivian", label: "Vivian — female · Chinese, bright", locale: "zh", gender: "female" },
+  { id: "Serena", label: "Serena — female · Chinese, warm", locale: "zh", gender: "female" },
+  { id: "Ono_Anna", label: "Ono_Anna — female · Japanese", locale: "ja", gender: "female" },
+  { id: "Sohee", label: "Sohee — female · Korean", locale: "ko", gender: "female" },
 ];
 
 const edgeVoiceSchema = z.object({
@@ -36,6 +38,17 @@ const edgeVoiceSchema = z.object({
 let edgeVoiceCache: { at: number; voices: TtsVoiceOption[] } | undefined;
 const EDGE_VOICE_TTL_MS = 60 * 60 * 1000;
 
+function edgeGender(value: string): string {
+  const lower = value.trim().toLowerCase();
+  if (lower === "male") {
+    return "male";
+  }
+  if (lower === "female") {
+    return "female";
+  }
+  return "unspecified";
+}
+
 function normalizeSpeakerKey(value: string): string {
   return value.trim().toLowerCase().replace(/-/g, "_");
 }
@@ -47,6 +60,7 @@ export function qwenSpeakers(): TtsVoiceOption[] {
       id: speaker.id,
       label: speaker.label,
       locale: speaker.locale,
+      gender: speaker.gender,
     });
   }
   return voices;
@@ -77,6 +91,40 @@ export function looksLikeEdgeVoice(value: string): boolean {
   return trimmed.endsWith("Neural");
 }
 
+export function qwenLanguageName(language: string): string {
+  if (language === "zh") {
+    return "Chinese";
+  }
+  if (language === "en") {
+    return "English";
+  }
+  if (language === "ja") {
+    return "Japanese";
+  }
+  if (language === "ko") {
+    return "Korean";
+  }
+  if (language === "de") {
+    return "German";
+  }
+  if (language === "fr") {
+    return "French";
+  }
+  if (language === "es") {
+    return "Spanish";
+  }
+  if (language === "it") {
+    return "Italian";
+  }
+  if (language === "pt") {
+    return "Portuguese";
+  }
+  if (language === "ru") {
+    return "Russian";
+  }
+  return "Auto";
+}
+
 export function qwenDefaultForLanguage(language: string): string {
   if (language === "zh") {
     return "Vivian";
@@ -103,6 +151,7 @@ export function fallbackEdgeVoices(): TtsVoiceOption[] {
       id,
       label: `${lang.label} · ${id}`,
       locale: lang.id,
+      gender: "unspecified",
     });
   }
   return voices;
@@ -138,6 +187,7 @@ export function parseEdgeVoiceList(raw: unknown): TtsVoiceOption[] {
       id: shortName,
       label,
       locale,
+      gender: edgeGender(gender),
     });
   }
   const sorted = voices.slice();

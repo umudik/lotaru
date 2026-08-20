@@ -197,7 +197,7 @@ export function EditProjectModal({
               </Select>
               {pipelineWillChange ? (
                 <p className="text-xs text-amber-400/90">
-                  Switching to {selectedTemplate ? selectedTemplate.title : selectedTemplateId} resets existing epic
+                  Switching to {selectedTemplate ? selectedTemplate.title : selectedTemplateId} resets existing task
                   workflows and removes their spawned subtasks.
                 </p>
               ) : null}

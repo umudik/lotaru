@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronRight, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { CreateEpicModal } from "@/components/CreateEpicModal";
-import { ProjectReactionsPanel } from "@/components/ProjectReactionsPanel";
 import { LoadMore } from "@/components/LoadMore";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -88,10 +87,10 @@ export function TasksPage() {
         description,
       });
       setCreateOpen(false);
-      toast.success("Epic created");
+      toast.success("Task created");
       void load(null, false, true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create epic");
+      toast.error(error instanceof Error ? error.message : "Failed to create task");
     } finally {
       setSending(false);
     }
@@ -103,31 +102,21 @@ export function TasksPage() {
   } else if (projectId !== null) {
     projectLabel = projectId;
   }
-  let projectTasksPath = "/projects";
-  if (projectId !== null) {
-    projectTasksPath = `/projects/${projectId}/tasks`;
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        breadcrumb={[
-          { label: "Projects", to: "/projects" },
-          { label: projectLabel, to: projectTasksPath },
-          { label: "Epics", to: null },
-        ]}
-        title="Epics"
-        subtitle={items.length > 0 ? `${items.length}${hasMore ? "+" : ""} active` : "No epics yet"}
+        context={projectLabel}
+        title="Tasks"
         actions={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" />
-            New epic
+            New task
           </Button>
         }
       />
 
       <div className="flex-1 overflow-y-auto p-5">
-        {projectId !== null ? <ProjectReactionsPanel projectId={projectId} /> : null}
         {loading && items.length === 0 ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Skeleton className="h-28 rounded-2xl" />
@@ -136,10 +125,10 @@ export function TasksPage() {
           </div>
         ) : items.length === 0 ? (
           <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
-            <p className="text-sm text-muted-foreground">Create your first epic to start the pipeline.</p>
+            <p className="text-sm text-muted-foreground">Create your first task to start the pipeline.</p>
             <Button className="mt-4" size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              New epic
+              New task
             </Button>
           </div>
         ) : (

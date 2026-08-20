@@ -52,22 +52,16 @@ export function DesignsFeature(props: { projectId: string }): React.JSX.Element 
     void load();
   }, [load]);
 
+  let projectLabel = props.projectId;
+  if (payload !== null && payload.projectName.length > 0) {
+    projectLabel = payload.projectName;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        breadcrumb={[
-          { label: "Projects", to: "/projects" },
-          { label: props.projectId, to: `/projects/${props.projectId}/tasks` },
-          { label: "Designs", to: null },
-        ]}
+        context={projectLabel}
         title="Designs"
-        subtitle={
-          loading
-            ? "Loading Penpot workspace…"
-            : payload !== null && payload.provisioned
-              ? "Penpot team for this project"
-              : "Open Penpot for this project"
-        }
         actions={
           <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
             <RefreshCw className="h-4 w-4" />

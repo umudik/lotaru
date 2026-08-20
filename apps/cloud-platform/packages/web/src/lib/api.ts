@@ -44,6 +44,7 @@ export type TtsVoiceOption = {
   id: string;
   label: string;
   locale: string;
+  gender: string;
 };
 
 export type TaskReaction = {
@@ -57,19 +58,13 @@ export type TaskReaction = {
   createdAt: number;
 };
 
-export type KnowledgeReaction = {
-  id: string;
-  projectId: string;
-  eventType: string;
-  repo: string;
-  action: "propose_knowledge";
-  knowledgeItemId: string;
-  knowledgeOutputs: ReadonlyArray<"document" | "diagram">;
-  enabled: boolean;
-  createdAt: number;
-};
+export type LotaruReaction = TaskReaction;
 
-export type LotaruReaction = TaskReaction | KnowledgeReaction;
+export type LotaruEventListener = {
+  kind: "reaction" | "script";
+  id: string;
+  label: string;
+};
 
 export type LotaruEventRow = {
   id: string;
@@ -79,6 +74,8 @@ export type LotaruEventRow = {
   path: string;
   detail: string;
   createdAt: number;
+  replayable: boolean;
+  listeners: LotaruEventListener[];
 };
 
 export async function fetchGithubSettings(session: Session) {
@@ -105,22 +102,13 @@ export async function fetchProjectReactions(session: Session, projectId: string)
 export async function createProjectReaction(
   session: Session,
   projectId: string,
-  input:
-    | {
-        action: "create_task";
-        eventType: string;
-        repo: string;
-        titleTemplate: string;
-        enabled: boolean;
-      }
-    | {
-        action: "propose_knowledge";
-        eventType: string;
-        repo: string;
-        knowledgeItemId: string;
-        knowledgeOutputs: ReadonlyArray<"document" | "diagram">;
-        enabled: boolean;
-      },
+  input: {
+    action: "create_task";
+    eventType: string;
+    repo: string;
+    titleTemplate: string;
+    enabled: boolean;
+  },
 ) {
   return request<{ reaction: LotaruReaction }>(
     session,
@@ -141,9 +129,19 @@ export async function deleteProjectReaction(session: Session, projectId: string,
   );
 }
 
-export async function fetchProjectEvents(session: Session, projectId: string, limit: number) {
-  const query = new URLSearchParams({ limit: String(limit) });
-  return request<{ events: LotaruEventRow[] }>(
+export async function fetchProjectEvents(
+  session: Session,
+  projectId: string,
+  input: { limit: number; cursor: string; type: string },
+) {
+  const query = new URLSearchParams({ limit: String(input.limit) });
+  if (input.cursor.trim().length > 0) {
+    query.set("cursor", input.cursor);
+  }
+  if (input.type.trim().length > 0) {
+    query.set("type", input.type);
+  }
+  return request<{ events: LotaruEventRow[]; next: string[] }>(
     session,
     `/api/v1/projects/${encodeURIComponent(projectId)}/events?${query.toString()}`,
   );
@@ -169,6 +167,34 @@ export type AgentProfile = {
 export type KnowledgeIntent = "process" | "api" | "overview";
 export type KnowledgeAudience = "developer" | "ops" | "frontend";
 export type KnowledgeView = "all" | "documentation" | "diagrams";
+export type KnowledgeKind = "document" | "diagram";
+
+export type KnowledgeTemplate = {
+  id: string;
+  projectId: string;
+  kind: KnowledgeKind;
+  title: string;
+  eventType: string;
+  description: string;
+  language: string;
+  enabled: boolean;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type KnowledgeArtifact = {
+  id: string;
+  projectId: string;
+  templateId: string;
+  templateTitle: string;
+  kind: KnowledgeKind;
+  title: string;
+  body: string;
+  language: string;
+  eventType: string;
+  eventId: string;
+  createdAt: string;
+};
 
 export type KnowledgeOutput = {
   currentBody: string;
@@ -191,6 +217,139 @@ export type KnowledgeItem = {
   document: KnowledgeOutput;
   diagram: KnowledgeOutput;
 };
+
+export async function fetchKnowledgeTemplates(
+  session: Session,
+  projectId: string,
+  kind: KnowledgeKind,
+) {
+  const query = new URLSearchParams({ projectId, kind });
+  return request<{ templates: KnowledgeTemplate[] }>(
+    session,
+    `/api/knowledge/templates?${query.toString()}`,
+  );
+}
+
+export async function createKnowledgeTemplate(
+  session: Session,
+  input: {
+    projectId: string;
+    kind: KnowledgeKind;
+    title: string;
+    eventType: string;
+    description: string;
+    language: string;
+    enabled?: boolean;
+  },
+) {
+  return request<KnowledgeTemplate>(session, "/api/knowledge/templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteKnowledgeTemplate(session: Session, templateId: string) {
+  return request<{ ok: boolean }>(
+    session,
+    `/api/knowledge/templates/${encodeURIComponent(templateId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export type VoiceSegment = {
+  id: string;
+  projectId: string;
+  sessionId: string;
+  kind: "partial" | "final";
+  text: string;
+  startedAt: number;
+  endedAt: number;
+  audioPath: string;
+  createdAt: number;
+};
+
+export type VoiceIntentDecision = {
+  id: string;
+  projectId: string;
+  segmentId: string;
+  emit: boolean;
+  title: string;
+  summary: string;
+  reason: string;
+  eventId: string;
+  createdAt: number;
+};
+
+export async function fetchVoiceSegments(session: Session, projectId: string, limit = 50) {
+  const query = new URLSearchParams({ projectId, limit: String(limit) });
+  return request<{ segments: VoiceSegment[] }>(session, `/api/voice/segments?${query.toString()}`);
+}
+
+export async function fetchVoiceDecisions(session: Session, projectId: string, limit = 50) {
+  const query = new URLSearchParams({ projectId, limit: String(limit) });
+  return request<{ decisions: VoiceIntentDecision[] }>(
+    session,
+    `/api/voice/decisions?${query.toString()}`,
+  );
+}
+
+export async function fetchVoiceStatus(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<{
+    listening: boolean;
+    projectId: string;
+    sessionId: string;
+    sidecar: boolean;
+  }>(session, `/api/voice/status?${query.toString()}`);
+}
+
+export function voiceSegmentAudioUrl(segmentId: string): string {
+  return `/api/voice/segments/${encodeURIComponent(segmentId)}/audio`;
+}
+
+export async function fetchKnowledgeArtifacts(
+  session: Session,
+  projectId: string,
+  kind: KnowledgeKind,
+) {
+  const query = new URLSearchParams({ projectId, kind });
+  return request<{ artifacts: KnowledgeArtifact[] }>(
+    session,
+    `/api/knowledge/artifacts?${query.toString()}`,
+  );
+}
+
+export async function fetchKnowledgeArtifact(session: Session, artifactId: string) {
+  return request<KnowledgeArtifact>(
+    session,
+    `/api/knowledge/artifacts/${encodeURIComponent(artifactId)}`,
+  );
+}
+
+export async function patchKnowledgeArtifact(
+  session: Session,
+  artifactId: string,
+  patch: Partial<{ title: string; body: string }>,
+) {
+  return request<KnowledgeArtifact>(
+    session,
+    `/api/knowledge/artifacts/${encodeURIComponent(artifactId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+export async function deleteKnowledgeArtifact(session: Session, artifactId: string) {
+  return request<{ ok: boolean }>(
+    session,
+    `/api/knowledge/artifacts/${encodeURIComponent(artifactId)}`,
+    { method: "DELETE" },
+  );
+}
 
 export async function fetchAgentSettings(session: Session) {
   return request<{ profile: AgentProfile }>(session, "/api/settings/agent");

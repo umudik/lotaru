@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { CheckCircle2, Circle, Loader2, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -774,6 +775,11 @@ function ProgressStageColumn({
 }
 
 export function EpicProgressCanvas(props: EpicProgressCanvasProps) {
+  const params = useParams();
+  let projectId = "";
+  if (typeof params["projectId"] === "string" && params["projectId"].length > 0) {
+    projectId = params["projectId"];
+  }
   const {
     stages,
     epicId,
@@ -1003,7 +1009,17 @@ export function EpicProgressCanvas(props: EpicProgressCanvasProps) {
 
       {templateCount === 0 ? (
         <p className="border-t border-white/[0.06] px-4 py-3 text-xs text-muted-foreground">
-          No pipeline template configured. Set up tasks on the Pipeline page first.
+          No pipeline configured.{" "}
+          {projectId.length > 0 ? (
+            <Link
+              to={`/projects/${projectId}/pipeline`}
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              Open Pipeline
+            </Link>
+          ) : (
+            "Open Pipeline from the sidebar."
+          )}
         </p>
       ) : null}
     </div>

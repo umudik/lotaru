@@ -10,10 +10,12 @@ import { registerTaskBridgeModule } from "../../../../task-bridge/apps/backend/d
 import { registerObservability } from "../../../../task-bridge/apps/backend/dist/observability.js";
 import { createIdentity } from "./modules/identity.js";
 import { registerKnowledgeModule } from "./modules/knowledge.js";
+import { registerKnowledgeTemplatesModule } from "./modules/knowledge-templates.js";
 import { registerNotesModule } from "./modules/notes.js";
 import { registerProjectsModule } from "./modules/projects.js";
 import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
+import { registerVoiceModule } from "./modules/voice.js";
 import { lotaruDatabasePath } from "./lotaru-db.js";
 import { shouldServeSpaIndex, spaFileHeaders } from "./spa-fallback.js";
 import { resolveStartOptions, type StartOptions } from "./start-options.js";
@@ -74,6 +76,10 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
     databasePath: dbPath,
     identity,
   });
+  await registerKnowledgeTemplatesModule(app, {
+    databasePath: dbPath,
+    identity,
+  });
   await registerKnowledgeModule(app, {
     databasePath: dbPath,
     identity,
@@ -83,6 +89,11 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
     registerProjectRoutes: false,
   });
   await registerScriptRunnerModule(app, {
+    identity,
+    dataDir: dataDirectory,
+    databasePath: dbPath,
+  });
+  await registerVoiceModule(app, {
     identity,
     dataDir: dataDirectory,
     databasePath: dbPath,

@@ -6,12 +6,11 @@ import {
   claimReactionFire,
   ensureReactionSchema,
   insertReaction,
-  listReactions,
   parseReactionInput,
 } from "./reaction-store.js";
 
 describe("parseReactionInput", () => {
-  it("accepts a GitHub owner/repo reaction and rejects unknown types", () => {
+  it("accepts create_task reactions and rejects knowledge automation", () => {
     const parsed = parseReactionInput({
       action: "create_task",
       eventType: EVENT_GITHUB_PR_OPENED,
@@ -22,7 +21,6 @@ describe("parseReactionInput", () => {
     assert.equal(parsed.eventType, EVENT_GITHUB_PR_OPENED);
     assert.equal(parsed.repo, "umudik/lotaru");
     assert.equal(parsed.action, "create_task");
-    assert.equal("knowledgeItemId" in parsed, false);
     assert.throws(() => {
       parseReactionInput({
         action: "create_task",
@@ -58,19 +56,16 @@ describe("parseReactionInput", () => {
     });
     assert.equal(fileReaction.eventType, EVENT_FILE_CHANGED);
     assert.equal(fileReaction.action, "create_task");
-    const knowledge = parseReactionInput({
-      action: "propose_knowledge",
-      eventType: EVENT_FILE_CHANGED,
-      repo: "",
-      enabled: true,
-      knowledgeItemId: "k1",
-      knowledgeOutputs: ["document", "diagram"],
+    assert.throws(() => {
+      parseReactionInput({
+        action: "propose_knowledge",
+        eventType: EVENT_FILE_CHANGED,
+        repo: "",
+        enabled: true,
+        knowledgeItemId: "k1",
+        knowledgeOutputs: ["document", "diagram"],
+      });
     });
-    assert.equal(knowledge.action, "propose_knowledge");
-    if (knowledge.action === "propose_knowledge") {
-      assert.equal(knowledge.knowledgeItemId, "k1");
-      assert.deepEqual(knowledge.knowledgeOutputs, ["document", "diagram"]);
-    }
     const stripped = parseReactionInput({
       action: "create_task",
       eventType: EVENT_FILE_CHANGED,
@@ -81,16 +76,6 @@ describe("parseReactionInput", () => {
       knowledgeOutputs: ["document"],
     });
     assert.equal("knowledgeItemId" in stripped, false);
-    assert.throws(() => {
-      parseReactionInput({
-        action: "propose_knowledge",
-        eventType: EVENT_FILE_CHANGED,
-        repo: "",
-        enabled: true,
-        knowledgeItemId: "",
-        knowledgeOutputs: ["document"],
-      });
-    });
   });
 });
 
@@ -112,35 +97,6 @@ describe("claimReactionFire", () => {
     const fingerprint = `${reaction.id}:${EVENT_GITHUB_PR_OPENED}:umudik/lotaru:12`;
     assert.equal(claimReactionFire(db, fingerprint, reaction.id), true);
     assert.equal(claimReactionFire(db, fingerprint, reaction.id), false);
-    db.close();
-  });
-
-  it("stores knowledge automation fields", () => {
-    const db = new Database(":memory:");
-    ensureReactionSchema(db);
-    const stored = insertReaction(
-      db,
-      "proj-a",
-      parseReactionInput({
-        action: "propose_knowledge",
-        eventType: EVENT_FILE_CHANGED,
-        repo: "",
-        enabled: true,
-        knowledgeItemId: "k1",
-        knowledgeOutputs: ["diagram"],
-      }),
-    );
-    assert.equal(stored.action, "propose_knowledge");
-    if (stored.action === "propose_knowledge") {
-      assert.equal(stored.knowledgeItemId, "k1");
-    }
-    const listed = listReactions(db, "proj-a");
-    assert.equal(listed.length, 1);
-    for (const first of listed) {
-      if (first.action === "propose_knowledge") {
-        assert.deepEqual(first.knowledgeOutputs, ["diagram"]);
-      }
-    }
     db.close();
   });
 });

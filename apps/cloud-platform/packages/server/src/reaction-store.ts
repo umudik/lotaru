@@ -3,12 +3,8 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { splitGithubRepo } from "./github-pulls.js";
 import {
-  knowledgeOutputsText,
-  parseKnowledgeOutputs,
   REACTION_CREATE_TASK,
   REACTION_EVENT_TYPES,
-  REACTION_PROPOSE_KNOWLEDGE,
-  type KnowledgeOutputKind,
   type LotaruReaction,
 } from "./reactions.js";
 
@@ -20,38 +16,19 @@ export type TaskReactionInput = {
   enabled: boolean;
 };
 
-export type KnowledgeReactionInput = {
-  action: "propose_knowledge";
-  eventType: string;
-  repo: string;
-  knowledgeItemId: string;
-  knowledgeOutputs: readonly KnowledgeOutputKind[];
-  enabled: boolean;
-};
-
-export type ReactionInput = TaskReactionInput | KnowledgeReactionInput;
+export type ReactionInput = TaskReactionInput;
 
 const eventTypeSchema = z.string().trim().min(1);
 const repoSchema = z.string().trim();
 const enabledSchema = z.boolean();
 
-const reactionInputSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("create_task"),
-    eventType: eventTypeSchema,
-    repo: repoSchema,
-    titleTemplate: z.string().trim(),
-    enabled: enabledSchema,
-  }),
-  z.object({
-    action: z.literal("propose_knowledge"),
-    eventType: eventTypeSchema,
-    repo: repoSchema,
-    knowledgeItemId: z.string().trim().min(1),
-    knowledgeOutputs: z.array(z.enum(["document", "diagram"])).min(1),
-    enabled: enabledSchema,
-  }),
-]);
+const reactionInputSchema = z.object({
+  action: z.literal("create_task"),
+  eventType: eventTypeSchema,
+  repo: repoSchema,
+  titleTemplate: z.string().trim(),
+  enabled: enabledSchema,
+});
 
 const reactionRowSchema = z.object({
   id: z.string(),
@@ -132,29 +109,7 @@ export function ensureReactionSchema(db: Database.Database): void {
 }
 
 function reactionsFromRow(row: z.infer<typeof reactionRowSchema>): LotaruReaction[] {
-  const enabled = row.enabled === 1;
-  if (row.action === REACTION_CREATE_TASK) {
-    return [
-      {
-        id: row.id,
-        projectId: row.project_id,
-        eventType: row.event_type,
-        repo: row.repo,
-        action: REACTION_CREATE_TASK,
-        titleTemplate: row.title_template,
-        enabled,
-        createdAt: row.created_at,
-      },
-    ];
-  }
-  if (row.action !== REACTION_PROPOSE_KNOWLEDGE) {
-    return [];
-  }
-  const outputs = parseKnowledgeOutputs(row.knowledge_outputs);
-  if (row.knowledge_item_id.length === 0) {
-    return [];
-  }
-  if (outputs.length === 0) {
+  if (row.action !== REACTION_CREATE_TASK) {
     return [];
   }
   return [
@@ -163,10 +118,9 @@ function reactionsFromRow(row: z.infer<typeof reactionRowSchema>): LotaruReactio
       projectId: row.project_id,
       eventType: row.event_type,
       repo: row.repo,
-      action: REACTION_PROPOSE_KNOWLEDGE,
-      knowledgeItemId: row.knowledge_item_id,
-      knowledgeOutputs: outputs,
-      enabled,
+      action: REACTION_CREATE_TASK,
+      titleTemplate: row.title_template,
+      enabled: row.enabled === 1,
       createdAt: row.created_at,
     },
   ];
@@ -240,21 +194,11 @@ export function parseReactionInput(body: unknown): ReactionInput {
       throw new Error("GitHub reactions need owner/repo");
     }
   }
-  if (parsed.data.action === REACTION_CREATE_TASK) {
-    return {
-      action: REACTION_CREATE_TASK,
-      eventType: parsed.data.eventType,
-      repo: parsed.data.repo,
-      titleTemplate: parsed.data.titleTemplate,
-      enabled: parsed.data.enabled,
-    };
-  }
   return {
-    action: REACTION_PROPOSE_KNOWLEDGE,
+    action: REACTION_CREATE_TASK,
     eventType: parsed.data.eventType,
     repo: parsed.data.repo,
-    knowledgeItemId: parsed.data.knowledgeItemId,
-    knowledgeOutputs: parsed.data.knowledgeOutputs,
+    titleTemplate: parsed.data.titleTemplate,
     enabled: parsed.data.enabled,
   };
 }
@@ -281,16 +225,7 @@ export function listEnabledReactionProjectIds(db: Database.Database, eventType: 
 export function insertReaction(db: Database.Database, projectId: string, input: ReactionInput): LotaruReaction {
   const id = nanoid(12);
   const createdAt = Date.now();
-  let titleTemplate = "";
-  let knowledgeItemId = "";
-  let knowledgeOutputs = "";
-  if (input.action === REACTION_CREATE_TASK) {
-    titleTemplate = input.titleTemplate;
-  }
-  if (input.action === REACTION_PROPOSE_KNOWLEDGE) {
-    knowledgeItemId = input.knowledgeItemId;
-    knowledgeOutputs = knowledgeOutputsText(input.knowledgeOutputs);
-  }
+  const titleTemplate = input.titleTemplate;
   db.prepare(
     "INSERT INTO lotaru_reactions (id, project_id, event_type, repo, action, title_template, knowledge_item_id, knowledge_outputs, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
@@ -300,8 +235,8 @@ export function insertReaction(db: Database.Database, projectId: string, input: 
     input.repo,
     input.action,
     titleTemplate,
-    knowledgeItemId,
-    knowledgeOutputs,
+    "",
+    "",
     input.enabled ? 1 : 0,
     createdAt,
   );

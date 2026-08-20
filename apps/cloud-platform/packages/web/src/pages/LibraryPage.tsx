@@ -363,16 +363,23 @@ export function LibraryPage() {
   return (
     <div className="space-y-4">
       <PageHeader
+        context={
+          session !== null && session.projectName !== null
+            ? session.projectName
+            : projectId.length > 0
+              ? projectId
+              : "Project"
+        }
         title="Sources"
-        subtitle="Incoming files stay here — PDFs, meeting notes, uploads. Knowledge can point at them."
         actions={
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => void handleCreateFolder()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleCreateFolder()}>
               <FolderPlus className="mr-2 h-4 w-4" />
               New folder
             </Button>
             <Button
               type="button"
+              size="sm"
               disabled={selectedLibraryId === "" || uploading}
               onClick={() => fileInputRef.current?.click()}
             >

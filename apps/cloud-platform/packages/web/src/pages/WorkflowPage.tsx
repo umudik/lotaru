@@ -60,7 +60,7 @@ export function WorkflowPage() {
       setMembers(workflow.members);
       setDirty(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load workflow");
+      toast.error(error instanceof Error ? error.message : "Failed to load pipeline");
     } finally {
       setLoading(false);
     }
@@ -130,9 +130,9 @@ export function WorkflowPage() {
       const workflow = await saveProjectWorkflow(session, projectId, { stages, roles: [] });
       setStages(workflow.stages);
       setDirty(false);
-      toast.success("Workflow saved");
+      toast.success("Pipeline saved");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save workflow");
+      toast.error(error instanceof Error ? error.message : "Failed to save pipeline");
     } finally {
       setSaving(false);
     }
@@ -153,7 +153,11 @@ export function WorkflowPage() {
     }
     const activeTasks = stage.activeTaskCount !== null ? stage.activeTaskCount : 0;
     if (activeTasks > 0) {
-      toast.error(`${activeTasks} epic(s) are on this step and it cannot be deleted`);
+      toast.error(
+        activeTasks === 1
+          ? "1 task is on this step and it cannot be deleted"
+          : `${activeTasks} tasks are on this step and it cannot be deleted`,
+      );
       return;
     }
     markDirty(
@@ -280,21 +284,12 @@ export function WorkflowPage() {
   } else if (projectId.length > 0) {
     projectLabel = projectId;
   }
-  let projectTasksPath = "/projects";
-  if (projectId.length > 0) {
-    projectTasksPath = `/projects/${projectId}/tasks`;
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <PageHeader
-        breadcrumb={[
-          { label: "Projects", to: "/projects" },
-          { label: projectLabel, to: projectTasksPath },
-          { label: "Pipeline", to: null },
-        ]}
+        context={projectLabel}
         title="Pipeline"
-        subtitle="Pipeline steps and task templates · epics run this workflow"
         actions={
           <>
             {dirty ? (
@@ -304,7 +299,7 @@ export function WorkflowPage() {
             ) : null}
             <Button onClick={() => void handleSaveStages()} disabled={saving || !dirty}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save workflow
+              Save pipeline
             </Button>
           </>
         }

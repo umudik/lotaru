@@ -1,7 +1,12 @@
 import { EdgeTTS } from "edge-tts-universal";
 import type { AppSettings } from "./app-settings.js";
 import { edgeVoiceForLanguage } from "./note-language.js";
-import { canonicalQwenSpeaker, looksLikeEdgeVoice, qwenDefaultForLanguage } from "./tts-voices.js";
+import {
+  canonicalQwenSpeaker,
+  looksLikeEdgeVoice,
+  qwenDefaultForLanguage,
+  qwenLanguageName,
+} from "./tts-voices.js";
 
 function trimHost(host: string): string {
   return host.trim().replace(/\/$/, "");
@@ -21,16 +26,32 @@ async function synthesizeEdge(text: string, voice: string): Promise<Buffer> {
   return blobToBuffer(result.audio);
 }
 
-async function synthesizeQwen(url: string, text: string, voice: string): Promise<Buffer> {
+export function qwenSpeechPayload(text: string, voice: string, language: string): {
+  model: string;
+  input: string;
+  voice: string;
+  speaker: string;
+  language: string;
+} {
+  let speaker = canonicalQwenSpeaker(voice);
+  if (speaker.length === 0) {
+    speaker = voice.trim();
+  }
+  return {
+    model: "tts-1",
+    input: text,
+    voice: speaker,
+    speaker,
+    language: qwenLanguageName(language),
+  };
+}
+
+async function synthesizeQwen(url: string, text: string, voice: string, language: string): Promise<Buffer> {
   const endpoint = `${trimHost(url)}/v1/audio/speech`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "tts-1",
-      input: text,
-      voice,
-    }),
+    body: JSON.stringify(qwenSpeechPayload(text, voice, language)),
   });
   if (!res.ok) {
     throw new Error(`Qwen TTS failed (${String(res.status)})`);
@@ -69,11 +90,7 @@ export async function synthesizeSpeech(settings: AppSettings, text: string, lang
   const clipped = spoken.slice(0, 4000);
   const qwenUrl = settings.qwenTtsUrl.trim();
   if (settings.ttsEngine === "qwen" && qwenUrl.length > 0) {
-    try {
-      return await synthesizeQwen(qwenUrl, clipped, resolveQwenVoice(settings));
-    } catch {
-      return synthesizeEdge(clipped, edgeVoiceForLanguage(language));
-    }
+    return await synthesizeQwen(qwenUrl, clipped, resolveQwenVoice(settings), language);
   }
   return synthesizeEdge(clipped, resolveEdgeVoice(settings, language));
 }

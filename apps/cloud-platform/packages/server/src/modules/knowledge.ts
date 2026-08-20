@@ -578,7 +578,9 @@ export async function registerKnowledgeModule(
     return reply.code(401).send({ error: "unauthorized" });
   });
 
-  app.get<{ Params: { itemId: string } }>("/api/knowledge/:itemId", async (request, reply) => {
+  app.get<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       return item;
@@ -586,7 +588,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.patch<{ Params: { itemId: string } }>("/api/knowledge/:itemId", async (request, reply) => {
+  app.patch<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const parsed = patchBriefSchema.safeParse(request.body);
@@ -625,7 +629,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.delete<{ Params: { itemId: string } }>("/api/knowledge/:itemId", async (request, reply) => {
+  app.delete<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       db.prepare("DELETE FROM knowledge_items WHERE id = ?").run(item.id);
@@ -634,7 +640,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.patch<{ Params: { itemId: string } }>("/api/knowledge/:itemId/document", async (request, reply) => {
+  app.patch<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/document",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const parsed = patchOutputSchema.safeParse(request.body);
@@ -646,7 +654,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.patch<{ Params: { itemId: string } }>("/api/knowledge/:itemId/diagram", async (request, reply) => {
+  app.patch<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/diagram",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const parsed = patchOutputSchema.safeParse(request.body);
@@ -658,7 +668,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.post<{ Params: { itemId: string } }>("/api/knowledge/:itemId/document/approve", async (request, reply) => {
+  app.post<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/document/approve",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const next = approveOutput("document", item);
@@ -672,7 +684,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.post<{ Params: { itemId: string } }>("/api/knowledge/:itemId/diagram/approve", async (request, reply) => {
+  app.post<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/diagram/approve",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const next = approveOutput("diagram", item);
@@ -686,7 +700,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.post<{ Params: { itemId: string } }>("/api/knowledge/:itemId/document/propose", async (request, reply) => {
+  app.post<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/document/propose",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const profile = loadAgentProfile(openAgentDb(options.databasePath));
@@ -710,7 +726,9 @@ export async function registerKnowledgeModule(
     return;
   });
 
-  app.post<{ Params: { itemId: string } }>("/api/knowledge/:itemId/diagram/propose", async (request, reply) => {
+  app.post<{ Params: { itemId: string } }>(
+    "/api/knowledge/:itemId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/diagram/propose",
+    async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
       const profile = loadAgentProfile(openAgentDb(options.databasePath));

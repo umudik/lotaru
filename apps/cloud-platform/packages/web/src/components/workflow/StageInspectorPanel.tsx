@@ -182,7 +182,9 @@ export function StageInspectorPanel({
             <p className="text-xs text-muted-foreground">At least one pipeline step is required.</p>
           ) : activeTasks > 0 ? (
             <p className="text-xs text-muted-foreground">
-              {activeTasks} epic(s) are on this step and it cannot be deleted.
+              {activeTasks === 1
+                ? "1 task is on this step and it cannot be deleted."
+                : `${activeTasks} tasks are on this step and it cannot be deleted.`}
             </p>
           ) : null}
           <Button

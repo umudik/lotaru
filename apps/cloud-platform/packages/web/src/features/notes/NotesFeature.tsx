@@ -3,6 +3,8 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-rou
 import { Loader2, Pause, Play, Plus, RotateCcw, Settings, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { getAccessToken } from "@/lib/auth";
 import { fetchAppSettings } from "@/lib/api";
 import { useSession } from "@/hooks/useSession";
@@ -30,10 +32,13 @@ type NotePage = {
   createdAt: string;
   translatedBody: string;
   translationStatus: JobStatus;
+  translationError: string;
   polishedBody: string;
   polishStatus: JobStatus;
+  polishError: string;
   summaryBody: string;
   summaryStatus: JobStatus;
+  summaryError: string;
 };
 
 type NoteBook = NoteBookListItem & {
@@ -84,7 +89,7 @@ function statusLabel(status: JobStatus): string {
   if (status === "error") {
     return "Failed";
   }
-  return "Off";
+  return "Not yet";
 }
 
 function pagePending(page: NotePage): boolean {
@@ -93,6 +98,18 @@ function pagePending(page: NotePage): boolean {
     page.polishStatus === "pending" ||
     page.summaryStatus === "pending"
   );
+}
+
+function bookWithPage(current: NoteBook, page: NotePage): NoteBook {
+  const pages: NotePage[] = [];
+  for (const existing of current.pages) {
+    if (existing.id === page.id) {
+      pages.push(page);
+    } else {
+      pages.push(existing);
+    }
+  }
+  return Object.assign({}, current, { pages });
 }
 
 function NotesStudio(props: { projectId: string }): React.JSX.Element {
@@ -110,11 +127,13 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const [pageBody, setPageBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const syncedPageId = useRef("");
+  const pageSaveGen = useRef(0);
+  const pageSaveTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
 
   const loadBooks = useCallback(async (): Promise<void> => {
     const query = new URLSearchParams({ projectId: props.projectId });
@@ -151,21 +170,19 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const selected = book !== null && typeof pageId === "string" ? book.pages.find((page) => page.id === pageId) : undefined;
 
   useEffect(() => {
-    setEditing(false);
-  }, [pageId]);
-
-  useEffect(() => {
     if (selected === undefined) {
       setPageTitle("");
       setPageBody("");
+      syncedPageId.current = "";
       return;
     }
-    if (editing) {
+    if (syncedPageId.current === selected.id) {
       return;
     }
+    syncedPageId.current = selected.id;
     setPageTitle(selected.title);
     setPageBody(selected.body);
-  }, [selected, editing]);
+  }, [selected]);
 
   const shouldPoll = book !== null && book.pages.some(pagePending);
 
@@ -184,6 +201,9 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
 
   useEffect(() => {
     return () => {
+      if (pageSaveTimer.current !== 0) {
+        clearTimeout(pageSaveTimer.current);
+      }
       if (audioRef.current !== null) {
         audioRef.current.pause();
       }
@@ -256,35 +276,58 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
     }
   }
 
-  async function savePage(): Promise<void> {
+  async function persistPage(title: string, body: string): Promise<void> {
     if (selected === undefined) {
       return;
     }
-    setSaving(true);
+    const trimmedBody = body.trim();
+    if (trimmedBody.length === 0) {
+      return;
+    }
+    let nextTitle = title.trim();
+    if (nextTitle.length === 0) {
+      nextTitle = selected.title;
+    }
+    const gen = pageSaveGen.current + 1;
+    pageSaveGen.current = gen;
     try {
-      let title = pageTitle.trim();
-      if (title.length === 0) {
-        title = selected.title;
-      }
-      const body = pageBody.trim();
-      if (body.length === 0) {
-        setError("Page text is required");
-        setSaving(false);
+      const saved = await api<NotePage>(`/api/note-pages/${selected.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: nextTitle, body: trimmedBody }),
+      });
+      if (pageSaveGen.current !== gen) {
         return;
       }
-      await api<NotePage>(`/api/note-pages/${selected.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ title, body }),
+      setBook((current) => {
+        if (current === null) {
+          return current;
+        }
+        return bookWithPage(current, saved);
       });
-      if (book !== null) {
-        await loadBook(book.id);
-      }
-      setEditing(false);
+      await loadBooks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "save failed");
-    } finally {
-      setSaving(false);
+      if (pageSaveGen.current === gen) {
+        setError(err instanceof Error ? err.message : "save failed");
+      }
     }
+  }
+
+  function savePageNow(title: string, body: string): void {
+    if (pageSaveTimer.current !== 0) {
+      clearTimeout(pageSaveTimer.current);
+      pageSaveTimer.current = 0;
+    }
+    void persistPage(title, body);
+  }
+
+  function savePageSoon(title: string, body: string): void {
+    if (pageSaveTimer.current !== 0) {
+      clearTimeout(pageSaveTimer.current);
+    }
+    pageSaveTimer.current = setTimeout(() => {
+      pageSaveTimer.current = 0;
+      void persistPage(title, body);
+    }, 400);
   }
 
   async function deletePage(): Promise<void> {
@@ -335,6 +378,9 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   async function speak(variant: SpeakVariant): Promise<void> {
     if (selected === undefined) {
       return;
+    }
+    if (variant === "original") {
+      savePageNow(pageTitle, pageBody);
     }
     const key = `${selected.id}:${variant}`;
     if (audioRef.current !== null && paused && speakingKey === key) {
@@ -389,12 +435,12 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   return (
     <div className="note-desk flex min-h-0 flex-1">
       <aside className="flex w-[18rem] shrink-0 flex-col border-r border-border/70">
-        <div className="flex items-start justify-between gap-3 px-4 py-5">
-          <div>
+        <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-4">
+          <div className="min-w-0">
+            <div className="truncate text-xs text-muted-foreground">
+              {session !== null && session.projectName !== null ? session.projectName : props.projectId}
+            </div>
             <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Create a book, then add pages.
-            </p>
           </div>
           <Link
             to="/settings"
@@ -457,29 +503,33 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           <>
             <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-6 py-3">
               <h2 className="mr-auto text-base font-semibold">{book.title}</h2>
-              <SwitchButton
+              <JobSwitch
+                id="note-job-translate"
                 label="Translate"
                 on={book.translateOn}
-                onClick={() => void setSwitch("translateOn", !book.translateOn)}
+                onChange={(next) => void setSwitch("translateOn", next)}
               />
-              <SwitchButton
+              <JobSwitch
+                id="note-job-polish"
                 label="Polish"
                 on={book.polishOn}
-                onClick={() => void setSwitch("polishOn", !book.polishOn)}
+                onChange={(next) => void setSwitch("polishOn", next)}
               />
-              <SwitchButton
+              <JobSwitch
+                id="note-job-summary"
                 label="Summary"
                 on={book.summarizeOn}
-                onClick={() => void setSwitch("summarizeOn", !book.summarizeOn)}
+                onChange={(next) => void setSwitch("summarizeOn", next)}
               />
               <Button type="button" variant="ghost" size="sm" onClick={() => void deleteBook()}>
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
             <p className="border-b border-border/70 px-6 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              Translate uses the language in Settings. Polish keeps the meaning and restores
-              Turkish characters. Summary shortens the same language. Each switch writes its own
-              text, and each text can be read aloud.
+              On runs that job when you add or edit a page. Translate uses the language in
+              Settings. Polish keeps the meaning and restores Turkish characters. Summary
+              shortens the same language. Each job keeps its own text, and each text can be
+              read aloud.
             </p>
             <form
               className="border-b border-border/70 px-6 py-4"
@@ -532,51 +582,62 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                 ) : (
                   <div className="space-y-6">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setEditing(!editing)}>
-                        {editing ? "Cancel" : "Edit"}
-                      </Button>
-                      {editing ? (
-                        <Button type="button" size="sm" disabled={saving} onClick={() => void savePage()}>
-                          Save
+                      {speakingKey === `${selected.id}:original` && !paused ? (
+                        <Button type="button" size="sm" onClick={pauseSpeech}>
+                          <Pause className="h-4 w-4" />
+                          Pause
                         </Button>
-                      ) : null}
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pageBody.trim().length === 0}
+                          onClick={() => void speak("original")}
+                        >
+                          {paused && speakingKey === `${selected.id}:original` ? (
+                            <Play className="h-4 w-4" />
+                          ) : (
+                            <Volume2 className="h-4 w-4" />
+                          )}
+                          {paused && speakingKey === `${selected.id}:original` ? "Resume" : "Read aloud"}
+                        </Button>
+                      )}
                       <Button type="button" variant="ghost" size="sm" onClick={() => void deletePage()}>
                         <Trash2 className="h-4 w-4" />
                         Delete
                       </Button>
                     </div>
-                    {editing ? (
-                      <div className="space-y-3">
-                        <Input
-                          value={pageTitle}
-                          onChange={(event) => {
-                            setPageTitle(event.target.value);
-                          }}
-                        />
-                        <textarea
-                          className="min-h-[12rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 text-[15px] leading-7"
-                          value={pageBody}
-                          onChange={(event) => {
-                            setPageBody(event.target.value);
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <VariantCard
-                        title="Original"
-                        text={selected.body}
-                        status="ready"
-                        speaking={speakingKey === `${selected.id}:original` && !paused}
-                        paused={paused && speakingKey === `${selected.id}:original`}
-                        onSpeak={() => void speak("original")}
-                        onPause={pauseSpeech}
+                    <div className="space-y-3">
+                      <Input
+                        value={pageTitle}
+                        onChange={(event) => {
+                          const nextTitle = event.target.value;
+                          setPageTitle(nextTitle);
+                          savePageSoon(nextTitle, pageBody);
+                        }}
+                        onBlur={() => {
+                          savePageNow(pageTitle, pageBody);
+                        }}
                       />
-                    )}
+                      <textarea
+                        className="min-h-[12rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 text-[15px] leading-7"
+                        value={pageBody}
+                        onChange={(event) => {
+                          const nextBody = event.target.value;
+                          setPageBody(nextBody);
+                          savePageSoon(pageTitle, nextBody);
+                        }}
+                        onBlur={() => {
+                          savePageNow(pageTitle, pageBody);
+                        }}
+                      />
+                    </div>
                     {book.translateOn || selected.translationStatus !== "none" ? (
                       <VariantCard
                         title="Translate"
                         text={selected.translatedBody}
                         status={selected.translationStatus}
+                        errorText={selected.translationError}
                         speaking={speakingKey === `${selected.id}:translated` && !paused}
                         paused={paused && speakingKey === `${selected.id}:translated`}
                         onSpeak={() => void speak("translated")}
@@ -589,6 +650,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                         title="Polish"
                         text={selected.polishedBody}
                         status={selected.polishStatus}
+                        errorText={selected.polishError}
                         speaking={speakingKey === `${selected.id}:polished` && !paused}
                         paused={paused && speakingKey === `${selected.id}:polished`}
                         onSpeak={() => void speak("polished")}
@@ -601,6 +663,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                         title="Summary"
                         text={selected.summaryBody}
                         status={selected.summaryStatus}
+                        errorText={selected.summaryError}
                         speaking={speakingKey === `${selected.id}:summary` && !paused}
                         paused={paused && speakingKey === `${selected.id}:summary`}
                         onSpeak={() => void speak("summary")}
@@ -619,40 +682,69 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   );
 }
 
-function SwitchButton(props: { label: string; on: boolean; onClick: () => void }): React.JSX.Element {
+function switchStateWord(on: boolean): string {
+  if (on === true) {
+    return "On";
+  }
+  return "Off";
+}
+
+function JobSwitch(props: {
+  id: string;
+  label: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+}): React.JSX.Element {
+  let stateClass = "text-muted-foreground";
+  if (props.on === true) {
+    stateClass = "text-foreground";
+  }
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant={props.on ? "default" : "outline"}
-      aria-pressed={props.on}
-      onClick={props.onClick}
-    >
-      {props.label}
-    </Button>
+    <div className="flex items-center gap-2 rounded-full border border-white/[0.1] bg-[#111111] px-2.5 py-1">
+      <Label htmlFor={props.id} className="cursor-pointer text-xs font-medium text-foreground">
+        {props.label}
+      </Label>
+      <Switch id={props.id} checked={props.on} onCheckedChange={props.onChange} />
+      <span className={cn("min-w-[1.75rem] text-[11px] font-medium tabular-nums", stateClass)} aria-hidden="true">
+        {switchStateWord(props.on)}
+      </span>
+    </div>
   );
+}
+
+function jobFailureText(errorText: string): string {
+  const trimmed = errorText.trim();
+  if (trimmed.length > 0) {
+    return trimmed;
+  }
+  return "Ollama did not finish. Retry, or pick a model in Settings.";
 }
 
 function VariantCard(props: {
   title: string;
   text: string;
   status: JobStatus;
+  errorText?: string;
   speaking: boolean;
   paused: boolean;
   onSpeak: () => void;
   onPause: () => void;
   onRetry?: () => void;
 }): React.JSX.Element {
+  let failureText = "";
+  if (props.errorText !== undefined) {
+    failureText = props.errorText;
+  }
   return (
     <article className="rounded-2xl border border-white/[0.08] p-5">
       <div className="mb-3 flex items-center gap-2">
         <p className="text-sm font-medium">{props.title}</p>
         <span className="text-[11px] text-muted-foreground">{statusLabel(props.status)}</span>
         <div className="ml-auto flex items-center gap-2">
-          {props.status === "error" && props.onRetry !== undefined ? (
+          {(props.status === "error" || props.status === "none") && props.onRetry !== undefined ? (
             <Button type="button" variant="outline" size="sm" onClick={props.onRetry}>
               <RotateCcw className="h-4 w-4" />
-              Retry
+              {props.status === "none" ? "Run" : "Retry"}
             </Button>
           ) : null}
           {props.speaking ? (
@@ -674,9 +766,9 @@ function VariantCard(props: {
         </div>
       </div>
       {props.status === "pending" ? (
-        <p className="note-pulse text-sm text-warn">Waiting on Ollama…</p>
+        <p className="note-pulse text-sm text-warn">Waiting on Ollama. It keeps going until the model answers.</p>
       ) : props.status === "error" ? (
-        <p className="text-sm text-destructive">Ollama did not finish. Retry, or pick a model in Settings.</p>
+        <p className="text-sm text-destructive">{jobFailureText(failureText)}</p>
       ) : (
         <p className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">{props.text}</p>
       )}

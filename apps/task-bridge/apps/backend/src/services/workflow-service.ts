@@ -164,10 +164,17 @@ function memberRowToProjectMember(
 }
 
 export function ensureProjectWorkflow(projectId: string): void {
-  const id = projectId;
-  if (!id) return;
-  if (countWorkflowStages(id) > 0) return;
+  const id = projectId.trim();
+  if (id.length === 0) {
+    throw new AppError("Project id required", 400);
+  }
+  if (countWorkflowStages(id) > 0) {
+    return;
+  }
   copyTemplateStagesToProject(id, DEFAULT_WORKFLOW_TEMPLATE_ID);
+  if (countWorkflowStages(id) < 1) {
+    throw new AppError("Pipeline could not be initialized", 500);
+  }
 }
 
 export function applyWorkflowTemplateToProject(
@@ -287,6 +294,9 @@ export function getProjectWorkflow(projectId: string): ProjectWorkflow {
       activeTaskCount: countActiveTasksForStage(projectTasks, stage.id),
     });
   });
+  if (stages.length < 1) {
+    throw new AppError("Pipeline is required", 500);
+  }
   const roles = loadProjectRoles(projectId);
   const members = listProjectMemberRows({ projectId, id: "" }).map((row) =>
     memberRowToProjectMember(row, tasks),
