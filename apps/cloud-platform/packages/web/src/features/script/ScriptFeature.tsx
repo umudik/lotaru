@@ -14,23 +14,22 @@ function ScriptNavigatorBinder(props: { basePath: string }): null {
   return null;
 }
 
-function ScriptHeader(props: { projectName: string }): React.JSX.Element {
+function ScriptHeader(): React.JSX.Element {
   return (
-    <div className="flex h-14 items-center gap-3 border-b px-6 py-5">
-      <h1 className="text-sm font-semibold tracking-tight">Scripts</h1>
-      <span className="text-xs text-muted-foreground">{props.projectName}</span>
+    <div className="page-toolbar">
+      <h1 className="truncate text-lg font-semibold tracking-tight text-white">Scripts</h1>
     </div>
   );
 }
 
-function ScriptRedirect(props: { basePath: string; projectName: string }): React.JSX.Element {
+function ScriptRedirect(props: { basePath: string }): React.JSX.Element {
   const params = useParams();
   useEffect(() => {
     navigate(props.basePath);
   }, [params["scriptId"], props.basePath]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ScriptHeader projectName={props.projectName} />
+      <ScriptHeader />
     </div>
   );
 }
@@ -64,7 +63,7 @@ export function ScriptFeature(props: {
         />
         <Route
           path="script/:scriptId"
-          element={<ScriptRedirect basePath={basePath} projectName={props.projectName} />}
+          element={<ScriptRedirect basePath={basePath} />}
         />
         <Route path="*" element={<Navigate to={basePath} replace />} />
       </Routes>

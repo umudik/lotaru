@@ -437,9 +437,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       <aside className="flex w-[18rem] shrink-0 flex-col border-r border-border/70">
         <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-4">
           <div className="min-w-0">
-            <div className="truncate text-xs text-muted-foreground">
-              {session !== null && session.projectName !== null ? session.projectName : props.projectId}
-            </div>
             <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
           </div>
           <Link

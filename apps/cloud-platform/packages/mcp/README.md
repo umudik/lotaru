@@ -1,29 +1,34 @@
 # Lotaru local MCP
 
-Point Cursor at your running Lotaru (`http://127.0.0.1:4317`).
+Auth-free Streamable HTTP MCP for the Lotaru docker stack. Cursor connects with a URL only — no OAuth, no API key.
+
+## Docker Compose
+
+`docker-compose.yml` runs `lotaru-mcp` on `127.0.0.1:18766`.
 
 ```json
 {
   "mcpServers": {
     "lotaru-local": {
-      "command": "node",
-      "args": ["apps/cloud-platform/packages/mcp/dist/index.js"],
-      "env": {
-        "LOTARU_URL": "http://127.0.0.1:4317"
-      }
+      "url": "http://127.0.0.1:18766/mcp"
     }
   }
 }
 ```
 
-Build:
+Env inside the container:
+
+- `LOTARU_URL=http://fookie-cloud:8080` (API target)
+- no `LOTARU_API_KEY` (local identity already accepts requests)
+
+## Stdio (dev)
 
 ```bash
 cd apps/cloud-platform/packages/mcp
-npm install
-npm run build
+npm install && npm run build
+LOTARU_URL=http://127.0.0.1:11222 node dist/index.js
 ```
 
-Tools: `events_list`, `events_replay`, `reactions_*`, `scripts_list`, `script_snapshot`, `scripts_run`, `script_execution_log`, `tasks_list`, `pipeline_get`, `voice_segments`, `voice_decisions`, `voice_status`, `projects_list`.
+## Tools
 
-Example: “Bugün ne konuştum?” → `voice_segments` + `voice_decisions` for the project id.
+`projects_list`, `events_*`, `voice_*`, `note_books_*`, `note_page_append`, `agents_list`, `agents_run`, `agents_runs`, `scripts_*`, `tasks_list`, `pipeline_get`, `reactions_*`.

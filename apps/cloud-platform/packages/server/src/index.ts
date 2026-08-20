@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { registerTaskBridgeModule } from "../../../../task-bridge/apps/backend/dist/index.js";
 import { registerObservability } from "../../../../task-bridge/apps/backend/dist/observability.js";
 import { createIdentity } from "./modules/identity.js";
+import { registerAgentsModule } from "./modules/agents.js";
 import { registerKnowledgeModule } from "./modules/knowledge.js";
 import { registerKnowledgeTemplatesModule } from "./modules/knowledge-templates.js";
 import { registerNotesModule } from "./modules/notes.js";
@@ -17,7 +18,7 @@ import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
 import { registerVoiceModule } from "./modules/voice.js";
 import { lotaruDatabasePath } from "./lotaru-db.js";
-import { shouldServeSpaIndex, spaFileHeaders } from "./spa-fallback.js";
+import { shouldServeSpaIndex, spaFileHeaders, apiRouteMissingBody, apiPath } from "./spa-fallback.js";
 import { resolveStartOptions, type StartOptions } from "./start-options.js";
 
 loadDotenv();
@@ -59,7 +60,16 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
 
   await app.register(fastifyWebsocket);
   registerObservability(app);
-  app.get("/healthz", async () => ({ status: "ok", service: "lotaru" }));
+  const modules = {
+    voice: false,
+  };
+  app.get("/healthz", async () => ({
+    status: "ok",
+    service: "lotaru",
+    modules: {
+      voice: modules.voice,
+    },
+  }));
 
   const identity = await createIdentity({
     publicUrl,
@@ -73,6 +83,10 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
     identity,
   });
   await registerNotesModule(app, {
+    databasePath: dbPath,
+    identity,
+  });
+  await registerAgentsModule(app, {
     databasePath: dbPath,
     identity,
   });
@@ -98,6 +112,7 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
     dataDir: dataDirectory,
     databasePath: dbPath,
   });
+  modules.voice = true;
 
   let webRoot = resolve(join(process.cwd(), "packages", "web", "dist"));
   if (opts.staticDir !== null) {
@@ -122,6 +137,9 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
       setHeaders: spaFileHeaders,
     });
     app.setNotFoundHandler((request, reply) => {
+      if (apiPath(request.url)) {
+        return reply.code(404).send(apiRouteMissingBody());
+      }
       if (shouldServeSpaIndex(request.url) !== true) {
         return reply.code(404).send({ error: "not found" });
       }

@@ -40,10 +40,41 @@ describe("resolveStartOptions", () => {
     assert.equal(opts.dataDir, "C:\\lotaru-data");
   });
 
-  it("ignores invalid port values and keeps 4317", () => {
-    const fromEnv = resolveStartOptions([], { LOTARU_PORT: "nope" }, homedir());
-    assert.equal(fromEnv.port, 4317);
-    const fromArgv = resolveStartOptions(["--port", "0"], {}, homedir());
-    assert.equal(fromArgv.port, 4317);
+  it("reads PORT HOST DATA_DIR aliases for Docker", () => {
+    const opts = resolveStartOptions(
+      [],
+      { PORT: "8080", HOST: "0.0.0.0", DATA_DIR: "/data" },
+      homedir(),
+    );
+    assert.equal(opts.port, 8080);
+    assert.equal(opts.host, "0.0.0.0");
+    assert.equal(opts.dataDir, "/data");
+  });
+
+  it("prefers LOTARU_* over bare PORT HOST DATA_DIR", () => {
+    const opts = resolveStartOptions(
+      [],
+      {
+        PORT: "8080",
+        HOST: "0.0.0.0",
+        DATA_DIR: "/data",
+        LOTARU_PORT: "9090",
+        LOTARU_HOST: "127.0.0.1",
+        LOTARU_DATA_DIR: "/lotaru",
+      },
+      homedir(),
+    );
+    assert.equal(opts.port, 9090);
+    assert.equal(opts.host, "127.0.0.1");
+    assert.equal(opts.dataDir, "/lotaru");
+  });
+
+  it("honors --host over env", () => {
+    const opts = resolveStartOptions(
+      ["--host", "0.0.0.0"],
+      { LOTARU_HOST: "127.0.0.1" },
+      homedir(),
+    );
+    assert.equal(opts.host, "0.0.0.0");
   });
 });

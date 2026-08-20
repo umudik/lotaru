@@ -22,3 +22,6 @@ packages/cli/node_modules/
 .github/skills/impeccable/
 .github/agents/impeccable-*.agent.md
 .github/hooks/impeccable.json
+__pycache__/
+*.pyc
+*.pyo

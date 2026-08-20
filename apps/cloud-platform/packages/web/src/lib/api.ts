@@ -218,6 +218,78 @@ export type KnowledgeItem = {
   diagram: KnowledgeOutput;
 };
 
+export type LotaruAgent = {
+  id: string;
+  projectId: string;
+  title: string;
+  prompt: string;
+  trigger: "event" | "schedule";
+  eventType: string;
+  scheduleHour: number;
+  scheduleMinute: number;
+  includeVoice: boolean;
+  noteBookTitle: string;
+  enabled: boolean;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type AgentRunRow = {
+  id: string;
+  agentId: string;
+  projectId: string;
+  status: "running" | "done" | "error";
+  output: string;
+  error: string;
+  startedAt: string;
+  finishedAt: string;
+};
+
+export async function fetchAgents(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<{ agents: LotaruAgent[] }>(session, `/api/agents?${query.toString()}`);
+}
+
+export async function createAgent(
+  session: Session,
+  input: {
+    projectId: string;
+    title: string;
+    prompt: string;
+    trigger: "event" | "schedule";
+    eventType?: string;
+    scheduleHour?: number;
+    scheduleMinute?: number;
+    includeVoice?: boolean;
+    noteBookTitle?: string;
+    enabled?: boolean;
+  },
+) {
+  return request<LotaruAgent>(session, "/api/agents", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAgent(session: Session, agentId: string) {
+  return request<{ ok: boolean }>(session, `/api/agents/${encodeURIComponent(agentId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function runAgentNow(session: Session, agentId: string) {
+  return request<{ ok: boolean }>(session, `/api/agents/${encodeURIComponent(agentId)}/run`, {
+    method: "POST",
+  });
+}
+
+export async function fetchAgentRuns(session: Session, agentId: string) {
+  return request<{ runs: AgentRunRow[] }>(
+    session,
+    `/api/agents/${encodeURIComponent(agentId)}/runs`,
+  );
+}
+
 export async function fetchKnowledgeTemplates(
   session: Session,
   projectId: string,
@@ -281,9 +353,24 @@ export type VoiceIntentDecision = {
   createdAt: number;
 };
 
-export async function fetchVoiceSegments(session: Session, projectId: string, limit = 50) {
-  const query = new URLSearchParams({ projectId, limit: String(limit) });
-  return request<{ segments: VoiceSegment[] }>(session, `/api/voice/segments?${query.toString()}`);
+export async function fetchVoiceSegments(
+  session: Session,
+  projectId: string,
+  options: { limit?: number; cursor?: string } = {},
+) {
+  const query = new URLSearchParams({ projectId });
+  let limit = 40;
+  if (options.limit !== undefined) {
+    limit = options.limit;
+  }
+  query.set("limit", String(limit));
+  if (options.cursor !== undefined && options.cursor.length > 0) {
+    query.set("cursor", options.cursor);
+  }
+  return request<{ segments: VoiceSegment[]; next: string[] }>(
+    session,
+    `/api/voice/segments?${query.toString()}`,
+  );
 }
 
 export async function fetchVoiceDecisions(session: Session, projectId: string, limit = 50) {
@@ -301,11 +388,13 @@ export async function fetchVoiceStatus(session: Session, projectId: string) {
     projectId: string;
     sessionId: string;
     sidecar: boolean;
+    sidecarMode: string;
+    sidecarReachable: boolean;
+    sidecarUrl: string;
+    sidecarModel: string;
+    sidecarLanguage: string;
+    sidecarDevice: string;
   }>(session, `/api/voice/status?${query.toString()}`);
-}
-
-export function voiceSegmentAudioUrl(segmentId: string): string {
-  return `/api/voice/segments/${encodeURIComponent(segmentId)}/audio`;
 }
 
 export async function fetchKnowledgeArtifacts(

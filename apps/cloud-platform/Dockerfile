@@ -22,7 +22,11 @@ FROM node:26-bookworm-slim
 WORKDIR /app/apps/cloud-platform
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV HOST=0.0.0.0
+ENV LOTARU_PORT=8080
+ENV LOTARU_HOST=0.0.0.0
 ENV DATA_DIR=/data
+ENV LOTARU_DATA_DIR=/data
 ENV PUBLIC_URL=http://localhost:11222
 ENV DATABASE_PATH=/data/tasks/bridge.db
 ENV SCRIPT_DATA_DIR=/data/script

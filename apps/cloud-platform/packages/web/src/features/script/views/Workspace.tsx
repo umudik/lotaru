@@ -252,12 +252,9 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
       <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
         <div className="flex-1 min-w-[280px] flex flex-col px-6 border-r">
           <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{props.projectName}</span>
-                {stateBadge}
-              </div>
-              <h1 className="text-lg font-semibold truncate">Scripts</h1>
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="text-lg font-semibold tracking-tight truncate">Scripts</h1>
+              {stateBadge}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <div className="flex items-center gap-2 px-2">

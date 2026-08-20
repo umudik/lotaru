@@ -10,7 +10,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8080"
+      HOST: "0.0.0.0"
+      LOTARU_PORT: "8080"
+      LOTARU_HOST: "0.0.0.0"
       DATA_DIR: /data
+      LOTARU_DATA_DIR: /data
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:11222}
       DATABASE_PATH: /data/tasks/bridge.db
       SCRIPT_DATA_DIR: /data/script
@@ -21,11 +25,81 @@ services:
       FOOKIE_ADMIN_EMAIL: ${FOOKIE_ADMIN_EMAIL:-}
       FOOKIE_ADMIN_PASSWORD: ${FOOKIE_ADMIN_PASSWORD:-}
       FOOKIE_ADMIN_NAME: ${FOOKIE_ADMIN_NAME:-Admin}
+      LOTARU_VOICE_SIDECAR_URL: http://voice-sidecar:18765
+      LOTARU_MCP_URL: http://lotaru-mcp:18766/mcp
     volumes:
       - fookie-cloud-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      voice-sidecar:
+        condition: service_started
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 40s
+
+  voice-sidecar:
+    container_name: lotaru-voice-sidecar
+    restart: always
+    build:
+      context: ./apps/cloud-platform/voice-sidecar
+      dockerfile: Dockerfile
+    gpus: all
+    ports:
+      - "127.0.0.1:18765:18765"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      LOTARU_WHISPER_MODEL: ${LOTARU_WHISPER_MODEL:-medium}
+      LOTARU_WHISPER_LANGUAGE: ${LOTARU_WHISPER_LANGUAGE:-tr}
+      LOTARU_WHISPER_DEVICE: ${LOTARU_WHISPER_DEVICE:-cuda}
+      LOTARU_WHISPER_COMPUTE: ${LOTARU_WHISPER_COMPUTE:-float16}
+      LOTARU_WHISPER_BEAM: ${LOTARU_WHISPER_BEAM:-2}
+      LOTARU_VOICE_SILENCE_SEC: ${LOTARU_VOICE_SILENCE_SEC:-2.0}
+      LOTARU_VOICE_MIN_SPEECH_SEC: ${LOTARU_VOICE_MIN_SPEECH_SEC:-0.7}
+      LOTARU_VOICE_PARTIAL_SEC: ${LOTARU_VOICE_PARTIAL_SEC:-4.0}
+      LOTARU_VOICE_MAX_UTTERANCE_SEC: ${LOTARU_VOICE_MAX_UTTERANCE_SEC:-45}
+    volumes:
+      - lotaru-whisper-cache:/root/.cache
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18765/healthz', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+  lotaru-mcp:
+    container_name: lotaru-mcp
+    restart: unless-stopped
+    build:
+      context: ./apps/cloud-platform/packages/mcp
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:18766:18766"
+    environment:
+      LOTARU_URL: http://fookie-cloud:8080
+      LOTARU_MCP_HTTP: "1"
+      LOTARU_MCP_HOST: "0.0.0.0"
+      LOTARU_MCP_PORT: "18766"
+    depends_on:
+      fookie-cloud:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18766/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -33,3 +107,4 @@ services:
 
 volumes:
   fookie-cloud-data:
+  lotaru-whisper-cache:

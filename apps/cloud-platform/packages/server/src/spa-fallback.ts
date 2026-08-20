@@ -38,6 +38,12 @@ export function apiPath(url: string): boolean {
   return false;
 }
 
+export function apiRouteMissingBody(): { error: string } {
+  return {
+    error: "API route missing — restart Lotaru so the server loads the latest routes",
+  };
+}
+
 export function shouldServeSpaIndex(url: string): boolean {
   const pathOnly = requestPath(url);
   if (apiPath(pathOnly)) {

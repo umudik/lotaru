@@ -363,13 +363,6 @@ export function LibraryPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        context={
-          session !== null && session.projectName !== null
-            ? session.projectName
-            : projectId.length > 0
-              ? projectId
-              : "Project"
-        }
         title="Sources"
         actions={
           <div className="flex gap-2">

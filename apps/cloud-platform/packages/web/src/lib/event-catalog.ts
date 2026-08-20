@@ -6,6 +6,8 @@ export const CATALOG_EVENT_TYPES = [
   "github.pull_request.updated",
   "github.pull_request.merged",
   "voice.intent",
+  "note.page.written",
+  "agent.ran",
 ];
 
 export function catalogEventLabel(eventType: string): string {
@@ -32,6 +34,12 @@ export function catalogEventLabel(eventType: string): string {
   }
   if (eventType === "voice.intent") {
     return "Voice intent";
+  }
+  if (eventType === "note.page.written") {
+    return "Note page written";
+  }
+  if (eventType === "agent.ran") {
+    return "Agent ran";
   }
   return eventType;
 }

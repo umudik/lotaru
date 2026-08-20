@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { apiPath, shouldServeSpaIndex, spaFileHeaders } from "./spa-fallback.js";
+import { apiPath, apiRouteMissingBody, shouldServeSpaIndex, spaFileHeaders } from "./spa-fallback.js";
 
 describe("shouldServeSpaIndex", () => {
   it("serves the shell for project routes and keeps assets as real files", () => {
@@ -11,6 +11,14 @@ describe("shouldServeSpaIndex", () => {
     assert.equal(shouldServeSpaIndex("/api/knowledge?view=all"), false);
     assert.equal(apiPath("/healthz"), true);
     assert.equal(shouldServeSpaIndex("/healthz"), false);
+  });
+});
+
+describe("apiRouteMissingBody", () => {
+  it("tells operators to restart instead of a bare not found", () => {
+    const body = apiRouteMissingBody();
+    assert.equal(typeof body.error, "string");
+    assert.equal(body.error.includes("restart"), true);
   });
 });
 

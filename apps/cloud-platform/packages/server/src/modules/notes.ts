@@ -138,6 +138,60 @@ function tableExists(db: Database.Database, name: string): boolean {
   return row !== undefined;
 }
 
+export type AppendedNotePage = {
+  bookId: string;
+  bookTitle: string;
+  pageId: string;
+  pageTitle: string;
+};
+
+export function appendNotePageByBookTitle(input: {
+  databasePath: string;
+  projectId: string;
+  bookTitle: string;
+  pageTitle: string;
+  body: string;
+  createdBy: string;
+}): AppendedNotePage {
+  const db = openNotesDb(input.databasePath);
+  const bookTitle = input.bookTitle.trim().slice(0, 200);
+  let bookTitleFinal = bookTitle;
+  if (bookTitleFinal.length === 0) {
+    bookTitleFinal = "Journal";
+  }
+  const existing = db
+    .prepare(
+      "SELECT id FROM note_books WHERE project_id = ? AND title = ? ORDER BY created_at ASC LIMIT 1",
+    )
+    .get(input.projectId, bookTitleFinal) as { id: string } | undefined;
+  let bookId = "";
+  if (existing !== undefined) {
+    bookId = existing.id;
+  } else {
+    bookId = randomUUID();
+    const createdAt = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO note_books (id, project_id, title, created_at, created_by, translate_on, polish_on, summarize_on) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
+    ).run(bookId, input.projectId, bookTitleFinal, createdAt, input.createdBy);
+  }
+  let pageTitle = input.pageTitle.trim().slice(0, 200);
+  if (pageTitle.length === 0) {
+    pageTitle = new Date().toISOString().slice(0, 10);
+  }
+  const pageId = randomUUID();
+  const position = nextPosition(db, bookId);
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    "INSERT INTO note_pages (id, book_id, title, body, position, created_at, translated_body, translation_status, polished_body, polish_status, summary_body, summary_status) VALUES (?, ?, ?, ?, ?, ?, '', 'none', '', 'none', '', 'none')",
+  ).run(pageId, bookId, pageTitle, input.body, position, createdAt);
+  return {
+    bookId,
+    bookTitle: bookTitleFinal,
+    pageId,
+    pageTitle,
+  };
+}
+
 export function openNotesDb(databasePath: string): Database.Database {
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = new Database(databasePath);

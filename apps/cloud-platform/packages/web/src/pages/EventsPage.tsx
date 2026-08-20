@@ -156,7 +156,7 @@ function listenerHref(projectId: string, listener: LotaruEventListener): string 
   if (listener.kind === "script") {
     return `/projects/${projectId}/scripts`;
   }
-  return `/projects/${projectId}/reactions`;
+  return `/projects/${projectId}/agents`;
 }
 
 function eventTypeFilterFromQuery(raw: string | null): string {
@@ -274,7 +274,7 @@ export function EventsPage(): React.JSX.Element {
       },
       [loadFirstPage],
     ),
-    { enabled: session !== null && projectId.length > 0, intervalMs: 10000 },
+    { enabled: session !== null && projectId.length > 0, intervalMs: 300_000 },
   );
 
   async function replay(eventId: string): Promise<void> {
@@ -300,14 +300,7 @@ export function EventsPage(): React.JSX.Element {
     }
   }
 
-  let projectLabel = "Project";
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  } else if (projectId.length > 0) {
-    projectLabel = projectId;
-  }
-
-  if (projectId.length === 0) {
+    if (projectId.length === 0) {
     return <p className="p-6 text-sm text-muted-foreground">Open a project to see events.</p>;
   }
 
@@ -316,7 +309,6 @@ export function EventsPage(): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        context={projectLabel}
         title="Events"
         actions={
           <div className="flex items-center gap-2">
@@ -444,9 +436,9 @@ export function EventsPage(): React.JSX.Element {
                         None. Add a listener on{" "}
                         <Link
                           className="underline underline-offset-2"
-                          to={`/projects/${projectId}/reactions`}
+                          to={`/projects/${projectId}/agents`}
                         >
-                          Reactions
+                          Agents
                         </Link>{" "}
                         or a clock/save/startup script.
                       </p>

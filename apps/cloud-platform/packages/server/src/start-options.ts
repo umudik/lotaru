@@ -66,6 +66,10 @@ export function resolveStartOptions(
   homeDir: string,
 ): StartOptions {
   let port = DEFAULT_PORT;
+  const envPortLegacy = parsePort(envValue(env, "PORT"));
+  if (envPortLegacy !== null) {
+    port = envPortLegacy;
+  }
   const envPort = parsePort(envValue(env, "LOTARU_PORT"));
   if (envPort !== null) {
     port = envPort;
@@ -75,7 +79,25 @@ export function resolveStartOptions(
     port = argPort;
   }
 
+  let host = DEFAULT_HOST;
+  const envHostLegacy = envValue(env, "HOST");
+  if (envHostLegacy !== null) {
+    host = envHostLegacy;
+  }
+  const envHost = envValue(env, "LOTARU_HOST");
+  if (envHost !== null) {
+    host = envHost;
+  }
+  const argHost = flagValue(argv, "--host", "-h");
+  if (argHost !== null) {
+    host = argHost;
+  }
+
   let dataDir = join(homeDir, ".lotaru");
+  const envDataLegacy = envValue(env, "DATA_DIR");
+  if (envDataLegacy !== null) {
+    dataDir = envDataLegacy;
+  }
   const envData = envValue(env, "LOTARU_DATA_DIR");
   if (envData !== null) {
     dataDir = envData;
@@ -87,7 +109,7 @@ export function resolveStartOptions(
 
   return {
     port,
-    host: DEFAULT_HOST,
+    host,
     dataDir,
     staticDir: null,
   };

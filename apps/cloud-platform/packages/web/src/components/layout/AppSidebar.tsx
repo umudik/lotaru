@@ -10,8 +10,10 @@ import {
   FileText,
   GitBranch,
   ListOrdered,
-  Zap,
   Mic,
+  MicOff,
+  Loader2,
+  Bot,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +21,8 @@ import { BrandMark } from "@/components/BrandMark";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/useSession";
 import { useVoiceListen } from "@/features/voice/VoiceListenContext";
+import { VoiceLevelBars } from "@/features/voice/VoiceWaveform";
+import { toast } from "sonner";
 
 export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) {
   const { pathname } = useLocation();
@@ -70,42 +74,44 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
               {projectName}
             </p>
             <NavGroup label="State">
-              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
               <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
-              <NavItem to={`/projects/${projectId}/reactions`} label="Reactions" icon={Zap} />
+              <NavItem to={`/projects/${projectId}/agents`} label="Agents" icon={Bot} />
               <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={Terminal} />
             </NavGroup>
             <NavGroup label="Work">
               <NavItem to={`/projects/${projectId}/tasks`} label="Tasks" icon={ListTodo} />
               <NavItem to={`/projects/${projectId}/pipeline`} label="Pipeline" icon={ListOrdered} />
             </NavGroup>
-            <NavGroup label="Knowledge">
-              <NavGroup label="Documentation">
-                <NavItem
-                  to={`/projects/${projectId}/knowledge/documentation/templates`}
-                  label="Templates"
-                  icon={FileText}
-                />
-                <NavItem
-                  to={`/projects/${projectId}/knowledge/documentation/list`}
-                  label="Documents"
-                  icon={FileText}
-                />
-              </NavGroup>
-              <NavGroup label="Diagrams">
-                <NavItem
-                  to={`/projects/${projectId}/knowledge/diagrams/templates`}
-                  label="Templates"
-                  icon={GitBranch}
-                />
-                <NavItem
-                  to={`/projects/${projectId}/knowledge/diagrams/list`}
-                  label="Diagrams"
-                  icon={GitBranch}
-                />
-              </NavGroup>
+            <NavGroup label="Notes">
               <NavItem to={`/projects/${projectId}/notes`} label="Notes" icon={NotebookPen} />
+            </NavGroup>
+            <NavGroup label="Knowledge">
+              <NavItem
+                to={`/projects/${projectId}/knowledge/documentation/list`}
+                label="Documents"
+                icon={FileText}
+              />
+              <NavItem
+                to={`/projects/${projectId}/knowledge/documentation/templates`}
+                label="Doc templates"
+                icon={FileText}
+              />
+              <NavItem
+                to={`/projects/${projectId}/knowledge/diagrams/list`}
+                label="Diagrams"
+                icon={GitBranch}
+              />
+              <NavItem
+                to={`/projects/${projectId}/knowledge/diagrams/templates`}
+                label="Diagram templates"
+                icon={GitBranch}
+              />
+            </NavGroup>
+            <NavGroup label="Sources">
               <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
+            </NavGroup>
+            <NavGroup label="Log">
+              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
             </NavGroup>
           </div>
         ) : fallbackProjectId ? (
@@ -123,25 +129,57 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
       </nav>
       <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
         {projectId !== null ? (
-          <button
-            type="button"
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              voice.listening && voice.projectId === projectId
-                ? "bg-destructive/15 text-destructive"
-                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-            )}
-            onClick={() => {
-              if (voice.listening && voice.projectId === projectId) {
-                voice.stop();
-                return;
-              }
-              void voice.start(projectId);
-            }}
-          >
-            <Mic className="h-4 w-4" />
-            {voice.listening && voice.projectId === projectId ? "Listening" : "Listen"}
-          </button>
+          <div className="space-y-1">
+            {voice.armed && voice.listening && voice.projectId === projectId ? (
+              <VoiceLevelBars
+                level={voice.level}
+                active={true}
+                className="mx-1"
+              />
+            ) : null}
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                voice.armed && voice.projectId === projectId
+                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/20"
+                  : "bg-destructive/15 text-destructive hover:bg-destructive/20",
+              )}
+              onClick={() => {
+                if (voice.armed && voice.projectId === projectId) {
+                  voice.stop();
+                  return;
+                }
+                void voice.start(projectId).catch((err: unknown) => {
+                  const message =
+                    err instanceof Error && err.message.length > 0
+                      ? err.message
+                      : "Could not start Listen.";
+                  toast.error(message);
+                });
+              }}
+            >
+              {voice.reconnecting && voice.projectId === projectId ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : voice.listening && voice.projectId === projectId ? (
+                <MicOff className="h-4 w-4" />
+              ) : voice.armed && voice.projectId === projectId ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+              {voice.reconnecting && voice.projectId === projectId
+                ? "Reconnecting"
+                : voice.listening && voice.projectId === projectId
+                  ? "Listening"
+                  : voice.armed && voice.projectId === projectId
+                    ? "Connecting"
+                    : "Listen"}
+            </button>
+            {voice.error.length > 0 ? (
+              <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
+            ) : null}
+          </div>
         ) : null}
         <NavItem to="/settings" label="Settings" icon={Settings} />
       </div>

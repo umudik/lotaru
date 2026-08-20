@@ -31,6 +31,7 @@ import { mergeGithubWatches, pollGithubOnce, startGithubPoller, type GithubWatch
 import { listGithubReposAt } from "../github-remote.js";
 import { createIntentTask } from "../intent-task.js";
 import { fireKnowledgeTemplatesForEvent } from "./knowledge-templates.js";
+import { fireAgentsForEvent } from "./agents.js";
 import { setLotaruEventPublisher } from "../event-bus.js";
 import {
   claimReactionFire,
@@ -754,6 +755,7 @@ export async function registerScriptRunnerModule(
       detail: string;
     },
     emitKind: "live" | "replay",
+    flags: { skipAgents: boolean } = { skipAgents: false },
   ): LotaruEvent {
     const event: LotaruEvent = {
       id: nanoid(12),
@@ -802,6 +804,19 @@ export async function registerScriptRunnerModule(
     }).catch((err) => {
       app.log.error({ err, type: event.type }, "knowledge template fire failed");
     });
+    if (flags.skipAgents !== true) {
+      void fireAgentsForEvent({
+        databasePath: options.databasePath,
+        projectId: event.projectId,
+        eventId: event.id,
+        eventType: event.type,
+        path: event.path,
+        detail: event.detail,
+        emitEvent: (nested) => emitLotaruEvent(nested, "live", { skipAgents: true }),
+      }).catch((err) => {
+        app.log.error({ err, type: event.type }, "agent fire failed");
+      });
+    }
     if (event.scriptId.length > 0) {
       const targeted = getScript(event.scriptId);
       if (targeted === null) {

@@ -44,18 +44,15 @@ function TemplatesPage(props: {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  let projectLabel = "Project";
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  } else if (props.projectId.length > 0) {
-    projectLabel = props.projectId;
-  }
-
   let heading = "Document templates";
   let listPath = `${base}/documentation/list`;
+  let listLabel = "Documents";
+  let titlePlaceholder = "API change summary for the team";
   if (props.kind === "diagram") {
     heading = "Diagram templates";
     listPath = `${base}/diagrams/list`;
+    listLabel = "Diagrams";
+    titlePlaceholder = "Service dependency map after a deploy";
   }
 
   const load = useCallback(async (): Promise<void> => {
@@ -129,8 +126,8 @@ function TemplatesPage(props: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        context={projectLabel}
         title={heading}
+        subtitle={`Event → ${listLabel}. Templates turn State into Knowledge.`}
         actions={
           <Button
             type="button"
@@ -148,8 +145,10 @@ function TemplatesPage(props: {
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {templates.length === 0 ? (
             <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
-              <p className="text-sm text-muted-foreground">
-                No templates yet. Templates define what gets created when an event fires.
+              <p className="text-sm font-semibold text-foreground">No templates yet</p>
+              <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                Pick a When event, describe the output, and Lotaru writes into {listLabel} when that
+                event happens in this project.
               </p>
               <Button
                 className="mt-4"
@@ -192,9 +191,9 @@ function TemplatesPage(props: {
             </ul>
           )}
           <p className="mt-4 text-xs text-muted-foreground">
-            Created outputs land in{" "}
+            Generated outputs land in{" "}
             <Link className="underline underline-offset-2" to={listPath}>
-              the list
+              {listLabel}
             </Link>
             .
           </p>
@@ -220,7 +219,7 @@ function TemplatesPage(props: {
                   id="template-title"
                   value={title}
                   autoFocus
-                  placeholder="Kod kalite standartlarını değerlendirme raporu"
+                  placeholder={titlePlaceholder}
                   onChange={(event) => {
                     setTitle(event.target.value);
                   }}
@@ -297,13 +296,6 @@ function ArtifactsPage(props: {
   const [artifacts, setArtifacts] = useState<KnowledgeArtifact[]>([]);
   const [error, setError] = useState("");
 
-  let projectLabel = "Project";
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  } else if (props.projectId.length > 0) {
-    projectLabel = props.projectId;
-  }
-
   let heading = "Documents";
   let templatesPath = `${base}/documentation/templates`;
   if (props.kind === "diagram") {
@@ -335,7 +327,10 @@ function ArtifactsPage(props: {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader context={projectLabel} title={heading} />
+      <PageHeader
+        title={heading}
+        subtitle="Generated from templates when matching events land."
+      />
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         {artifacts.length === 0 ? (
@@ -344,13 +339,14 @@ function ArtifactsPage(props: {
               {props.kind === "diagram" ? "No diagrams yet" : "No documents yet"}
             </p>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              When a template’s event fires, a new output appears here. Start by defining a template.
+              Outputs appear here after a matching Events signal. Define a template first, then watch
+              State turn into Knowledge.
             </p>
             <Link
               to={templatesPath}
               className="mt-4 inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
             >
-              Open templates
+              Define a template
             </Link>
           </div>
         ) : (
@@ -399,13 +395,6 @@ function ArtifactDetail(props: {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  let projectLabel = "Project";
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  } else if (props.projectId.length > 0) {
-    projectLabel = props.projectId;
-  }
-
   let listPath = `${base}/documentation/list`;
   if (props.kind === "diagram") {
     listPath = `${base}/diagrams/list`;
@@ -453,7 +442,6 @@ function ArtifactDetail(props: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        context={projectLabel}
         breadcrumb={[{ label: props.kind === "diagram" ? "Diagrams" : "Documents", to: listPath }]}
         title={artifact.title}
         subtitle={`Template: ${artifact.templateTitle} · ${catalogEventLabel(artifact.eventType)}`}

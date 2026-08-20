@@ -52,15 +52,9 @@ export function DesignsFeature(props: { projectId: string }): React.JSX.Element 
     void load();
   }, [load]);
 
-  let projectLabel = props.projectId;
-  if (payload !== null && payload.projectName.length > 0) {
-    projectLabel = payload.projectName;
-  }
-
-  return (
+    return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        context={projectLabel}
         title="Designs"
         actions={
           <Button type="button" variant="outline" size="sm" onClick={() => void load()}>

@@ -1,30 +1,35 @@
-# Lotaru voice sidecar (faster-whisper)
+# Lotaru voice sidecar (faster-whisper + CUDA)
 
-## Run
+Stack (community default for NVIDIA):
+- Runtime: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on CTranslate2
+- Image: `nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04` (official SYSTRAN GPU path)
+- Device: **CUDA only** by default (`LOTARU_WHISPER_DEVICE=cuda`) — refuses to start if no GPU
+- RTX 3060 (12 GB): default model **`medium`** + `float16` + `beam_size=5`
+- Language: `tr`
 
-```bash
-cd apps/cloud-platform/voice-sidecar
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-set LOTARU_WHISPER_MODEL=medium
-set LOTARU_WHISPER_LANGUAGE=tr
-python server.py --port 18765
-```
-
-For highest accuracy on GPU, set `LOTARU_WHISPER_MODEL=large-v3`.
-
-Mock mode (no model download):
+## Start
 
 ```bash
-set LOTARU_VOICE_MOCK=1
-python server.py --port 18765
+docker compose up -d --build voice-sidecar
 ```
 
-WebSocket: `ws://127.0.0.1:18765/v1/stream`
+Requires Docker NVIDIA runtime (`docker run --rm --gpus all nvidia/cuda:12.3.2-base-ubuntu22.04 nvidia-smi`).
 
-Send binary frames of 16-bit little-endian mono PCM at 16 kHz. Receive JSON:
+Health: `http://127.0.0.1:18765/healthz` must show `"device":"cuda"`.
 
-```json
-{"kind":"partial"|"final","text":"...","startedAt":123.0,"endedAt":124.0}
-```
+## Env
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `LOTARU_WHISPER_MODEL` | `medium` | Quality: `large-v3` / `oguzhangokboru/whisper-large-v3-tr` |
+| `LOTARU_WHISPER_LANGUAGE` | `tr` | Fixed language (no auto-detect) |
+| `LOTARU_WHISPER_DEVICE` | `cuda` | `cpu` only if you intentionally want CPU |
+| `LOTARU_WHISPER_COMPUTE` | `float16` | Ampere (3060) sweet spot; `int8_float16` if VRAM tight |
+| `LOTARU_WHISPER_BEAM` | `5` | Final utterance beam |
+| `LOTARU_VOICE_PARTIAL_SEC` | `0.75` | Partial STT throttle |
+
+Model cache: Docker volume `lotaru-whisper-cache`.
+
+## Protocol
+
+Send 16-bit LE mono PCM at 16 kHz. Receive JSON text only (no audio storage).

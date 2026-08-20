@@ -278,17 +278,9 @@ export function WorkflowPage() {
     );
   }
 
-  let projectLabel = "Project";
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  } else if (projectId.length > 0) {
-    projectLabel = projectId;
-  }
-
-  return (
+    return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <PageHeader
-        context={projectLabel}
         title="Pipeline"
         actions={
           <>

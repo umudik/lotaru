@@ -59,10 +59,20 @@ export function defaultAgentCommand(kind: AgentKind): string {
 
 export function resolvedAgentCommand(kind: AgentKind, command: string): string {
   const trimmed = command.trim();
-  if (trimmed.length > 0) {
-    return trimmed;
+  if (trimmed.length === 0) {
+    return defaultAgentCommand(kind);
   }
-  return defaultAgentCommand(kind);
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    throw new Error("Agent command override must be a bare binary name");
+  }
+  if (trimmed.includes(":") || trimmed.includes(" ")) {
+    throw new Error("Agent command override must be a bare binary name");
+  }
+  const nameOk = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed);
+  if (nameOk !== true) {
+    throw new Error("Agent command override must be a bare binary name");
+  }
+  return trimmed;
 }
 
 export function agentCliSpec(input: {
@@ -132,7 +142,7 @@ export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number
       cwd,
       env: process.env,
       windowsHide: true,
-      shell: process.platform === "win32",
+      shell: false,
     });
     let stdout = "";
     let stderr = "";

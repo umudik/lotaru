@@ -1,7 +1,3 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { z } from "zod";
 
@@ -10,109 +6,113 @@ const sidecarMessageSchema = z.object({
   text: z.string(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
-  pcmB64: z.string().optional(),
 });
 
 export type SidecarTranscriptMessage = z.infer<typeof sidecarMessageSchema>;
 
 export type VoiceSidecarHandle = {
   port: number;
+  mode: "docker";
   sendPcm: (pcm: Buffer) => void;
   flush: () => void;
   close: () => void;
 };
 
-function sidecarRoot(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "..", "voice-sidecar");
+export type VoiceSidecarProbe = {
+  reachable: boolean;
+  url: string;
+  model: string;
+  language: string;
+  device: string;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
-function pythonCommand(): string {
-  const fromEnv = process.env.LOTARU_VOICE_PYTHON;
+export function resolveVoiceSidecarHttpBase(): string {
+  const fromEnv = process.env.LOTARU_VOICE_SIDECAR_URL;
   if (fromEnv !== undefined && fromEnv.trim().length > 0) {
-    return fromEnv.trim();
+    return fromEnv.trim().replace(/\/$/, "");
   }
-  return "python";
-}
-
-function resolvePort(): number {
   const portRaw = process.env.LOTARU_VOICE_SIDECAR_PORT;
-  if (portRaw === undefined || portRaw.trim().length === 0) {
-    return 18765;
-  }
-  const parsed = Number(portRaw);
-  if (Number.isFinite(parsed) !== true || parsed <= 0) {
-    return 18765;
-  }
-  return Math.floor(parsed);
-}
-
-export async function startVoiceSidecar(options: {
-  onMessage: (message: SidecarTranscriptMessage) => void;
-  onError: (message: string) => void;
-  mock?: boolean;
-}): Promise<VoiceSidecarHandle> {
-  const mockEnv = process.env.LOTARU_VOICE_MOCK;
-  let useMock = options.mock === true;
-  if (mockEnv === "1" || mockEnv === "true") {
-    useMock = true;
-  }
-  try {
-    return await openSidecarSession({
-      useMock,
-      onMessage: options.onMessage,
-      onError: options.onError,
-    });
-  } catch (err) {
-    if (useMock === true) {
-      throw err;
+  let port = 18765;
+  if (portRaw !== undefined && portRaw.trim().length > 0) {
+    const parsed = Number(portRaw);
+    if (Number.isFinite(parsed) === true && parsed > 0) {
+      port = Math.floor(parsed);
     }
-    const message = err instanceof Error ? err.message : "sidecar failed";
-    options.onError(`voice sidecar failed (${message}); falling back to mock`);
-    return await openSidecarSession({
-      useMock: true,
-      onMessage: options.onMessage,
-      onError: options.onError,
-    });
+  }
+  return `http://127.0.0.1:${String(port)}`;
+}
+
+function httpBaseToWsBase(httpBase: string): string {
+  if (httpBase.startsWith("https://")) {
+    return `wss://${httpBase.slice("https://".length)}`;
+  }
+  if (httpBase.startsWith("http://")) {
+    return `ws://${httpBase.slice("http://".length)}`;
+  }
+  return `ws://${httpBase}`;
+}
+
+async function waitForHealth(httpBase: string, timeoutMs: number): Promise<void> {
+  const started = Date.now();
+  let delay = 250;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(`${httpBase}/healthz`);
+      if (res.ok) {
+        return;
+      }
+    } catch {
+    }
+    await sleep(delay);
+    delay = Math.min(delay * 2, 2000);
+  }
+  throw new Error(`Speech engine not reachable at ${httpBase}`);
+}
+
+export async function probeVoiceSidecar(): Promise<VoiceSidecarProbe> {
+  const url = resolveVoiceSidecarHttpBase();
+  try {
+    const res = await fetch(`${url}/healthz`);
+    if (res.ok !== true) {
+      return { reachable: false, url, model: "", language: "", device: "" };
+    }
+    const body = (await res.json()) as {
+      model?: string;
+      language?: string;
+      device?: string;
+    };
+    let model = "";
+    let language = "";
+    let device = "";
+    if (typeof body.model === "string") {
+      model = body.model;
+    }
+    if (typeof body.language === "string") {
+      language = body.language;
+    }
+    if (typeof body.device === "string") {
+      device = body.device;
+    }
+    return { reachable: true, url, model, language, device };
+  } catch {
+    return { reachable: false, url, model: "", language: "", device: "" };
   }
 }
 
-async function openSidecarSession(input: {
-  useMock: boolean;
-  onMessage: (message: SidecarTranscriptMessage) => void;
-  onError: (message: string) => void;
-}): Promise<VoiceSidecarHandle> {
-  const port = resolvePort();
-  const root = sidecarRoot();
-  const script = join(root, "server.py");
-  if (existsSync(script) !== true) {
-    throw new Error("voice sidecar missing");
-  }
-  const env = Object.assign({}, process.env, {
-    LOTARU_VOICE_MOCK: input.useMock ? "1" : "0",
-  });
-  const child: ChildProcess = spawn(pythonCommand(), [script, "--host", "127.0.0.1", "--port", String(port)], {
-    cwd: root,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    input.onError(chunk.toString("utf8"));
-  });
-  let exitedEarly = false;
-  child.once("exit", () => {
-    exitedEarly = true;
-  });
-  try {
-    await waitForHealth(port, 20000);
-  } catch (err) {
-    child.kill();
-    throw err;
-  }
-  if (exitedEarly) {
-    throw new Error("voice sidecar exited before healthy");
-  }
-  const socket = await connectSidecar(port);
+function attachSocketHandlers(
+  socket: WebSocket,
+  input: {
+    onMessage: (message: SidecarTranscriptMessage) => void;
+    onError: (message: string) => void;
+    onClose: () => void;
+  },
+): void {
   socket.on("message", (data) => {
     const text = data.toString("utf8");
     let parsedJson: unknown;
@@ -132,8 +132,54 @@ async function openSidecarSession(input: {
   socket.on("error", (err) => {
     input.onError(err.message);
   });
+  socket.on("close", () => {
+    input.onClose();
+  });
+}
+
+async function connectSidecarSocket(wsUrl: string): Promise<WebSocket> {
+  return await new Promise((resolve, reject) => {
+    const socket = new WebSocket(wsUrl);
+    socket.once("open", () => {
+      resolve(socket);
+    });
+    socket.once("error", (err) => {
+      reject(err);
+    });
+  });
+}
+
+function portFromHttpBase(httpBase: string): number {
+  try {
+    const parsed = new URL(httpBase);
+    const fromUrl = Number(parsed.port);
+    if (Number.isFinite(fromUrl) === true && fromUrl > 0) {
+      return fromUrl;
+    }
+  } catch {
+  }
+  return 18765;
+}
+
+export async function startVoiceSidecar(options: {
+  onMessage: (message: SidecarTranscriptMessage) => void;
+  onError: (message: string) => void;
+  onClose: () => void;
+  healthTimeoutMs?: number;
+}): Promise<VoiceSidecarHandle> {
+  const httpBase = resolveVoiceSidecarHttpBase();
+  let healthTimeoutMs = 60_000;
+  if (options.healthTimeoutMs !== undefined && options.healthTimeoutMs > 0) {
+    healthTimeoutMs = options.healthTimeoutMs;
+  }
+  await waitForHealth(httpBase, healthTimeoutMs);
+  const wsUrl = `${httpBaseToWsBase(httpBase)}/v1/stream`;
+  const socket = await connectSidecarSocket(wsUrl);
+  attachSocketHandlers(socket, options);
+  const port = portFromHttpBase(httpBase);
   return {
     port,
+    mode: "docker",
     sendPcm: (pcm: Buffer) => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(pcm);
@@ -145,46 +191,53 @@ async function openSidecarSession(input: {
       }
     },
     close: () => {
-      try {
-        socket.close();
-      } catch {
-        // ignore
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        try {
+          socket.close();
+        } catch {
+        }
       }
-      child.kill();
     },
   };
 }
 
-async function waitForHealth(port: number, timeoutMs: number): Promise<void> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${String(port)}/healthz`);
-      if (res.ok) {
-        return;
-      }
-    } catch {
-      // retry
-    }
-    await sleep(200);
+export async function startVoiceSidecarWithRetry(options: {
+  onMessage: (message: SidecarTranscriptMessage) => void;
+  onError: (message: string) => void;
+  onClose: () => void;
+  shouldContinue: () => boolean;
+  healthTimeoutMs?: number;
+  maxAttempts?: number;
+}): Promise<VoiceSidecarHandle> {
+  let attempts = 0;
+  let delayMs = 500;
+  let maxAttempts = 0;
+  if (options.maxAttempts !== undefined && options.maxAttempts > 0) {
+    maxAttempts = options.maxAttempts;
   }
-  throw new Error("voice sidecar did not become healthy");
-}
-
-async function connectSidecar(port: number): Promise<WebSocket> {
-  return await new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}/v1/stream`);
-    socket.once("open", () => {
-      resolve(socket);
-    });
-    socket.once("error", (err) => {
-      reject(err);
-    });
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  let lastError: Error = new Error("Speech engine unavailable");
+  while (options.shouldContinue()) {
+    attempts += 1;
+    if (maxAttempts > 0 && attempts > maxAttempts) {
+      throw lastError;
+    }
+    try {
+      return await startVoiceSidecar({
+        onMessage: options.onMessage,
+        onError: options.onError,
+        onClose: options.onClose,
+        healthTimeoutMs: options.healthTimeoutMs,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.length > 0) {
+        lastError = err;
+      } else {
+        lastError = new Error("Speech engine unavailable");
+      }
+      options.onError(lastError.message);
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, 10_000);
+    }
+  }
+  throw lastError;
 }

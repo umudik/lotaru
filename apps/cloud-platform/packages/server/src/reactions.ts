@@ -6,6 +6,8 @@ import {
   EVENT_GITHUB_PR_OPENED,
   EVENT_GITHUB_PR_UPDATED,
   EVENT_VOICE_INTENT,
+  EVENT_NOTE_PAGE_WRITTEN,
+  EVENT_AGENT_RAN,
   canonicalBusEventType,
   scriptListensToEvent,
   type EventListenerScript,
@@ -38,6 +40,8 @@ export const REACTION_EVENT_TYPES = [
   EVENT_CLOCK_TICK,
   EVENT_APP_STARTED,
   EVENT_VOICE_INTENT,
+  EVENT_NOTE_PAGE_WRITTEN,
+  EVENT_AGENT_RAN,
 ];
 
 export function reactionEventTypesForClient(githubReady: boolean): string[] {

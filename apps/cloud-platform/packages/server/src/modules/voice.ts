@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { z } from "zod";
@@ -27,7 +27,9 @@ import {
   voiceIntentScannerPrompt,
 } from "../voice-intent.js";
 import {
+  probeVoiceSidecar,
   startVoiceSidecar,
+  startVoiceSidecarWithRetry,
   type VoiceSidecarHandle,
 } from "../voice-sidecar.js";
 import type { Identity } from "./identity.js";
@@ -49,7 +51,6 @@ type ModuleOptions = {
   projectCwd?: (projectId: string) => string;
   runAgent?: AgentRunFn;
   startSidecar?: typeof startVoiceSidecar;
-  mockSidecar?: boolean;
 };
 
 const segmentRowSchema = z.object({
@@ -138,6 +139,7 @@ export function openVoiceDb(databasePath: string): Database.Database {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_voice_segments_project ON voice_segments(project_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_voice_segments_project_cursor ON voice_segments(project_id, created_at DESC, id DESC);
     CREATE TABLE IF NOT EXISTS voice_intent_decisions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -185,18 +187,82 @@ function decisionFromRow(row: z.infer<typeof decisionRowSchema>): VoiceIntentRow
   };
 }
 
-export function listVoiceSegments(
+export function encodeVoiceSegmentCursor(createdAt: number, id: string): string {
+  if (id.trim().length === 0) {
+    throw new Error("Invalid voice cursor");
+  }
+  if (Number.isFinite(createdAt) !== true) {
+    throw new Error("Invalid voice cursor");
+  }
+  const packed = `${String(createdAt)}\n${id}`;
+  return Buffer.from(packed, "utf8").toString("base64url");
+}
+
+export function decodeVoiceSegmentCursor(raw: string): { createdAt: number; id: string } {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Invalid voice cursor");
+  }
+  const text = Buffer.from(trimmed, "base64url").toString("utf8");
+  const parts = text.split("\n");
+  if (parts.length !== 2) {
+    throw new Error("Invalid voice cursor");
+  }
+  const createdRaw = parts[0];
+  const id = parts[1];
+  if (createdRaw === undefined || id === undefined) {
+    throw new Error("Invalid voice cursor");
+  }
+  if (/^[0-9]+$/.test(createdRaw) !== true) {
+    throw new Error("Invalid voice cursor");
+  }
+  const createdAt = Number.parseInt(createdRaw, 10);
+  if (Number.isFinite(createdAt) !== true || String(createdAt) !== createdRaw) {
+    throw new Error("Invalid voice cursor");
+  }
+  if (id.trim().length === 0) {
+    throw new Error("Invalid voice cursor");
+  }
+  return { createdAt, id };
+}
+
+export type VoiceSegmentPage = {
+  segments: VoiceSegment[];
+  next: string[];
+};
+
+export function pageVoiceSegments(
   db: Database.Database,
   projectId: string,
   limit: number,
-): VoiceSegment[] {
-  const raw = db
-    .prepare(
-      "SELECT * FROM voice_segments WHERE project_id = ? AND kind = 'final' ORDER BY created_at DESC LIMIT ?",
-    )
-    .all(projectId, limit);
+  cursor: string,
+): VoiceSegmentPage {
+  let pageSize = 40;
+  if (Number.isFinite(limit) === true && limit >= 1 && limit <= 200) {
+    pageSize = Math.floor(limit);
+  }
+  const fetchLimit = pageSize + 1;
+  let raw: unknown[] = [];
+  if (cursor.trim().length === 0) {
+    raw = db
+      .prepare(
+        "SELECT * FROM voice_segments WHERE project_id = ? AND kind = 'final' ORDER BY created_at DESC, id DESC LIMIT ?",
+      )
+      .all(projectId, fetchLimit);
+  } else {
+    const decoded = decodeVoiceSegmentCursor(cursor);
+    raw = db
+      .prepare(
+        `SELECT * FROM voice_segments
+         WHERE project_id = ? AND kind = 'final'
+           AND (created_at < ? OR (created_at = ? AND id < ?))
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(projectId, decoded.createdAt, decoded.createdAt, decoded.id, fetchLimit);
+  }
   if (Array.isArray(raw) !== true) {
-    return [];
+    return { segments: [], next: [] };
   }
   const segments: VoiceSegment[] = [];
   for (const entry of raw) {
@@ -210,7 +276,24 @@ export function listVoiceSegments(
     }
     segments.push(segment);
   }
-  return segments;
+  const next: string[] = [];
+  if (segments.length > pageSize) {
+    const page = segments.slice(0, pageSize);
+    const last = page[page.length - 1];
+    if (last !== undefined) {
+      next.push(encodeVoiceSegmentCursor(last.createdAt, last.id));
+    }
+    return { segments: page, next };
+  }
+  return { segments, next };
+}
+
+export function listVoiceSegments(
+  db: Database.Database,
+  projectId: string,
+  limit: number,
+): VoiceSegment[] {
+  return pageVoiceSegments(db, projectId, limit, "").segments;
 }
 
 export function listVoiceDecisions(
@@ -287,32 +370,6 @@ function resolveProjectCwd(options: ModuleOptions, projectId: string): string {
   } catch {
     return process.cwd();
   }
-}
-
-function writePcmWav(filePath: string, pcm: Buffer): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  const sampleRate = 16000;
-  const channels = 1;
-  const bitsPerSample = 16;
-  const blockAlign = (channels * bitsPerSample) / 8;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = pcm.length;
-  const buffer = Buffer.alloc(44 + dataSize);
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(channels, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(byteRate, 28);
-  buffer.writeUInt16LE(blockAlign, 32);
-  buffer.writeUInt16LE(bitsPerSample, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(dataSize, 40);
-  pcm.copy(buffer, 44);
-  writeFileSync(filePath, buffer);
 }
 
 export async function scanVoiceUtterance(input: {
@@ -400,13 +457,14 @@ export async function registerVoiceModule(
   options: ModuleOptions,
 ): Promise<void> {
   const db = openVoiceDb(options.databasePath);
-  const audioRoot = join(options.dataDir, "voice-audio");
-  mkdirSync(audioRoot, { recursive: true });
 
   let sidecar: VoiceSidecarHandle | false = false;
   let listenProjectId = "";
   let listenSessionId = "";
   const browserSockets = new Set<WebSocket>();
+  let sidecarReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let sidecarReconnectAttempt = 0;
+  let sidecarConnectGeneration = 0;
 
   function broadcast(payload: unknown): void {
     const text = JSON.stringify(payload);
@@ -417,23 +475,128 @@ export async function registerVoiceModule(
     }
   }
 
-  async function ensureSidecar(): Promise<VoiceSidecarHandle> {
-    if (sidecar !== false) {
-      return sidecar;
+  function clearSidecarReconnectTimer(): void {
+    if (sidecarReconnectTimer !== null) {
+      clearTimeout(sidecarReconnectTimer);
+      sidecarReconnectTimer = null;
     }
-    const starter = options.startSidecar !== undefined ? options.startSidecar : startVoiceSidecar;
-    const handle = await starter({
-      mock: options.mockSidecar === true,
+  }
+
+  function sidecarCallbacks(generation: number): {
+    onMessage: (message: {
+      kind: "partial" | "final" | "error";
+      text: string;
+      startedAt?: number;
+      endedAt?: number;
+    }) => void;
+    onError: (message: string) => void;
+    onClose: () => void;
+  } {
+    return {
       onError: (message) => {
+        if (generation !== sidecarConnectGeneration) {
+          return;
+        }
         app.log.warn({ message }, "voice sidecar");
+        broadcast({ kind: "error", text: message });
+      },
+      onClose: () => {
+        if (generation !== sidecarConnectGeneration) {
+          return;
+        }
+        if (sidecar === false) {
+          return;
+        }
+        app.log.warn("voice sidecar closed");
+        sidecar = false;
+        broadcast({
+          kind: "error",
+          text: "Speech engine disconnected — reconnecting…",
+        });
+        scheduleSidecarReconnect();
       },
       onMessage: (message) => {
+        if (generation !== sidecarConnectGeneration) {
+          return;
+        }
         void handleSidecarMessage(message).catch((err) => {
           app.log.error({ err }, "voice sidecar message failed");
         });
       },
+    };
+  }
+
+  function scheduleSidecarReconnect(): void {
+    if (browserSockets.size === 0) {
+      return;
+    }
+    if (sidecar !== false) {
+      return;
+    }
+    if (sidecarReconnectTimer !== null) {
+      return;
+    }
+    const delay = Math.min(500 * 2 ** Math.min(sidecarReconnectAttempt, 6), 10_000);
+    sidecarReconnectAttempt += 1;
+    sidecarReconnectTimer = setTimeout(() => {
+      sidecarReconnectTimer = null;
+      void ensureSidecar("hold").catch((err) => {
+        const message = err instanceof Error ? err.message : "sidecar reconnect failed";
+        app.log.warn({ message }, "voice sidecar reconnect");
+        broadcast({ kind: "error", text: `${message} — retrying…` });
+        scheduleSidecarReconnect();
+      });
+    }, delay);
+  }
+
+  async function ensureSidecar(mode: "open" | "hold"): Promise<VoiceSidecarHandle> {
+    if (sidecar !== false) {
+      return sidecar;
+    }
+    clearSidecarReconnectTimer();
+    sidecarConnectGeneration += 1;
+    const generation = sidecarConnectGeneration;
+    const callbacks = sidecarCallbacks(generation);
+    if (options.startSidecar !== undefined) {
+      const handle = await options.startSidecar(callbacks);
+      if (generation !== sidecarConnectGeneration) {
+        handle.close();
+        throw new Error("Speech engine connect superseded");
+      }
+      sidecar = handle;
+      sidecarReconnectAttempt = 0;
+      app.log.info({ mode: handle.mode, port: handle.port }, "voice sidecar ready");
+      broadcast({ kind: "sidecar", status: "ready" });
+      return handle;
+    }
+    let healthTimeoutMs = 15_000;
+    let maxAttempts = 0;
+    if (mode === "open") {
+      healthTimeoutMs = 30_000;
+      maxAttempts = 12;
+    }
+    const handle = await startVoiceSidecarWithRetry({
+      ...callbacks,
+      shouldContinue: () => {
+        if (generation !== sidecarConnectGeneration) {
+          return false;
+        }
+        if (mode === "hold") {
+          return browserSockets.size > 0;
+        }
+        return true;
+      },
+      healthTimeoutMs,
+      maxAttempts,
     });
+    if (generation !== sidecarConnectGeneration) {
+      handle.close();
+      throw new Error("Speech engine connect superseded");
+    }
     sidecar = handle;
+    sidecarReconnectAttempt = 0;
+    app.log.info({ mode: handle.mode, port: handle.port }, "voice sidecar ready");
+    broadcast({ kind: "sidecar", status: "ready" });
     return handle;
   }
 
@@ -461,12 +624,6 @@ export async function registerVoiceModule(
     if (message.endedAt !== undefined) {
       endedAt = message.endedAt;
     }
-    let audioPath = "";
-    if (message.kind === "final" && message.pcmB64 !== undefined && message.pcmB64.length > 0) {
-      const pcm = Buffer.from(message.pcmB64, "base64");
-      audioPath = join(audioRoot, `${id}.wav`);
-      writePcmWav(audioPath, pcm);
-    }
     if (message.kind === "final") {
       db.prepare(
         "INSERT INTO voice_segments (id, project_id, session_id, kind, text, started_at, ended_at, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -478,7 +635,7 @@ export async function registerVoiceModule(
         message.text,
         startedAt,
         endedAt,
-        audioPath,
+        "",
         createdAt,
       );
       broadcast({
@@ -491,7 +648,7 @@ export async function registerVoiceModule(
           text: message.text,
           startedAt,
           endedAt,
-          audioPath,
+          audioPath: "",
           createdAt,
         },
       });
@@ -513,7 +670,7 @@ export async function registerVoiceModule(
     });
   }
 
-  app.get<{ Querystring: { projectId?: string; limit?: string } }>(
+  app.get<{ Querystring: { projectId?: string; limit?: string; cursor?: string } }>(
     "/api/voice/segments",
     async (request, reply) => {
       const viewers = await viewersFrom(request, options);
@@ -527,18 +684,26 @@ export async function registerVoiceModule(
       if (projectId.length === 0) {
         return reply.code(400).send({ error: "projectId required" });
       }
-      let limit = 50;
+      let limit = 40;
       if (request.query.limit !== undefined) {
         const parsed = Number(request.query.limit);
         if (Number.isFinite(parsed) && parsed > 0 && parsed <= 200) {
           limit = Math.floor(parsed);
         }
       }
+      let cursor = "";
+      if (request.query.cursor !== undefined) {
+        cursor = request.query.cursor.trim();
+      }
       for (const viewer of viewers) {
         if (!canSeeProject(options, projectId, viewer.sub)) {
-          return reply.code(404).send({ error: "not found" });
+          return reply.code(403).send({ error: "project access denied" });
         }
-        return { segments: listVoiceSegments(db, projectId, limit) };
+        try {
+          return pageVoiceSegments(db, projectId, limit, cursor);
+        } catch {
+          return reply.code(400).send({ error: "invalid cursor" });
+        }
       }
       return reply.code(401).send({ error: "unauthorized" });
     },
@@ -567,7 +732,7 @@ export async function registerVoiceModule(
       }
       for (const viewer of viewers) {
         if (!canSeeProject(options, projectId, viewer.sub)) {
-          return reply.code(404).send({ error: "not found" });
+          return reply.code(403).send({ error: "project access denied" });
         }
         return { decisions: listVoiceDecisions(db, projectId, limit) };
       }
@@ -586,48 +751,24 @@ export async function registerVoiceModule(
     }
     for (const viewer of viewers) {
       if (projectId.length > 0 && !canSeeProject(options, projectId, viewer.sub)) {
-        return reply.code(404).send({ error: "not found" });
+        return reply.code(403).send({ error: "project access denied" });
       }
+      const probe = await probeVoiceSidecar();
       return {
         listening: listenProjectId.length > 0,
         projectId: listenProjectId,
         sessionId: listenSessionId,
         sidecar: sidecar !== false,
+        sidecarMode: sidecar === false ? "none" : sidecar.mode,
+        sidecarReachable: probe.reachable,
+        sidecarUrl: probe.url,
+        sidecarModel: probe.model,
+        sidecarLanguage: probe.language,
+        sidecarDevice: probe.device,
       };
     }
     return reply.code(401).send({ error: "unauthorized" });
   });
-
-  app.get<{ Params: { segmentId: string } }>(
-    "/api/voice/segments/:segmentId/audio",
-    async (request, reply) => {
-      const viewers = await viewersFrom(request, options);
-      if (viewers.length === 0) {
-        return reply.code(401).send({ error: "unauthorized" });
-      }
-      const parsed = segmentRowSchema.safeParse(
-        db.prepare("SELECT * FROM voice_segments WHERE id = ?").get(request.params.segmentId),
-      );
-      if (parsed.success !== true) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      const segment = segmentFromRow(parsed.data);
-      if (segment === false) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      for (const viewer of viewers) {
-        if (!canSeeProject(options, segment.projectId, viewer.sub)) {
-          return reply.code(404).send({ error: "not found" });
-        }
-        if (segment.audioPath.length === 0 || existsSync(segment.audioPath) !== true) {
-          return reply.code(404).send({ error: "audio missing" });
-        }
-        reply.header("Content-Type", "audio/wav");
-        return reply.send(readFileSync(segment.audioPath));
-      }
-      return reply.code(401).send({ error: "unauthorized" });
-    },
-  );
 
   app.get<{ Querystring: { projectId?: string } }>(
     "/api/v1/voice/stream",
@@ -658,7 +799,7 @@ export async function registerVoiceModule(
           return;
         }
         try {
-          await ensureSidecar();
+          await ensureSidecar("open");
         } catch (err) {
           const message = err instanceof Error ? err.message : "sidecar failed";
           socket.send(JSON.stringify({ kind: "error", text: message }));
@@ -710,6 +851,7 @@ export async function registerVoiceModule(
         socket.on("close", () => {
           browserSockets.delete(socket);
           if (browserSockets.size === 0) {
+            clearSidecarReconnectTimer();
             db.prepare("UPDATE voice_sessions SET ended_at = ? WHERE id = ?").run(
               Date.now(),
               listenSessionId,

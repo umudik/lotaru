@@ -102,4 +102,16 @@ describe("agent command defaults", () => {
     assert.equal(resolvedAgentCommand("cursor", "  "), "agent");
     assert.equal(parseAgentKind("cursor"), "cursor");
   });
+
+  it("rejects path-shaped command overrides", () => {
+    assert.throws(() => resolvedAgentCommand("cursor", "../evil"), {
+      message: "Agent command override must be a bare binary name",
+    });
+    assert.throws(() => resolvedAgentCommand("cursor", "C:\\Windows\\System32\\cmd.exe"), {
+      message: "Agent command override must be a bare binary name",
+    });
+    assert.throws(() => resolvedAgentCommand("claude", "/usr/bin/claude"), {
+      message: "Agent command override must be a bare binary name",
+    });
+  });
 });

@@ -3,11 +3,11 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ProjectLayout } from "@/components/layout/ProjectLayout";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { TasksPage } from "@/pages/TasksPage";
-import { ReactionsPage } from "@/pages/ReactionsPage";
 import { TaskPage } from "@/pages/TaskPage";
 import { ScriptFeature } from "@/features/script/ScriptFeature";
 import { KnowledgeFeature } from "@/features/knowledge/KnowledgeFeature";
 import { NotesFeature } from "@/features/notes/NotesFeature";
+import { AgentsFeature } from "@/features/agents/AgentsFeature";
 import { VoiceListenProvider } from "@/features/voice/VoiceListenContext";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
@@ -27,10 +27,11 @@ export function App() {
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<ProjectIndexRedirect />} />
             <Route path="tasks" element={<TasksPage />} />
-            <Route path="tasks/reactions" element={<LegacyReactionsRedirect />} />
+            <Route path="tasks/reactions" element={<LegacyAgentsRedirect />} />
             <Route path="tasks/workflow" element={<LegacyPipelineRedirect />} />
             <Route path="pipeline" element={<WorkflowPage />} />
-            <Route path="reactions" element={<ReactionsPage />} />
+            <Route path="reactions" element={<LegacyAgentsRedirect />} />
+            <Route path="agents" element={<ProjectAgentsRoute />} />
             <Route path="tasks/:taskId" element={<TaskPage />} />
             <Route path="library" element={<LibraryPage />} />
             <Route path="events" element={<EventsPage />} />
@@ -50,12 +51,12 @@ export function App() {
   );
 }
 
-function LegacyReactionsRedirect(): React.JSX.Element {
+function LegacyAgentsRedirect(): React.JSX.Element {
   const { projectId } = useParams();
   if (projectId === undefined) {
     return <Navigate to="/projects" replace />;
   }
-  return <Navigate to={`/projects/${projectId}/reactions`} replace />;
+  return <Navigate to={`/projects/${projectId}/agents`} replace />;
 }
 
 function LegacyPipelineRedirect(): React.JSX.Element {
@@ -101,6 +102,14 @@ function ProjectNotesRoute(): React.JSX.Element {
     return <Navigate to="/projects" replace />;
   }
   return <NotesFeature projectId={projectId} />;
+}
+
+function ProjectAgentsRoute(): React.JSX.Element {
+  const { projectId } = useParams();
+  if (projectId === undefined) {
+    return <Navigate to="/projects" replace />;
+  }
+  return <AgentsFeature projectId={projectId} />;
 }
 
 function ProjectVoiceRoute(): React.JSX.Element {

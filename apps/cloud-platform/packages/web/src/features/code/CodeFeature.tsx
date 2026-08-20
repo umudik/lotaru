@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/hooks/useSession";
 import { codeApi, type DeployStatus, type GithubRepo, type GithubStatus, type GitStatus } from "@/features/code/api";
 
 type LinkMode = "existing" | "new";
@@ -156,7 +155,6 @@ function DeployPanel(props: { projectId: string }): React.JSX.Element | null {
 }
 
 export function CodeFeature(props: { projectId: string }): React.JSX.Element {
-  const session = useSession();
   const [github, setGithub] = useState<GithubStatus | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [repos, setRepos] = useState<GithubRepo[] | null>(null);
@@ -422,15 +420,9 @@ export function CodeFeature(props: { projectId: string }): React.JSX.Element {
     );
   }
 
-  let projectLabel = props.projectId;
-  if (session !== null && session.projectName !== null) {
-    projectLabel = session.projectName;
-  }
-
-  return (
+    return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        context={projectLabel}
         title="Code"
         actions={
           <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
