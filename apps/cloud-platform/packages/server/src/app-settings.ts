@@ -19,6 +19,28 @@ export type AppSettings = {
 
 const SETTINGS_ID = "lotaru";
 
+function defaultOllamaHost(): string {
+  const fromEnv = process.env.LOTARU_OLLAMA_HOST;
+  if (fromEnv !== undefined) {
+    const trimmed = fromEnv.trim().replace(/\/$/, "");
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return "http://127.0.0.1:11434";
+}
+
+function isLoopbackOllamaHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  if (normalized.includes("127.0.0.1")) {
+    return true;
+  }
+  if (normalized.includes("localhost")) {
+    return true;
+  }
+  return false;
+}
+
 const settingsInputSchema = z.object({
   ollamaHost: z.string().trim().min(1),
   ollamaModel: z.string().trim(),
@@ -30,7 +52,7 @@ const settingsInputSchema = z.object({
 });
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  ollamaHost: "http://127.0.0.1:11434",
+  ollamaHost: defaultOllamaHost(),
   ollamaModel: "",
   translationEnabled: false,
   targetLanguage: "tr",
@@ -116,7 +138,7 @@ export function openSettingsDb(databasePath: string): Database.Database {
       "INSERT INTO app_settings (id, ollama_host, ollama_model, translation_enabled, target_language, tts_engine, qwen_tts_url, tts_voice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       SETTINGS_ID,
-      DEFAULT_APP_SETTINGS.ollamaHost,
+      defaultOllamaHost(),
       DEFAULT_APP_SETTINGS.ollamaModel,
       0,
       DEFAULT_APP_SETTINGS.targetLanguage,
@@ -124,6 +146,16 @@ export function openSettingsDb(databasePath: string): Database.Database {
       DEFAULT_APP_SETTINGS.qwenTtsUrl,
       DEFAULT_APP_SETTINGS.ttsVoice,
     );
+  } else {
+    const envHost = defaultOllamaHost();
+    if (envHost !== "http://127.0.0.1:11434") {
+      const row = db.prepare("SELECT ollama_host FROM app_settings WHERE id = ?").get(SETTINGS_ID) as
+        | { ollama_host: string }
+        | undefined;
+      if (row !== undefined && isLoopbackOllamaHost(row.ollama_host)) {
+        db.prepare("UPDATE app_settings SET ollama_host = ? WHERE id = ?").run(envHost, SETTINGS_ID);
+      }
+    }
   }
   return db;
 }

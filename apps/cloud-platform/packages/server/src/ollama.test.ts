@@ -4,10 +4,12 @@ import {
   nextRetryDelayMs,
   ollamaChatRequestBody,
   ollamaJobRetryKey,
+  OLLAMA_HOST_REQUIRED,
   OLLAMA_MODEL_REQUIRED,
   parseOllamaChat,
   parseOllamaTags,
   polishSystemPrompt,
+  runOllamaChat,
   shouldRetryOllama,
   summarySystemPrompt,
   translationSystemPrompt,
@@ -97,6 +99,7 @@ describe("summarySystemPrompt", () => {
 describe("shouldRetryOllama", () => {
   it("does not retry a missing model", () => {
     assert.equal(shouldRetryOllama(OLLAMA_MODEL_REQUIRED), false);
+    assert.equal(shouldRetryOllama(OLLAMA_HOST_REQUIRED), false);
   });
 
   it("retries empty replies and network failures", () => {
@@ -120,5 +123,12 @@ describe("nextRetryDelayMs", () => {
 describe("ollamaJobRetryKey", () => {
   it("joins kind and page id", () => {
     assert.equal(ollamaJobRetryKey("translate", "page-1"), "translate:page-1");
+  });
+});
+
+describe("runOllamaChat", () => {
+  it("fail-closes when host or model is missing", async () => {
+    await assert.rejects(() => runOllamaChat("", "llama3", "sys", "user"), /host/i);
+    await assert.rejects(() => runOllamaChat("http://127.0.0.1:11434", "", "sys", "user"), /model/i);
   });
 });

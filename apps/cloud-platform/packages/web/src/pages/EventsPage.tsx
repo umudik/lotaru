@@ -1,18 +1,27 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { PageContent } from "@/components/layout/PageContent";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useSession } from "@/hooks/useSession";
-import { CATALOG_EVENT_TYPES, catalogEventLabel, isClockCatalogEvent } from "@/lib/event-catalog";
 import {
+  CATALOG_EVENT_TYPES,
+  catalogEventLabel,
+  eventLabelWithRules,
+  isClockCatalogEvent,
+  isVoiceRuleEvent,
+} from "@/lib/event-catalog";
+import {
+  fetchEventTypes,
   fetchProjectEvents,
   replayProjectEvent,
+  type EventTypeOption,
   type LotaruEventListener,
   type LotaruEventRow,
 } from "@/lib/api";
@@ -57,8 +66,8 @@ function pathFactLabel(eventType: string): string {
   if (eventType.startsWith("github.")) {
     return "Repository";
   }
-  if (eventType === "voice.intent") {
-    return "Transcript";
+  if (isVoiceRuleEvent(eventType)) {
+    return "Matched";
   }
   return "Path";
 }
@@ -73,8 +82,8 @@ function detailFactLabel(eventType: string): string {
   if (eventType === "app.started") {
     return "Reason";
   }
-  if (eventType === "voice.intent") {
-    return "Intent";
+  if (isVoiceRuleEvent(eventType)) {
+    return "What was asked";
   }
   return "Detail";
 }
@@ -101,7 +110,7 @@ function eventListeners(raw: LotaruEventListener[] | null | undefined): LotaruEv
     const kind = entry.kind;
     const id = entry.id;
     const label = entry.label;
-    if (kind !== "script" && kind !== "reaction") {
+    if (kind !== "script" && kind !== "agent" && kind !== "knowledge") {
       continue;
     }
     if (typeof id !== "string" || id.length === 0) {
@@ -156,12 +165,28 @@ function listenerHref(projectId: string, listener: LotaruEventListener): string 
   if (listener.kind === "script") {
     return `/projects/${projectId}/scripts`;
   }
+  if (listener.kind === "knowledge") {
+    return `/projects/${projectId}/knowledge/documentation/templates`;
+  }
   return `/projects/${projectId}/agents`;
+}
+
+function listenerKindLabel(kind: LotaruEventListener["kind"]): string {
+  if (kind === "script") {
+    return "Script";
+  }
+  if (kind === "agent") {
+    return "Agent";
+  }
+  return "Doc template";
 }
 
 function eventTypeFilterFromQuery(raw: string | null): string {
   if (raw === null) {
     return "";
+  }
+  if (isVoiceRuleEvent(raw)) {
+    return raw;
   }
   for (const catalogType of CATALOG_EVENT_TYPES) {
     if (catalogType === raw) {
@@ -182,6 +207,7 @@ export function EventsPage(): React.JSX.Element {
   }
   const session = useSession();
   const [events, setEvents] = useState<LotaruEventRow[]>([]);
+  const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
   const [nextCursors, setNextCursors] = useState<string[]>([]);
   const typeFilter = eventTypeFilterFromQuery(searchParams.get("type"));
   const [error, setError] = useState("");
@@ -190,6 +216,19 @@ export function EventsPage(): React.JSX.Element {
   const [replayingId, setReplayingId] = useState("");
   const nextRef = useRef<string[]>([]);
   const pagedRef = useRef(false);
+
+  useEffect(() => {
+    if (session === null || projectId.length === 0) {
+      return;
+    }
+    void fetchEventTypes(session, projectId)
+      .then((data) => {
+        setEventTypes(data.eventTypes);
+      })
+      .catch(() => {
+        setEventTypes([]);
+      });
+  }, [session, projectId]);
 
   const loadFirstPage = useCallback(
     async (silent: boolean): Promise<void> => {
@@ -305,11 +344,20 @@ export function EventsPage(): React.JSX.Element {
   }
 
   const clusters = clusterEvents(events);
+  const ruleTypes = eventTypes.filter((entry) => entry.kind === "rule");
+  const agentTypes = eventTypes.filter((entry) => entry.kind === "agent");
+  const mintedLabels: Record<string, string> = {};
+  for (const entry of eventTypes) {
+    if (entry.kind === "rule" || entry.kind === "agent") {
+      mintedLabels[entry.type] = entry.label;
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Events"
+        subtitle="Project event log. Agents and scripts listen here — configure listeners in Agents or Scripts."
         actions={
           <div className="flex items-center gap-2">
             <Label htmlFor="event-type-filter" className="sr-only">
@@ -337,16 +385,36 @@ export function EventsPage(): React.JSX.Element {
               }}
             >
               <option value="">All types</option>
-              {CATALOG_EVENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {catalogEventLabel(type)}
-                </option>
-              ))}
+              {ruleTypes.length > 0 ? (
+                <optgroup label="Your rules">
+                  {ruleTypes.map((entry) => (
+                    <option key={entry.type} value={entry.type}>
+                      {entry.label.length > 0 ? entry.label : entry.type}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {agentTypes.length > 0 ? (
+                <optgroup label="Your agents">
+                  {agentTypes.map((entry) => (
+                    <option key={entry.type} value={entry.type}>
+                      {entry.label.length > 0 ? entry.label : entry.type}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              <optgroup label="Platform">
+                {CATALOG_EVENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {catalogEventLabel(type)}
+                  </option>
+                ))}
+              </optgroup>
             </Select>
           </div>
         }
       />
-      <div className="flex-1 overflow-y-auto p-5">
+      <PageContent className="overflow-y-auto">
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         {loading && events.length === 0 ? (
           <div className="space-y-3">
@@ -360,7 +428,8 @@ export function EventsPage(): React.JSX.Element {
               {typeFilter.length > 0 ? "No events match this type." : "No events recorded yet."}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Clock ticks, file saves, app start, pull requests, and voice intents land here.
+              Clock ticks, file saves, app start, pull requests, and voice rule matches land
+              here.
             </p>
           </div>
         ) : (
@@ -375,19 +444,19 @@ export function EventsPage(): React.JSX.Element {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-sm font-semibold tracking-tight">
-                          {catalogEventLabel(cluster.head.type)}
+                          {eventLabelWithRules(cluster.head.type, mintedLabels)}
                         </h2>
                         {cluster.count > 1 ? (
                           <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium tabular-nums">
                             {cluster.count} ticks
                           </span>
                         ) : null}
-                        {cluster.head.type === "voice.intent" ? (
+                        {isVoiceRuleEvent(cluster.head.type) ? (
                           <Link
                             className="text-[11px] text-muted-foreground underline underline-offset-2"
-                            to={`/projects/${projectId}/voice`}
+                            to={`/projects/${projectId}/rules`}
                           >
-                            Open Voice
+                            Open Rules
                           </Link>
                         ) : null}
                       </div>
@@ -440,7 +509,14 @@ export function EventsPage(): React.JSX.Element {
                         >
                           Agents
                         </Link>{" "}
-                        or a clock/save/startup script.
+                        or{" "}
+                        <Link
+                          className="underline underline-offset-2"
+                          to={`/projects/${projectId}/scripts`}
+                        >
+                          Scripts
+                        </Link>
+                        .
                       </p>
                     ) : (
                       <ul className="mt-2 flex flex-wrap gap-2">
@@ -451,7 +527,7 @@ export function EventsPage(): React.JSX.Element {
                               className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2 py-1 text-[11px] hover:border-white/[0.16]"
                             >
                               <span className="text-muted-foreground">
-                                {listener.kind === "script" ? "Script" : "Reaction"}
+                                {listenerKindLabel(listener.kind)}
                               </span>
                               <span className="max-w-[14rem] truncate">{listener.label}</span>
                             </Link>
@@ -481,7 +557,7 @@ export function EventsPage(): React.JSX.Element {
           ) : null}
           </>
         )}
-      </div>
+      </PageContent>
     </div>
   );
 }

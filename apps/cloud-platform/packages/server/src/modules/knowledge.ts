@@ -5,18 +5,10 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getProjectById, userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { loadAppSettings, openSettingsDb } from "../app-settings.js";
-import {
-  AGENT_TIMEOUT_MS,
-  agentCliSpec,
-  spawnAgentCli,
-  type AgentKind,
-  type AgentMode,
-} from "../agent-runtime.js";
-import { loadAgentProfile, openAgentDb } from "../agent-store.js";
+import { runProjectAgentPrompt } from "../agent-prompt.js";
+import type { AgentKind, AgentMode } from "../agent-runtime.js";
 import { requireExistingDirectory } from "../folder-path.js";
 import { languageLabel } from "../note-language.js";
-import { runOllamaChat } from "../ollama.js";
 import type { Identity } from "./identity.js";
 
 export type KnowledgeIntent = "process" | "api" | "overview";
@@ -246,17 +238,6 @@ async function viewersFrom(request: FastifyRequest, options: KnowledgeOptions): 
   return [{ email: user.email, sub: user.id }];
 }
 
-function projectCwd(options: AgentHost, projectId: string): string {
-  if (options.projectCwd !== undefined) {
-    return options.projectCwd(projectId);
-  }
-  const project = getProjectById(projectId);
-  if (project === null) {
-    throw new Error("Project folder is missing");
-  }
-  return requireExistingDirectory(project.repoPath);
-}
-
 function documentationPrompt(item: KnowledgeItem): string {
   const label = languageLabel(item.language);
   return [
@@ -283,26 +264,21 @@ function diagramPrompt(item: KnowledgeItem): string {
   ].join("\n");
 }
 
-async function defaultRunAgent(
+const KNOWLEDGE_AGENT_SYSTEM = "You write knowledge artifacts.";
+
+async function runKnowledgeAgent(
   options: AgentHost,
-  input: { kind: AgentKind; mode: AgentMode; prompt: string; cwd: string },
+  projectId: string,
+  prompt: string,
 ): Promise<string> {
-  if (options.runAgent !== undefined) {
-    return options.runAgent(input);
-  }
-  if (input.kind === "ollama") {
-    const settingsDb = openSettingsDb(options.databasePath);
-    const settings = loadAppSettings(settingsDb);
-    return runOllamaChat(settings.ollamaHost, settings.ollamaModel, "You write knowledge artifacts.", input.prompt);
-  }
-  const profile = loadAgentProfile(openAgentDb(options.databasePath));
-  const spec = agentCliSpec({
-    kind: input.kind,
-    mode: input.mode,
-    command: profile.command,
-    prompt: input.prompt,
+  return runProjectAgentPrompt({
+    databasePath: options.databasePath,
+    projectId,
+    prompt,
+    systemPrompt: KNOWLEDGE_AGENT_SYSTEM,
+    projectCwd: options.projectCwd,
+    runAgent: options.runAgent,
   });
-  return spawnAgentCli(spec, input.cwd, AGENT_TIMEOUT_MS);
 }
 
 function writeOutput(
@@ -379,14 +355,7 @@ export async function runKnowledgeAutomation(input: {
           if (kind === "diagram") {
             prompt = diagramPrompt(fresh);
           }
-          const profile = loadAgentProfile(openAgentDb(input.databasePath));
-          const cwd = projectCwd(host, item.projectId);
-          const text = await defaultRunAgent(host, {
-            kind: profile.kind,
-            mode: profile.mode,
-            prompt,
-            cwd,
-          });
+          const text = await runKnowledgeAgent(host, item.projectId, prompt);
           if (text.trim().length === 0) {
             throw new Error("Agent returned empty text");
           }
@@ -705,15 +674,8 @@ export async function registerKnowledgeModule(
     async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
-      const profile = loadAgentProfile(openAgentDb(options.databasePath));
       try {
-        const cwd = projectCwd(options, item.projectId);
-        const text = await defaultRunAgent(options, {
-          kind: profile.kind,
-          mode: profile.mode,
-          prompt: documentationPrompt(item),
-          cwd,
-        });
+        const text = await runKnowledgeAgent(options, item.projectId, documentationPrompt(item));
         if (text.trim().length === 0) {
           return reply.code(502).send({ error: "Agent returned empty text" });
         }
@@ -731,15 +693,8 @@ export async function registerKnowledgeModule(
     async (request, reply) => {
     const loaded = await requireItem(request, reply, request.params.itemId);
     for (const item of loaded) {
-      const profile = loadAgentProfile(openAgentDb(options.databasePath));
       try {
-        const cwd = projectCwd(options, item.projectId);
-        const text = await defaultRunAgent(options, {
-          kind: profile.kind,
-          mode: profile.mode,
-          prompt: diagramPrompt(item),
-          cwd,
-        });
+        const text = await runKnowledgeAgent(options, item.projectId, diagramPrompt(item));
         if (text.trim().length === 0) {
           return reply.code(502).send({ error: "Agent returned empty text" });
         }
@@ -750,5 +705,9 @@ export async function registerKnowledgeModule(
       }
     }
     return;
+  });
+
+  app.addHook("onClose", async () => {
+    db.close();
   });
 }

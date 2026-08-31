@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 export type HostShellSpec = {
   cmd: string;
   args: string[];
@@ -12,6 +14,25 @@ export function hostShellSpawn(platform: string, command: string): HostShellSpec
     return { cmd: "cmd.exe", args: ["/d", "/s", "/c", trimmed] };
   }
   return { cmd: "/bin/sh", args: ["-c", trimmed] };
+}
+
+export function interactiveHostShell(
+  platform: string,
+  envShell: string | undefined = process.env.SHELL,
+): HostShellSpec {
+  if (platform === "win32") {
+    return { cmd: "powershell.exe", args: ["-NoLogo"] };
+  }
+  if (envShell !== undefined) {
+    const trimmed = envShell.trim();
+    if (trimmed.length > 0 && existsSync(trimmed)) {
+      return { cmd: trimmed, args: [] };
+    }
+  }
+  if (existsSync("/bin/bash")) {
+    return { cmd: "/bin/bash", args: [] };
+  }
+  return { cmd: "/bin/sh", args: [] };
 }
 
 export function hostProcessEnv(custom: Record<string, string>): NodeJS.ProcessEnv {

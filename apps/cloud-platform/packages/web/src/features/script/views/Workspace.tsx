@@ -122,6 +122,7 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
             trigger_type: 'manual',
             trigger_glob: '',
             trigger_cron: '',
+            trigger_bus_event: '',
             concurrency: 'restart',
             enabled: true,
             created_at: Date.now(),
@@ -249,7 +250,7 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
 
   return (
     <>
-      <div className="flex h-[calc(100vh-4rem)] -mx-8 overflow-hidden">
+      <div className="flex h-[calc(100vh-4rem)] -mx-6 overflow-hidden">
         <div className="flex-1 min-w-[280px] flex flex-col px-6 border-r">
           <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
             <div className="flex min-w-0 items-center gap-2">

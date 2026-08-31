@@ -11,25 +11,44 @@ type VoiceLevelBarsProps = {
   level: number;
   active: boolean;
   className?: string;
+  size?: "icon" | "wide";
 };
 
-const BAR_WEIGHTS = [0.35, 0.55, 0.8, 1, 0.85, 0.6, 0.45, 0.3] as const;
+const BAR_WEIGHTS_WIDE = [0.35, 0.55, 0.8, 1, 0.85, 0.6, 0.45, 0.3] as const;
+const BAR_WEIGHTS_ICON = [0.45, 0.75, 1, 0.65] as const;
 
 export function VoiceLevelBars(props: VoiceLevelBarsProps): React.JSX.Element {
+  let size: "icon" | "wide" = "wide";
+  if (props.size === "icon") {
+    size = "icon";
+  }
+  const weights = size === "icon" ? BAR_WEIGHTS_ICON : BAR_WEIGHTS_WIDE;
+  let shellClass = "inline-flex h-3.5 w-16 items-end";
+  if (size === "icon") {
+    shellClass = "inline-flex h-4 w-4 items-end justify-center";
+  }
   if (props.active !== true) {
-    return <span className={cn("block h-3.5 w-16", props.className)} aria-hidden="true" />;
+    return <span className={cn(shellClass, props.className)} aria-hidden="true" />;
+  }
+  let barRowClass = "inline-flex h-3.5 w-16 items-end justify-between gap-px";
+  if (size === "icon") {
+    barRowClass = "inline-flex h-3.5 w-3.5 items-end justify-between gap-px";
+  }
+  let barWidthClass = "w-[2px]";
+  if (size === "icon") {
+    barWidthClass = "w-px";
   }
   return (
-    <span
-      className={cn("flex h-3.5 w-16 items-end justify-between gap-px", props.className)}
-      aria-hidden="true"
-    >
-      {BAR_WEIGHTS.map((weight, index) => {
+    <span className={cn(barRowClass, props.className)} aria-hidden="true">
+      {weights.map((weight, index) => {
         const amp = Math.max(0.12, Math.min(1, props.level * weight * 1.4));
         return (
           <span
             key={index}
-            className="w-[2px] rounded-sm bg-emerald-400 transition-[height] duration-75 ease-out"
+            className={cn(
+              barWidthClass,
+              "rounded-sm bg-success transition-[height] duration-75 ease-out",
+            )}
             style={{ height: `${String(Math.round(amp * 100))}%` }}
           />
         );

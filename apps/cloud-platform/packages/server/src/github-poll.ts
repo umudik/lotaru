@@ -6,7 +6,7 @@ import {
   loadPullSeen,
   markGithubRepoPrimed,
   savePullSeen,
-} from "./reaction-store.js";
+} from "./github-store.js";
 
 export type GithubPollEmit = (event: {
   type: string;
@@ -20,27 +20,22 @@ export type GithubWatch = {
   projectId: string;
 };
 
-export function mergeGithubWatches(
-  fromReactions: readonly GithubWatch[],
-  fromRemotes: readonly GithubWatch[],
-): GithubWatch[] {
+/** Dedupes repos discovered across the project folders. */
+export function mergeGithubWatches(discovered: readonly GithubWatch[]): GithubWatch[] {
   const watches: GithubWatch[] = [];
   const seen = new Set<string>();
-  const groups: readonly (readonly GithubWatch[])[] = [fromReactions, fromRemotes];
-  for (const group of groups) {
-    for (const watch of group) {
-      const repo = watch.repo.trim();
-      const projectId = watch.projectId.trim();
-      if (repo.length === 0 || projectId.length === 0) {
-        continue;
-      }
-      const key = `${projectId}:${repo}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      watches.push({ repo, projectId });
+  for (const watch of discovered) {
+    const repo = watch.repo.trim();
+    const projectId = watch.projectId.trim();
+    if (repo.length === 0 || projectId.length === 0) {
+      continue;
     }
+    const key = `${projectId}:${repo}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    watches.push({ repo, projectId });
   }
   return watches;
 }
@@ -124,7 +119,7 @@ export function startGithubPoller(
   db: Database.Database,
   loadWatches: () => Promise<GithubWatch[]>,
   emit: GithubPollEmit,
-): void {
+): () => void {
   const tick = (): void => {
     void loadWatches()
       .then((watches) => pollGithubOnce(db, watches, emit))
@@ -134,5 +129,9 @@ export function startGithubPoller(
   };
   pollTick = tick;
   tick();
-  setInterval(tick, 30_000);
+  const timer = setInterval(tick, 30_000);
+  return () => {
+    clearInterval(timer);
+    pollTick = false;
+  };
 }

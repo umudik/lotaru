@@ -10,6 +10,7 @@ import { createIdentity } from "./modules/identity.js";
 import {
   openNotesDb,
   registerNotesModule,
+  appendNotePageByBookTitle,
   speakVariant,
   type NotePage,
 } from "./modules/notes.js";
@@ -393,5 +394,48 @@ describe("note books", () => {
       url: `/api/note-books?projectId=${PROJECT_ID}`,
     });
     assert.equal(listed.statusCode, 404);
+  });
+});
+
+describe("appendNotePageByBookTitle", () => {
+  it("does not queue jobs before the notes module binds", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lotaru-notes-append-idle-"));
+    const databasePath = join(dir, "app.sqlite");
+    const appended = appendNotePageByBookTitle({
+      databasePath,
+      projectId: PROJECT_ID,
+      bookTitle: "Agent Journal",
+      pageTitle: "2026-02-01",
+      body: "Daily summary",
+      createdBy: "agent@lotaru",
+    });
+    const notesDb = openNotesDb(databasePath);
+    const row = notesDb
+      .prepare("SELECT translation_status FROM note_pages WHERE id = ?")
+      .get(appended.pageId) as { translation_status: string };
+    notesDb.close();
+    assert.equal(row.translation_status, "none");
+  });
+
+  it("queues note jobs when the notes module is registered", async (t) => {
+    const { app, dir } = await startNotes();
+    t.after(async () => {
+      await app.close();
+    });
+    const appended = appendNotePageByBookTitle({
+      databasePath: join(dir, "app.sqlite"),
+      projectId: PROJECT_ID,
+      bookTitle: "Agent Journal",
+      pageTitle: "2026-02-01",
+      body: "Daily summary",
+      createdBy: "agent@lotaru",
+    });
+    const notesDb = openNotesDb(join(dir, "app.sqlite"));
+    const row = notesDb
+      .prepare("SELECT translation_status, translation_error FROM note_pages WHERE id = ?")
+      .get(appended.pageId) as { translation_status: string; translation_error: string };
+    notesDb.close();
+    assert.equal(row.translation_status, "error");
+    assert.match(row.translation_error, /model/i);
   });
 });

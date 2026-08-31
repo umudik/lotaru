@@ -10,7 +10,7 @@ import {
 } from "react";
 import { getAccessToken, isCloudHost } from "@/lib/auth";
 import { downsampleTo16k, floatTo16BitPcm } from "@/lib/voice-pcm";
-import type { VoiceIntentDecision, VoiceSegment } from "@/lib/api";
+import type { VoiceSegment } from "@/lib/api";
 
 export type VoiceListenPhase =
   | "idle"
@@ -29,7 +29,6 @@ type VoiceListenContextValue = {
   level: number;
   partialText: string;
   error: string;
-  lastDecision: VoiceIntentDecision | null;
   liveSegments: VoiceSegment[];
   mediaStream: MediaStream | null;
   start: (projectId: string) => Promise<void>;
@@ -96,7 +95,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
   const [phase, setPhase] = useState<VoiceListenPhase>("idle");
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState("");
-  const [lastDecision, setLastDecision] = useState<VoiceIntentDecision | null>(null);
   const [liveSegments, setLiveSegments] = useState<VoiceSegment[]>([]);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [level, setLevel] = useState(0);
@@ -414,7 +412,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
             text?: string;
             status?: string;
             segment?: VoiceSegment;
-            decision?: VoiceIntentDecision;
           };
           if (record.kind === "partial" && typeof record.text === "string") {
             setPartialText(record.text);
@@ -422,9 +419,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
           if (record.kind === "segment" && record.segment !== undefined) {
             setPartialText("");
             setLiveSegments((prev) => [record.segment as VoiceSegment, ...prev]);
-          }
-          if (record.kind === "decision" && record.decision !== undefined) {
-            setLastDecision(record.decision);
           }
           if (record.kind === "sidecar" && record.status === "ready") {
             setError("");
@@ -545,7 +539,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       level,
       partialText,
       error,
-      lastDecision,
       liveSegments,
       mediaStream,
       start: (nextProjectId: string) => start(nextProjectId, "user"),
@@ -560,7 +553,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       level,
       partialText,
       error,
-      lastDecision,
       liveSegments,
       mediaStream,
       start,

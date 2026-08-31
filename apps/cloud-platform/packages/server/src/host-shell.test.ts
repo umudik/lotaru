@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hostShellSpawn } from "./host-shell.js";
+import { hostShellSpawn, interactiveHostShell } from "./host-shell.js";
 
 describe("hostShellSpawn", () => {
   it("runs through cmd.exe on Windows", () => {
@@ -19,5 +19,22 @@ describe("hostShellSpawn", () => {
     assert.throws(() => hostShellSpawn("win32", "  "), {
       message: "Script command is required",
     });
+  });
+});
+
+describe("interactiveHostShell", () => {
+  it("uses PowerShell on Windows", () => {
+    const spec = interactiveHostShell("win32");
+    assert.equal(spec.cmd, "powershell.exe");
+  });
+
+  it("prefers SHELL when the binary exists", () => {
+    const spec = interactiveHostShell("linux", "/bin/sh");
+    assert.equal(spec.cmd, "/bin/sh");
+  });
+
+  it("falls back to sh when SHELL is missing", () => {
+    const spec = interactiveHostShell("linux", "");
+    assert.equal(spec.cmd === "/bin/bash" || spec.cmd === "/bin/sh", true);
   });
 });

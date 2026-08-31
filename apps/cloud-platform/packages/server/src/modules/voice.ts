@@ -6,26 +6,11 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import {
-  getProjectById,
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { loadAgentProfile, openAgentDb } from "../agent-store.js";
-import {
-  AGENT_TIMEOUT_MS,
-  agentCliSpec,
-  spawnAgentCli,
-  type AgentKind,
-  type AgentMode,
-} from "../agent-runtime.js";
-import { loadAppSettings, openSettingsDb } from "../app-settings.js";
 import { publishLotaruEvent } from "../event-bus.js";
-import { EVENT_VOICE_INTENT } from "../events.js";
-import { requireExistingDirectory } from "../folder-path.js";
-import { runOllamaChat } from "../ollama.js";
-import {
-  parseVoiceIntentDecision,
-  voiceIntentScannerPrompt,
-} from "../voice-intent.js";
+import { pruneVoiceSegments } from "../voice-retention.js";
+import { EVENT_VOICE_SEGMENT } from "../events.js";
 import {
   probeVoiceSidecar,
   startVoiceSidecar,
@@ -36,20 +21,11 @@ import type { Identity } from "./identity.js";
 
 type Viewer = { email: string; sub: string };
 
-type AgentRunFn = (input: {
-  kind: AgentKind;
-  mode: AgentMode;
-  prompt: string;
-  cwd: string;
-}) => Promise<string>;
-
 type ModuleOptions = {
   databasePath: string;
   identity: Identity;
   dataDir: string;
   projectAccess?: (projectId: string, userId: string) => boolean;
-  projectCwd?: (projectId: string) => string;
-  runAgent?: AgentRunFn;
   startSidecar?: typeof startVoiceSidecar;
 };
 
@@ -65,18 +41,6 @@ const segmentRowSchema = z.object({
   created_at: z.number(),
 });
 
-const decisionRowSchema = z.object({
-  id: z.string(),
-  project_id: z.string(),
-  segment_id: z.string(),
-  emit: z.number(),
-  title: z.string(),
-  summary: z.string(),
-  reason: z.string(),
-  event_id: z.string(),
-  created_at: z.number(),
-});
-
 export type VoiceSegment = {
   id: string;
   projectId: string;
@@ -86,18 +50,6 @@ export type VoiceSegment = {
   startedAt: number;
   endedAt: number;
   audioPath: string;
-  createdAt: number;
-};
-
-export type VoiceIntentRow = {
-  id: string;
-  projectId: string;
-  segmentId: string;
-  emit: boolean;
-  title: string;
-  summary: string;
-  reason: string;
-  eventId: string;
   createdAt: number;
 };
 
@@ -140,18 +92,6 @@ export function openVoiceDb(databasePath: string): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_voice_segments_project ON voice_segments(project_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_voice_segments_project_cursor ON voice_segments(project_id, created_at DESC, id DESC);
-    CREATE TABLE IF NOT EXISTS voice_intent_decisions (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      segment_id TEXT NOT NULL,
-      emit INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      event_id TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_voice_intent_project ON voice_intent_decisions(project_id, created_at DESC);
   `);
   return db;
 }
@@ -169,20 +109,6 @@ function segmentFromRow(row: z.infer<typeof segmentRowSchema>): VoiceSegment | f
     startedAt: row.started_at,
     endedAt: row.ended_at,
     audioPath: row.audio_path,
-    createdAt: row.created_at,
-  };
-}
-
-function decisionFromRow(row: z.infer<typeof decisionRowSchema>): VoiceIntentRow {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    segmentId: row.segment_id,
-    emit: row.emit === 1,
-    title: row.title,
-    summary: row.summary,
-    reason: row.reason,
-    eventId: row.event_id,
     createdAt: row.created_at,
   };
 }
@@ -296,162 +222,6 @@ export function listVoiceSegments(
   return pageVoiceSegments(db, projectId, limit, "").segments;
 }
 
-export function listVoiceDecisions(
-  db: Database.Database,
-  projectId: string,
-  limit: number,
-): VoiceIntentRow[] {
-  const raw = db
-    .prepare(
-      "SELECT * FROM voice_intent_decisions WHERE project_id = ? ORDER BY created_at DESC LIMIT ?",
-    )
-    .all(projectId, limit);
-  if (Array.isArray(raw) !== true) {
-    return [];
-  }
-  const decisions: VoiceIntentRow[] = [];
-  for (const entry of raw) {
-    const parsed = decisionRowSchema.safeParse(entry);
-    if (parsed.success !== true) {
-      continue;
-    }
-    decisions.push(decisionFromRow(parsed.data));
-  }
-  return decisions;
-}
-
-function rollingTranscript(db: Database.Database, projectId: string): string {
-  const segments = listVoiceSegments(db, projectId, 12);
-  const ordered = segments.slice().reverse();
-  const lines: string[] = [];
-  for (const segment of ordered) {
-    lines.push(segment.text);
-  }
-  return lines.join("\n");
-}
-
-async function defaultRunAgent(
-  options: ModuleOptions,
-  input: { kind: AgentKind; mode: AgentMode; prompt: string; cwd: string },
-): Promise<string> {
-  if (options.runAgent !== undefined) {
-    return options.runAgent(input);
-  }
-  if (input.kind === "ollama") {
-    const settingsDb = openSettingsDb(options.databasePath);
-    const settings = loadAppSettings(settingsDb);
-    return runOllamaChat(
-      settings.ollamaHost,
-      settings.ollamaModel,
-      "You classify spoken intents. Reply with JSON only.",
-      input.prompt,
-    );
-  }
-  const profile = loadAgentProfile(openAgentDb(options.databasePath));
-  const spec = agentCliSpec({
-    kind: input.kind,
-    mode: input.mode,
-    command: profile.command,
-    prompt: input.prompt,
-  });
-  return spawnAgentCli(spec, input.cwd, AGENT_TIMEOUT_MS);
-}
-
-function resolveProjectCwd(options: ModuleOptions, projectId: string): string {
-  if (options.projectCwd !== undefined) {
-    return options.projectCwd(projectId);
-  }
-  const project = getProjectById(projectId);
-  if (project === null || project.repoPath.trim().length === 0) {
-    return process.cwd();
-  }
-  try {
-    return requireExistingDirectory(project.repoPath);
-  } catch {
-    return process.cwd();
-  }
-}
-
-export async function scanVoiceUtterance(input: {
-  options: ModuleOptions;
-  db: Database.Database;
-  projectId: string;
-  segmentId: string;
-  utterance: string;
-}): Promise<VoiceIntentRow> {
-  const profile = loadAgentProfile(openAgentDb(input.options.databasePath));
-  const prompt = voiceIntentScannerPrompt({
-    rollingTranscript: rollingTranscript(input.db, input.projectId),
-    latestUtterance: input.utterance,
-  });
-  let raw = "";
-  try {
-    raw = await defaultRunAgent(input.options, {
-      kind: profile.kind,
-      mode: profile.mode,
-      prompt,
-      cwd: resolveProjectCwd(input.options, input.projectId),
-    });
-  } catch {
-    raw = "";
-  }
-  const decisions = parseVoiceIntentDecision(raw);
-  let decision = {
-    emit: false,
-    title: "",
-    summary: "",
-    reason: "scanner returned invalid json",
-  };
-  for (const entry of decisions) {
-    decision = entry;
-  }
-  let eventId = "";
-  if (decision.emit === true) {
-    const title = decision.title.trim().length > 0 ? decision.title.trim() : input.utterance.slice(0, 120);
-    const summary =
-      decision.summary.trim().length > 0 ? decision.summary.trim() : input.utterance.slice(0, 400);
-    const event = publishLotaruEvent(
-      {
-        type: EVENT_VOICE_INTENT,
-        projectId: input.projectId,
-        scriptId: "",
-        path: input.utterance.slice(0, 240),
-        detail: `${title}: ${summary}`.slice(0, 500),
-      },
-      "live",
-    );
-    eventId = event.id;
-  }
-  const id = randomUUID();
-  const createdAt = Date.now();
-  input.db
-    .prepare(
-      "INSERT INTO voice_intent_decisions (id, project_id, segment_id, emit, title, summary, reason, event_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .run(
-      id,
-      input.projectId,
-      input.segmentId,
-      decision.emit ? 1 : 0,
-      decision.title,
-      decision.summary,
-      decision.reason,
-      eventId,
-      createdAt,
-    );
-  return {
-    id,
-    projectId: input.projectId,
-    segmentId: input.segmentId,
-    emit: decision.emit,
-    title: decision.title,
-    summary: decision.summary,
-    reason: decision.reason,
-    eventId,
-    createdAt,
-  };
-}
-
 export async function registerVoiceModule(
   app: FastifyInstance,
   options: ModuleOptions,
@@ -480,6 +250,23 @@ export async function registerVoiceModule(
       clearTimeout(sidecarReconnectTimer);
       sidecarReconnectTimer = null;
     }
+  }
+
+  function releaseSidecar(): void {
+    clearSidecarReconnectTimer();
+    sidecarConnectGeneration += 1;
+    if (sidecar !== false) {
+      sidecar.close();
+      sidecar = false;
+    }
+  }
+
+  function shutdownVoiceClients(): void {
+    releaseSidecar();
+    for (const socket of browserSockets) {
+      socket.close(1001, "server shutting down");
+    }
+    browserSockets.clear();
   }
 
   function sidecarCallbacks(generation: number): {
@@ -638,6 +425,7 @@ export async function registerVoiceModule(
         "",
         createdAt,
       );
+      pruneVoiceSegments(db, listenProjectId);
       broadcast({
         kind: "segment",
         segment: {
@@ -652,14 +440,16 @@ export async function registerVoiceModule(
           createdAt,
         },
       });
-      const decision = await scanVoiceUtterance({
-        options,
-        db,
-        projectId: listenProjectId,
-        segmentId: id,
-        utterance: message.text,
-      });
-      broadcast({ kind: "decision", decision });
+      publishLotaruEvent(
+        {
+          type: EVENT_VOICE_SEGMENT,
+          projectId: listenProjectId,
+          scriptId: "",
+          path: id,
+          detail: message.text.slice(0, 500),
+        },
+        "live",
+      );
       return;
     }
     broadcast({
@@ -704,37 +494,6 @@ export async function registerVoiceModule(
         } catch {
           return reply.code(400).send({ error: "invalid cursor" });
         }
-      }
-      return reply.code(401).send({ error: "unauthorized" });
-    },
-  );
-
-  app.get<{ Querystring: { projectId?: string; limit?: string } }>(
-    "/api/voice/decisions",
-    async (request, reply) => {
-      const viewers = await viewersFrom(request, options);
-      if (viewers.length === 0) {
-        return reply.code(401).send({ error: "unauthorized" });
-      }
-      let projectId = "";
-      if (request.query.projectId !== undefined) {
-        projectId = request.query.projectId.trim();
-      }
-      if (projectId.length === 0) {
-        return reply.code(400).send({ error: "projectId required" });
-      }
-      let limit = 50;
-      if (request.query.limit !== undefined) {
-        const parsed = Number(request.query.limit);
-        if (Number.isFinite(parsed) && parsed > 0 && parsed <= 200) {
-          limit = Math.floor(parsed);
-        }
-      }
-      for (const viewer of viewers) {
-        if (!canSeeProject(options, projectId, viewer.sub)) {
-          return reply.code(403).send({ error: "project access denied" });
-        }
-        return { decisions: listVoiceDecisions(db, projectId, limit) };
       }
       return reply.code(401).send({ error: "unauthorized" });
     },
@@ -851,7 +610,7 @@ export async function registerVoiceModule(
         socket.on("close", () => {
           browserSockets.delete(socket);
           if (browserSockets.size === 0) {
-            clearSidecarReconnectTimer();
+            releaseSidecar();
             db.prepare("UPDATE voice_sessions SET ended_at = ? WHERE id = ?").run(
               Date.now(),
               listenSessionId,
@@ -863,4 +622,12 @@ export async function registerVoiceModule(
       })();
     },
   );
+
+  app.addHook("preClose", async () => {
+    shutdownVoiceClients();
+  });
+
+  app.addHook("onClose", async () => {
+    db.close();
+  });
 }

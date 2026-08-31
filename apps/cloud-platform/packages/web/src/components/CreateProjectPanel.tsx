@@ -88,7 +88,7 @@ export function CreateProjectPanel({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">New project</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Open a folder on this machine. Scripts run in that folder. Tasks stay independent.
+          Open a folder on this machine. Scripts, Terminal, Chat, and Agents use that folder.
         </p>
       </div>
 

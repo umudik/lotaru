@@ -30,3 +30,13 @@ export function publishLotaruEvent(
   }
   return activePublisher(partial, emitKind);
 }
+
+export function tryPublishLotaruEvent(
+  partial: LotaruEventPartial,
+  emitKind: LotaruEmitKind,
+): LotaruEvent | false {
+  if (activePublisher === false) {
+    return false;
+  }
+  return activePublisher(partial, emitKind);
+}

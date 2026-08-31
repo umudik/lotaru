@@ -69,7 +69,7 @@ export function PageHeader(rawProps: Partial<PageHeaderProps> & Pick<PageHeaderP
             {contextExtra}
           </div>
         ) : null}
-        <h1 className="truncate text-lg font-semibold tracking-tight text-white">{title}</h1>
+        <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
         {subtitle !== null ? <p className="text-xs text-muted-foreground">{subtitle}</p> : null}
       </div>
       {actions !== null ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}

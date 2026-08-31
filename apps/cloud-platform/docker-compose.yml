@@ -21,6 +21,9 @@ services:
       FOOKIE_ADMIN_EMAIL: ${FOOKIE_ADMIN_EMAIL:-}
       FOOKIE_ADMIN_PASSWORD: ${FOOKIE_ADMIN_PASSWORD:-}
       FOOKIE_ADMIN_NAME: ${FOOKIE_ADMIN_NAME:-Admin}
+      LOTARU_OLLAMA_HOST: ${LOTARU_OLLAMA_HOST:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - fookie-cloud-data:/data
       - /var/run/docker.sock:/var/run/docker.sock

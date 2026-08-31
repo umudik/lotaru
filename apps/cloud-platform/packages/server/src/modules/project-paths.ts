@@ -19,7 +19,7 @@ export function projectDir(options: ProjectPathsOptions, projectId: string): str
 // socket — bind-mount sources are always host paths, never paths inside the caller.
 export function hostProjectDir(options: ProjectPathsOptions, projectId: string): string {
   if (options.workspacesHostDir !== null && options.workspacesHostDir.length > 0) {
-    return `${options.workspacesHostDir.replace(/\/$/, "")}/${projectId}`;
+    return join(options.workspacesHostDir, projectId);
   }
   return projectDir(options, projectId);
 }

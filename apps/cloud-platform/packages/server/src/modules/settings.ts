@@ -13,8 +13,9 @@ import { listOllamaModels } from "../ollama.js";
 import { synthesizeSpeech } from "../tts.js";
 import { voicesForEngine } from "../tts-voices.js";
 import { loadAgentProfile, openAgentDb, parseAgentProfileInput, saveAgentProfile } from "../agent-store.js";
+import { probeAgentRuntime } from "../agent-probe.js";
 import { requestGithubPoll } from "../github-poll.js";
-import { ensureReactionSchema, loadGithubToken, saveGithubToken } from "../reaction-store.js";
+import { ensureGithubSchema, loadGithubToken, saveGithubToken } from "../github-store.js";
 import type { Identity } from "./identity.js";
 
 type SettingsOptions = {
@@ -28,7 +29,7 @@ export async function registerSettingsModule(
 ): Promise<void> {
   const db = openSettingsDb(options.databasePath);
   const agentDb = openAgentDb(options.databasePath);
-  ensureReactionSchema(db);
+  ensureGithubSchema(db);
 
   app.get("/api/settings", async (request, reply) => {
     const user = await options.identity.userFrom(request);
@@ -155,5 +156,29 @@ export async function registerSettingsModule(
       const message = err instanceof Error ? err.message : "Invalid agent profile";
       return reply.code(400).send({ error: message });
     }
+  });
+
+  app.post("/api/settings/agent/probe", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    let profile = loadAgentProfile(agentDb);
+    if (request.body !== undefined && request.body !== null) {
+      try {
+        profile = parseAgentProfileInput(request.body);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Invalid agent profile";
+        return reply.code(400).send({ error: message });
+      }
+    }
+    const settings = loadAppSettings(db);
+    const probe = await probeAgentRuntime({ profile, settings });
+    return probe;
+  });
+
+  app.addHook("onClose", async () => {
+    db.close();
+    agentDb.close();
   });
 }

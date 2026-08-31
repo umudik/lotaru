@@ -11,6 +11,10 @@ export function buildScriptPatchBody(script: Script, partial: Partial<Script>): 
   if (merged.trigger_type === 'save') {
     glob = merged.trigger_glob;
   }
+  let busEvent = '';
+  if (merged.trigger_type === 'event') {
+    busEvent = merged.trigger_bus_event;
+  }
   return {
     name: merged.name,
     command: merged.command,
@@ -19,6 +23,7 @@ export function buildScriptPatchBody(script: Script, partial: Partial<Script>): 
     docker_platform: '',
     trigger_type: merged.trigger_type,
     trigger_glob: glob,
+    trigger_bus_event: busEvent,
     trigger_cron: merged.trigger_cron,
     concurrency: merged.concurrency,
     enabled: merged.enabled,

@@ -37,9 +37,74 @@ async function api(method: string, path: string, body?: unknown): Promise<unknow
   return data;
 }
 
+async function apiBinary(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const headers: Record<string, string> = {
+    Accept: "audio/mpeg, application/json",
+  };
+  if (LOTARU_API_KEY.length > 0) {
+    headers.Authorization = `Bearer ${LOTARU_API_KEY}`;
+  }
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${LOTARU_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.ok !== true) {
+    const text = await res.text();
+    let detail = text.slice(0, 400);
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (parsed.error !== undefined) {
+        detail = parsed.error;
+      }
+    } catch {
+      detail = text.slice(0, 400);
+    }
+    throw new Error(`${method} ${path} -> ${String(res.status)}: ${detail}`);
+  }
+  const rawType = res.headers.get("content-type");
+  let contentType = "audio/mpeg";
+  if (rawType !== null && rawType.length > 0) {
+    contentType = rawType;
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  return { bytes, contentType };
+}
+
 function textResult(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+  };
+}
+
+function noteSpeakResult(input: {
+  pageId: string;
+  variant: "original" | "translated" | "polished" | "summary";
+  bytes: Uint8Array;
+  contentType: string;
+}) {
+  const mimeType = input.contentType.split(";")[0].trim();
+  const base64 = Buffer.from(input.bytes).toString("base64");
+  const meta = {
+    pageId: input.pageId,
+    variant: input.variant,
+    mimeType,
+    byteLength: input.bytes.byteLength,
+    hint:
+      "MCP audio block is Lotaru TTS (Settings → Voice). Use note_book_get to find page ids.",
+  };
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify(meta, null, 2) },
+      { type: "audio" as const, data: base64, mimeType },
+    ],
   };
 }
 
@@ -86,59 +151,6 @@ function createLotaruMcpServer(): McpServer {
       ),
   );
 
-  server.tool(
-    "reactions_list",
-    "List project reactions",
-    { projectId: z.string() },
-    async (args) =>
-      textResult(
-        await api("GET", `/api/v1/projects/${encodeURIComponent(args.projectId)}/reactions`),
-      ),
-  );
-
-  server.tool(
-    "reactions_create",
-    "Create a create_task reaction",
-    {
-      projectId: z.string(),
-      eventType: z.string(),
-      titleTemplate: z.string(),
-      repo: z.string().optional(),
-      enabled: z.boolean().optional(),
-    },
-    async (args) => {
-      let repo = "";
-      if (args.repo !== undefined) {
-        repo = args.repo;
-      }
-      let enabled = true;
-      if (args.enabled !== undefined) {
-        enabled = args.enabled;
-      }
-      return textResult(
-        await api("POST", `/api/v1/projects/${encodeURIComponent(args.projectId)}/reactions`, {
-          action: "create_task",
-          eventType: args.eventType,
-          titleTemplate: args.titleTemplate,
-          repo,
-          enabled,
-        }),
-      );
-    },
-  );
-
-  server.tool(
-    "reactions_delete",
-    "Delete a reaction",
-    { projectId: z.string(), reactionId: z.string() },
-    async (args) =>
-      textResult(
-        await api(
-          "DELETE",
-          `/api/v1/projects/${encodeURIComponent(args.projectId)}/reactions/${encodeURIComponent(args.reactionId)}`,
-        ),
-      ),
-  );
 
   server.tool(
     "scripts_list",
@@ -229,24 +241,34 @@ function createLotaruMcpServer(): McpServer {
   );
 
   server.tool(
-    "voice_decisions",
-    "List voice intent scanner decisions",
-    {
-      projectId: z.string(),
-      limit: z.number().int().positive().optional(),
-    },
-    async (args) => {
-      let limit = 50;
-      if (args.limit !== undefined) {
-        limit = args.limit;
-      }
-      return textResult(
-        await api(
-          "GET",
-          `/api/voice/decisions?projectId=${encodeURIComponent(args.projectId)}&limit=${String(limit)}`,
-        ),
-      );
-    },
+    "voice_rules",
+    "List the project voice rules and their recent matches",
+    { projectId: z.string() },
+    async (args) =>
+      textResult(
+        await api("GET", `/api/voice-rules?projectId=${encodeURIComponent(args.projectId)}`),
+      ),
+  );
+
+  server.tool(
+    "voice_rules_scan",
+    "Scan pending voice transcript lines against the project rules now",
+    { projectId: z.string() },
+    async (args) =>
+      textResult(await api("POST", "/api/voice-rules/scan", { projectId: args.projectId })),
+  );
+
+  server.tool(
+    "voice_rules_test",
+    "Dry-run the project voice rules against a transcript without emitting events",
+    { projectId: z.string(), transcript: z.string() },
+    async (args) =>
+      textResult(
+        await api("POST", "/api/voice-rules/test", {
+          projectId: args.projectId,
+          transcript: args.transcript,
+        }),
+      ),
   );
 
   server.tool(
@@ -317,11 +339,85 @@ function createLotaruMcpServer(): McpServer {
   );
 
   server.tool(
+    "note_page_speak",
+    "Read a note page aloud via Lotaru TTS (Edge or Qwen). Returns MCP audio/mpeg plus metadata.",
+    {
+      pageId: z.string(),
+      variant: z.enum(["original", "translated", "polished", "summary"]).optional(),
+    },
+    async (args) => {
+      let variant: "original" | "translated" | "polished" | "summary" = "original";
+      if (args.variant !== undefined) {
+        variant = args.variant;
+      }
+      const spoken = await apiBinary(
+        "POST",
+        `/api/note-pages/${encodeURIComponent(args.pageId)}/speak`,
+        { variant },
+      );
+      return noteSpeakResult({
+        pageId: args.pageId,
+        variant,
+        bytes: spoken.bytes,
+        contentType: spoken.contentType,
+      });
+    },
+  );
+
+  server.tool(
     "agents_list",
     "List Lotaru agents for a project",
     { projectId: z.string() },
     async (args) =>
       textResult(await api("GET", `/api/agents?projectId=${encodeURIComponent(args.projectId)}`)),
+  );
+
+  server.tool(
+    "agents_create",
+    "Create a Lotaru agent (schedule or event). action \"event\" publishes the reply on the bus as agent.out.<slug>.",
+    {
+      projectId: z.string(),
+      title: z.string(),
+      prompt: z.string(),
+      trigger: z.enum(["event", "schedule"]),
+      eventType: z.string().optional(),
+      scheduleHour: z.number().int().min(0).max(23).optional(),
+      scheduleMinute: z.number().int().min(0).max(59).optional(),
+      includeVoice: z.boolean().optional(),
+      action: z.enum(["none", "note", "task", "event"]).optional(),
+      noteBookTitle: z.string().optional(),
+      enabled: z.boolean().optional(),
+    },
+    async (args) => {
+      const body: Record<string, string | number | boolean> = {
+        projectId: args.projectId,
+        title: args.title,
+        prompt: args.prompt,
+        trigger: args.trigger,
+      };
+      if (args.eventType !== undefined) {
+        body.eventType = args.eventType;
+      }
+      if (args.scheduleHour !== undefined) {
+        body.scheduleHour = args.scheduleHour;
+      }
+      if (args.scheduleMinute !== undefined) {
+        body.scheduleMinute = args.scheduleMinute;
+      }
+      if (args.includeVoice !== undefined) {
+        body.includeVoice = args.includeVoice;
+      }
+      if (args.action !== undefined) {
+        body.action = args.action;
+      }
+      if (args.noteBookTitle !== undefined) {
+        body.noteBookTitle = args.noteBookTitle;
+      }
+      if (args.enabled !== undefined) {
+        body.enabled = args.enabled;
+      }
+      return textResult(await api("POST", "/api/agents", body));
+    },
   );
 
   server.tool(
@@ -333,12 +429,164 @@ function createLotaruMcpServer(): McpServer {
   );
 
   server.tool(
+    "agents_patch",
+    "Update a Lotaru agent",
+    {
+      agentId: z.string(),
+      title: z.string().optional(),
+      prompt: z.string().optional(),
+      trigger: z.enum(["event", "schedule"]).optional(),
+      eventType: z.string().optional(),
+      scheduleHour: z.number().int().min(0).max(23).optional(),
+      scheduleMinute: z.number().int().min(0).max(59).optional(),
+      includeVoice: z.boolean().optional(),
+      action: z.enum(["none", "note", "task", "event"]).optional(),
+      noteBookTitle: z.string().optional(),
+      enabled: z.boolean().optional(),
+    },
+    async (args) => {
+      const body: Record<string, string | number | boolean> = {};
+      if (args.title !== undefined) {
+        body.title = args.title;
+      }
+      if (args.prompt !== undefined) {
+        body.prompt = args.prompt;
+      }
+      if (args.trigger !== undefined) {
+        body.trigger = args.trigger;
+      }
+      if (args.eventType !== undefined) {
+        body.eventType = args.eventType;
+      }
+      if (args.scheduleHour !== undefined) {
+        body.scheduleHour = args.scheduleHour;
+      }
+      if (args.scheduleMinute !== undefined) {
+        body.scheduleMinute = args.scheduleMinute;
+      }
+      if (args.includeVoice !== undefined) {
+        body.includeVoice = args.includeVoice;
+      }
+      if (args.action !== undefined) {
+        body.action = args.action;
+      }
+      if (args.noteBookTitle !== undefined) {
+        body.noteBookTitle = args.noteBookTitle;
+      }
+      if (args.enabled !== undefined) {
+        body.enabled = args.enabled;
+      }
+      return textResult(
+        await api("PATCH", `/api/agents/${encodeURIComponent(args.agentId)}`, body),
+      );
+    },
+  );
+
+  server.tool(
+    "agents_delete",
+    "Delete a Lotaru agent",
+    { agentId: z.string() },
+    async (args) =>
+      textResult(await api("DELETE", `/api/agents/${encodeURIComponent(args.agentId)}`)),
+  );
+
+  server.tool(
     "agents_runs",
     "List recent runs for a Lotaru agent",
     { agentId: z.string() },
     async (args) =>
       textResult(await api("GET", `/api/agents/${encodeURIComponent(args.agentId)}/runs`)),
   );
+
+  server.tool("settings_get", "Get Lotaru app settings (Ollama, TTS, language)", {}, async () =>
+    textResult(await api("GET", "/api/settings")),
+  );
+
+  server.tool(
+    "settings_put",
+    "Update Lotaru app settings (Ollama host/model, TTS, language)",
+    {
+      ollamaHost: z.string(),
+      ollamaModel: z.string(),
+      translationEnabled: z.boolean(),
+      targetLanguage: z.string(),
+      ttsEngine: z.enum(["edge", "qwen"]),
+      qwenTtsUrl: z.string(),
+      ttsVoice: z.string(),
+    },
+    async (args) =>
+      textResult(
+        await api("PUT", "/api/settings", {
+          ollamaHost: args.ollamaHost,
+          ollamaModel: args.ollamaModel,
+          translationEnabled: args.translationEnabled,
+          targetLanguage: args.targetLanguage,
+          ttsEngine: args.ttsEngine,
+          qwenTtsUrl: args.qwenTtsUrl,
+          ttsVoice: args.ttsVoice,
+        }),
+      ),
+  );
+
+  server.tool("settings_agent_get", "Get global AI provider profile (ollama/cursor/claude/codex)", {}, async () =>
+    textResult(await api("GET", "/api/settings/agent")),
+  );
+
+  server.tool(
+    "settings_agent_set",
+    "Set global AI provider profile",
+    {
+      kind: z.enum(["ollama", "cursor", "claude", "codex"]),
+      mode: z.enum(["ask", "plan", "execute"]),
+      command: z.string().optional(),
+    },
+    async (args) => {
+      let command = "";
+      if (args.command !== undefined) {
+        command = args.command;
+      }
+      return textResult(
+        await api("PUT", "/api/settings/agent", {
+          kind: args.kind,
+          mode: args.mode,
+          command,
+        }),
+      );
+    },
+  );
+
+  server.tool(
+    "knowledge_templates_list",
+    "List knowledge templates for a project",
+    {
+      projectId: z.string(),
+      kind: z.enum(["document", "diagram"]),
+    },
+    async (args) =>
+      textResult(
+        await api(
+          "GET",
+          `/api/knowledge/templates?projectId=${encodeURIComponent(args.projectId)}&kind=${encodeURIComponent(args.kind)}`,
+        ),
+      ),
+  );
+
+  server.tool(
+    "knowledge_artifacts_list",
+    "List knowledge artifacts for a project",
+    {
+      projectId: z.string(),
+      kind: z.enum(["document", "diagram"]),
+    },
+    async (args) =>
+      textResult(
+        await api(
+          "GET",
+          `/api/knowledge/artifacts?projectId=${encodeURIComponent(args.projectId)}&kind=${encodeURIComponent(args.kind)}`,
+        ),
+      ),
+  );
+
 
   return server;
 }

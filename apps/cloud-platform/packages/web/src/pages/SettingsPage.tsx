@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useLocation } from "react-router-dom";
-import { Loader2, Volume2, Languages, Cpu, Pause, Github } from "lucide-react";
+import { useLocation, Link } from "react-router-dom";
+import { Loader2, Volume2, Languages, Cpu, Pause, Github, Mic } from "lucide-react";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import {
   saveAppSettings,
   saveGithubSettings,
   saveAgentSettings,
+  probeAgentSettings,
   type AgentProfile,
   type AppSettings,
   type TargetLanguage,
@@ -102,6 +104,10 @@ export function SettingsPage(): React.JSX.Element {
   const [githubConnected, setGithubConnected] = useState(false);
   const [savingGithub, setSavingGithub] = useState(false);
   const [agent, setAgent] = useState<AgentProfile | null>(null);
+  const [agentReachable, setAgentReachable] = useState<boolean | null>(null);
+  const [agentProbeError, setAgentProbeError] = useState("");
+  const [agentProbeDetail, setAgentProbeDetail] = useState("");
+  const [probingAgent, setProbingAgent] = useState(false);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef<string | null>(null);
   const previewGen = useRef(0);
@@ -147,6 +153,29 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
+  async function probeAgent(next: AgentProfile): Promise<void> {
+    setProbingAgent(true);
+    try {
+      await saveAgentSettings(session, next);
+      const result = await probeAgentSettings(session, next);
+      setAgentReachable(result.reachable);
+      setAgentProbeDetail(result.detail);
+      if (result.reachable) {
+        setAgentProbeError("");
+      } else if (result.error.length > 0) {
+        setAgentProbeError(result.error);
+      } else {
+        setAgentProbeError("Agent runtime is not available");
+      }
+    } catch (err) {
+      setAgentReachable(false);
+      setAgentProbeDetail("");
+      setAgentProbeError(err instanceof Error ? err.message : "Agent runtime is not available");
+    } finally {
+      setProbingAgent(false);
+    }
+  }
+
   useEffect(() => {
     void (async () => {
       try {
@@ -159,6 +188,7 @@ export function SettingsPage(): React.JSX.Element {
         setGithubConnected(github.connected);
         const agentData = await fetchAgentSettings(session);
         setAgent(agentData.profile);
+        await probeAgent(agentData.profile);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -171,10 +201,10 @@ export function SettingsPage(): React.JSX.Element {
     if (loading || settings === null) {
       return;
     }
-    if (location.hash !== "#github") {
+    if (location.hash !== "#github" && location.hash !== "#ai" && location.hash !== "#voice") {
       return;
     }
-    const section = document.getElementById("github");
+    const section = document.getElementById(location.hash.slice(1));
     if (section === null) {
       return;
     }
@@ -317,7 +347,7 @@ export function SettingsPage(): React.JSX.Element {
       setAgent(saved.profile);
     } catch (err) {
       if (agentGen.current === gen) {
-                toast.error(err instanceof Error ? err.message : "Failed to save proposal runtime");
+        toast.error(err instanceof Error ? err.message : "Failed to save AI settings");
       }
     }
   }
@@ -379,16 +409,10 @@ export function SettingsPage(): React.JSX.Element {
   const grouped = localeGroups(voices);
 
   return (
-    <div className="note-desk flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader title="Settings" />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-8 px-6 py-6">
-        <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Local workflow engine. Knowledge drafts come from a runtime you pick — Cursor,
-          Claude Code, Codex, or local Ollama. Lotaru does not store API keys; log in to the
-          CLI yourself.
-        </p>
-
+      <PageContent className="overflow-y-auto">
+      <div className="mx-auto w-full max-w-3xl space-y-8">
         <section id="github" className="panel-card space-y-5 p-6">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
@@ -424,211 +448,260 @@ export function SettingsPage(): React.JSX.Element {
               </Button>
             </div>
               <p className="text-xs text-muted-foreground">
-                Paste a personal access token with repo scope. Lotaru polls github.com remotes on
-                your project folders; you do not need a reaction first.
+                Token used to record pull request events from this machine’s project remotes.
               </p>
           </div>
         </section>
 
         {agent !== null ? (
-          <section className="panel-card space-y-5 p-6">
+          <section id="ai" className="panel-card space-y-6 p-6">
             <div className="flex items-center gap-3">
               <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-                  <Cpu className="h-4 w-4" />
+                <Cpu className="h-4 w-4" />
               </div>
               <div>
-                <h2 className="text-base font-semibold">Agent runtime</h2>
+                <h2 className="text-base font-semibold">Agent AI</h2>
                 <p className="text-xs text-muted-foreground">
-                  Shared by knowledge templates (when an event fires) and the voice intent scanner
-                  (when speech becomes a bus event). No API keys in Lotaru.
+                  Single runtime for Chat, Agents, Notes translate/polish/summary, and Knowledge.
+                  Chat always runs in ask mode. Log in to each CLI on this machine.
                 </p>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="agent-kind">Runtime</Label>
-              <Select
-                id="agent-kind"
-                value={agent.kind}
-                onChange={(event) => {
-                  const kind = event.target.value;
-                  if (
-                    kind === "ollama" ||
-                    kind === "cursor" ||
-                    kind === "claude" ||
-                    kind === "codex"
-                  ) {
-                    saveAgentNow(applyAgent(Object.assign({}, agent, { kind })));
-                  }
-                }}
-              >
-                <option value="ollama">Local — Ollama</option>
-                <option value="cursor">Cursor Agent CLI (`agent`)</option>
-                <option value="claude">Claude Code (`claude`)</option>
-                <option value="codex">Codex CLI (`codex`)</option>
-              </Select>
+            <div className="space-y-5 border-t border-border/60 pt-5">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Default runtime</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Provider used by Chat, Agents, Notes jobs, and Knowledge. Chat always runs in
+                    ask mode.
+                  </p>
+                </div>
+                {agentReachable === true ? (
+                  <span className="ml-auto text-xs text-success">Connected</span>
+                ) : agentReachable === false ? (
+                  <span className="ml-auto text-xs text-destructive">Offline</span>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="agent-kind">Provider</Label>
+                <div className="flex gap-2">
+                  <Select
+                    id="agent-kind"
+                    className="min-w-0 flex-1"
+                    value={agent.kind}
+                    onChange={(event) => {
+                      const kind = event.target.value;
+                      if (
+                        kind === "ollama" ||
+                        kind === "cursor" ||
+                        kind === "claude" ||
+                        kind === "codex"
+                      ) {
+                        const next = applyAgent(Object.assign({}, agent, { kind }));
+                        saveAgentNow(next);
+                        void probeAgent(next);
+                      }
+                    }}
+                  >
+                    <option value="ollama">Local — Ollama</option>
+                    <option value="cursor">Cursor Agent CLI (`agent`)</option>
+                    <option value="claude">Claude Code (`claude`)</option>
+                    <option value="codex">Codex CLI (`codex`)</option>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={probingAgent}
+                    onClick={() => void probeAgent(agent)}
+                  >
+                    {probingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Test
+                  </Button>
+                </div>
+                {agentProbeError.length > 0 ? (
+                  <p className="text-xs text-destructive">{agentProbeError}</p>
+                ) : agentProbeDetail.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">{agentProbeDetail}</p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="agent-mode">Default mode</Label>
+                <Select
+                  id="agent-mode"
+                  value={agent.mode}
+                  onChange={(event) => {
+                    const mode = event.target.value;
+                    if (mode === "ask" || mode === "plan" || mode === "execute") {
+                      saveAgentNow(applyAgent(Object.assign({}, agent, { mode })));
+                    }
+                  }}
+                >
+                  <option value="ask">Ask</option>
+                  <option value="plan">Plan</option>
+                  <option value="execute">Execute</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="agent-command">CLI binary override</Label>
+                <Input
+                  id="agent-command"
+                  value={agent.command}
+                  placeholder="leave empty for agent / claude / codex"
+                  onChange={(event) => {
+                    saveAgentSoon(applyAgent(Object.assign({}, agent, { command: event.target.value })));
+                  }}
+                  onBlur={(event) => {
+                    const next = applyAgent(
+                      Object.assign({}, agent, { command: event.target.value }),
+                    );
+                    saveAgentNow(next);
+                    void probeAgent(next);
+                  }}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="agent-mode">Mode</Label>
-              <Select
-                id="agent-mode"
-                value={agent.mode}
-                onChange={(event) => {
-                  const mode = event.target.value;
-                  if (mode === "ask" || mode === "plan" || mode === "execute") {
-                    saveAgentNow(applyAgent(Object.assign({}, agent, { mode })));
-                  }
-                }}
-              >
-                <option value="ask">Ask</option>
-                <option value="plan">Plan</option>
-                <option value="execute">Execute</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="agent-command">Command override</Label>
-              <Input
-                id="agent-command"
-                value={agent.command}
-                placeholder="leave empty for agent / claude / codex"
-                onChange={(event) => {
-                  saveAgentSoon(applyAgent(Object.assign({}, agent, { command: event.target.value })));
-                }}
-                onBlur={(event) => {
-                  saveAgentNow(
-                    applyAgent(Object.assign({}, agent, { command: event.target.value })),
-                  );
-                }}
-              />
+            <div className="space-y-5 border-t border-border/60 pt-5">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Local Ollama</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Endpoint for Agent AI when provider is Ollama. Voice intent scanning always
+                    uses this local model. In Docker use http://host.docker.internal:11434 (Ollama
+                    must listen on 0.0.0.0).
+                  </p>
+                </div>
+                {reachable === true ? (
+                  <span className="ml-auto text-xs text-success">Connected</span>
+                ) : reachable === false ? (
+                  <span className="ml-auto text-xs text-destructive">Offline</span>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ollama-host">Host</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="ollama-host"
+                    value={current.ollamaHost}
+                    onChange={(event) => {
+                      const next = applySettings(Object.assign({}, current, { ollamaHost: event.target.value }));
+                      saveSoon(next);
+                    }}
+                    onBlur={() => {
+                      saveNow(current);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={probing}
+                    onClick={() => void probeOllama(current)}
+                  >
+                    {probing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Test
+                  </Button>
+                </div>
+                {ollamaError.length > 0 ? (
+                  <p className="text-xs text-destructive">{ollamaError}</p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ollama-model">Model</Label>
+                <Select
+                  id="ollama-model"
+                  value={current.ollamaModel}
+                  disabled={modelChoices.length === 0}
+                  onChange={(event) => {
+                    const next = applySettings(Object.assign({}, current, { ollamaModel: event.target.value }));
+                    saveNow(next);
+                  }}
+                >
+                  <option value="">
+                    {probing ? "Loading models…" : "Choose a model"}
+                  </option>
+                  {modelChoices.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </Select>
+                {modelChoices.length === 0 && !probing ? (
+                  <p className="text-xs text-muted-foreground">
+                    Start Ollama, then press Test to load the installed models.
+                  </p>
+                ) : null}
+              </div>
             </div>
           </section>
         ) : null}
 
-        <section className="panel-card space-y-5 p-6">
+        <section id="voice" className="panel-card space-y-6 p-6">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Cpu className="h-4 w-4" />
+              <Mic className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Ollama</h2>
+              <h2 className="text-base font-semibold">Voice AI</h2>
               <p className="text-xs text-muted-foreground">
-                Local model for translate, polish, and summary
+                Local only: Whisper sidecar for speech-to-text,{" "}
+                <Link to="/settings#ai" className="underline underline-offset-2">
+                  Local Ollama
+                </Link>{" "}
+                for intent scanning, and read-aloud voices below.
               </p>
             </div>
-            {reachable === true ? (
-              <span className="ml-auto text-xs text-success">Connected</span>
-            ) : reachable === false ? (
-              <span className="ml-auto text-xs text-destructive">Offline</span>
-            ) : null}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="ollama-host">Host</Label>
-            <div className="flex gap-2">
-              <Input
-                id="ollama-host"
-                value={current.ollamaHost}
+          <div className="space-y-5 border-t border-border/60 pt-5">
+            <div className="flex items-center gap-3">
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-secondary">
+                <Languages className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Language</h3>
+                <p className="text-xs text-muted-foreground">
+                  Target for note translation and the default read-aloud voice
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="target-language">Target language</Label>
+              <Select
+                id="target-language"
+                value={current.targetLanguage}
                 onChange={(event) => {
-                  const next = applySettings(Object.assign({}, current, { ollamaHost: event.target.value }));
-                  saveSoon(next);
+                  const targetLanguage = event.target.value;
+                  const ttsVoice = defaultVoiceId(
+                    voices,
+                    targetLanguage,
+                    current.ttsVoice,
+                    current.ttsEngine,
+                  );
+                  stopVoicePreview();
+                  const next = applySettings(Object.assign({}, current, { targetLanguage, ttsVoice }));
+                  saveNow(next);
                 }}
-                onBlur={() => {
-                  saveNow(current);
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={probing}
-                onClick={() => void probeOllama(current)}
               >
-                {probing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Test
-              </Button>
-            </div>
-            {ollamaError.length > 0 ? (
-              <p className="text-xs text-destructive">{ollamaError}</p>
-            ) : null}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ollama-model">Model</Label>
-            <Select
-              id="ollama-model"
-              value={current.ollamaModel}
-              disabled={modelChoices.length === 0}
-              onChange={(event) => {
-                const next = applySettings(Object.assign({}, current, { ollamaModel: event.target.value }));
-                saveNow(next);
-              }}
-            >
-              <option value="">
-                {probing ? "Loading models…" : "Choose a model"}
-              </option>
-              {modelChoices.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </Select>
-            {modelChoices.length === 0 && !probing ? (
-              <p className="text-xs text-muted-foreground">
-                Start Ollama, then press Test to load the installed models.
-              </p>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="panel-card space-y-5 p-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Languages className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">Language</h2>
-              <p className="text-xs text-muted-foreground">
-                Target for note translation and the default read-aloud voice
-              </p>
+                {languages.map((lang) => (
+                  <option key={lang.id} value={lang.id}>
+                    {lang.label}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="target-language">Target language</Label>
-            <Select
-              id="target-language"
-              value={current.targetLanguage}
-              onChange={(event) => {
-                const targetLanguage = event.target.value;
-                const ttsVoice = defaultVoiceId(
-                  voices,
-                  targetLanguage,
-                  current.ttsVoice,
-                  current.ttsEngine,
-                );
-                stopVoicePreview();
-                const next = applySettings(Object.assign({}, current, { targetLanguage, ttsVoice }));
-                saveNow(next);
-              }}
-            >
-              {languages.map((lang) => (
-                <option key={lang.id} value={lang.id}>
-                  {lang.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </section>
-
-        <section className="panel-card space-y-5 p-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Volume2 className="h-4 w-4" />
+          <div className="space-y-5 border-t border-border/60 pt-5">
+            <div className="flex items-center gap-3">
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-secondary">
+                <Volume2 className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Read aloud</h3>
+                <p className="text-xs text-muted-foreground">
+                  Microsoft neural voices, or Qwen3-TTS speakers. Male and female are listed
+                  separately.
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-semibold">Read aloud</h2>
-              <p className="text-xs text-muted-foreground">
-                Microsoft neural voices, or Qwen3-TTS speakers. Male and female
-                are listed separately.
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tts-engine">Engine</Label>
               <Select
@@ -730,9 +803,10 @@ export function SettingsPage(): React.JSX.Element {
               </p>
             </div>
           ) : null}
+          </div>
         </section>
       </div>
-      </div>
+      </PageContent>
     </div>
   );
 }

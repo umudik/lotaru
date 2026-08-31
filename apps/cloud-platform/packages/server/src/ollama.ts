@@ -22,6 +22,7 @@ const RETRY_DELAY_CAP_MS = 30_000;
 const RETRY_DELAY_START_MS = 2_000;
 
 export const OLLAMA_MODEL_REQUIRED = "Choose an Ollama model in Settings";
+export const OLLAMA_HOST_REQUIRED = "Set Ollama host in Settings";
 
 const ollamaAgent = new Agent({
   headersTimeout: 0,
@@ -146,6 +147,9 @@ export function shouldRetryOllama(message: string): boolean {
   if (trimmed === OLLAMA_MODEL_REQUIRED) {
     return false;
   }
+  if (trimmed === OLLAMA_HOST_REQUIRED) {
+    return false;
+  }
   if (trimmed.length === 0) {
     return true;
   }
@@ -181,7 +185,11 @@ export function ollamaJobRetryKey(kind: string, pageId: string): string {
 }
 
 export async function listOllamaModels(host: string): Promise<string[]> {
-  const url = `${trimHost(host)}/api/tags`;
+  const trimmedHost = trimHost(host);
+  if (trimmedHost.length === 0) {
+    throw new Error(OLLAMA_HOST_REQUIRED);
+  }
+  const url = `${trimmedHost}/api/tags`;
   const res = await fetchOllama(url, { signal: AbortSignal.timeout(TAGS_TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(`Ollama is not reachable (${String(res.status)})`);
@@ -199,7 +207,11 @@ export async function runOllamaChat(
   if (model.trim().length === 0) {
     throw new Error(OLLAMA_MODEL_REQUIRED);
   }
-  const url = `${trimHost(host)}/api/chat`;
+  const trimmedHost = trimHost(host);
+  if (trimmedHost.length === 0) {
+    throw new Error(OLLAMA_HOST_REQUIRED);
+  }
+  const url = `${trimmedHost}/api/chat`;
   const res = await fetchOllama(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

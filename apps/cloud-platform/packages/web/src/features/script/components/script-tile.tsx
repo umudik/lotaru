@@ -38,6 +38,12 @@ function triggerSummary(t: Script): string {
   if (t.trigger_type === 'scheduled') {
     return 'every 10s';
   }
+  if (t.trigger_type === 'event') {
+    if (t.trigger_bus_event.length > 0) {
+      return t.trigger_bus_event;
+    }
+    return 'bus event';
+  }
   return 'run';
 }
 

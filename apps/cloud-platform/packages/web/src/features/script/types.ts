@@ -1,5 +1,5 @@
 export type RuntimeKind = 'shell' | 'docker';
-export type TriggerKind = 'save' | 'manual' | 'startup' | 'scheduled';
+export type TriggerKind = 'save' | 'manual' | 'startup' | 'scheduled' | 'event';
 export type ConcurrencyKind = 'restart' | 'queue' | 'ignore' | 'parallel';
 export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
 export type LogStream = 'out' | 'err';
@@ -30,6 +30,7 @@ export interface Script {
   docker_platform: string;
   trigger_type: TriggerKind;
   trigger_glob: string;
+  trigger_bus_event: string;
   trigger_cron: string;
   concurrency: ConcurrencyKind;
   enabled: boolean;

@@ -67,7 +67,11 @@ export async function registerProjectsModule(
     if (user === null) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    const input = createProjectSchema.parse(request.body);
+    const parsed = createProjectSchema.safeParse(request.body);
+    if (parsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid project" });
+    }
+    const input = parsed.data;
     let folderPath = input.repoPath;
     try {
       folderPath = requireExistingDirectory(input.repoPath);
@@ -98,8 +102,16 @@ export async function registerProjectsModule(
     if (user === null) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    const { projectId } = projectParamsSchema.parse(request.params);
-    const input = updateProjectSchema.parse(request.body);
+    const paramsParsed = projectParamsSchema.safeParse(request.params);
+    if (paramsParsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid project id" });
+    }
+    const { projectId } = paramsParsed.data;
+    const bodyParsed = updateProjectSchema.safeParse(request.body);
+    if (bodyParsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid project" });
+    }
+    const input = bodyParsed.data;
     let folderPath = input.repoPath;
     try {
       folderPath = requireExistingDirectory(input.repoPath);

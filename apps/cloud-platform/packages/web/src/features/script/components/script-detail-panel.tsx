@@ -20,6 +20,9 @@ import { ConfirmDuplicateDialog } from '@script/components/confirm-duplicate-dia
 import { ScriptHistory } from '@script/components/script-history';
 import { LogPanel } from '@script/components/log-panel';
 import type { InspectTarget } from '@script/components/run-dots';
+import { CATALOG_EVENT_TYPES, catalogEventLabel } from '@/lib/event-catalog';
+import { fetchEventTypes, type EventTypeOption } from '@/lib/api';
+import { useSession } from '@/hooks/useSession';
 import { cn } from '@/lib/utils';
 import { api } from '@script/api/client';
 import { actions, useStore } from '@script/state/store';
@@ -30,6 +33,7 @@ const triggerOptions: readonly { value: TriggerKind; label: string }[] = [
   { value: 'save', label: 'On save' },
   { value: 'startup', label: 'Startup' },
   { value: 'scheduled', label: 'Clock (10s)' },
+  { value: 'event', label: 'Bus event' },
 ];
 const concurrencyOptions: readonly { value: ConcurrencyKind; label: string }[] = [
   { value: 'restart', label: 'Restart' },
@@ -83,6 +87,21 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
   const [enabled, setEnabled] = useState(t.enabled);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
+  const session = useSession();
+
+  useEffect(() => {
+    if (session === null || t.project_id.length === 0) {
+      return;
+    }
+    void fetchEventTypes(session, t.project_id)
+      .then((data) => {
+        setEventTypes(data.eventTypes);
+      })
+      .catch(() => {
+        setEventTypes([]);
+      });
+  }, [session, t.project_id]);
 
   useEffect(() => {
     setName(t.name);
@@ -153,6 +172,43 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
   if (t.trigger_type === 'scheduled') {
     clockHint = (
       <p className="text-xs text-muted-foreground">Listens to clock.tick every 10 seconds.</p>
+    );
+  }
+
+  let busEventOptions: EventTypeOption[] = eventTypes;
+  if (busEventOptions.length === 0) {
+    busEventOptions = CATALOG_EVENT_TYPES.map((eventType) => ({
+      type: eventType,
+      label: '',
+      kind: 'platform' as const,
+    }));
+  }
+
+  let busEventInput: React.JSX.Element | null = null;
+  if (t.trigger_type === 'event') {
+    busEventInput = (
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <Label className="text-xs text-muted-foreground">Bus event</Label>
+        <Select
+          value={t.trigger_bus_event.length > 0 ? t.trigger_bus_event : CATALOG_EVENT_TYPES[0]}
+          onValueChange={(v) => {
+            void saveField({ trigger_bus_event: v });
+          }}
+        >
+          <SelectTrigger className="h-9 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {busEventOptions.map((entry) => (
+              <SelectItem key={entry.type} value={entry.type}>
+                {entry.kind === 'rule' && entry.label.length > 0
+                  ? `Rule: ${entry.label}`
+                  : catalogEventLabel(entry.type)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     );
   }
 
@@ -327,6 +383,7 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
               </div>
             </div>
             {globInput}
+            {busEventInput}
             {clockHint}
           </div>
 

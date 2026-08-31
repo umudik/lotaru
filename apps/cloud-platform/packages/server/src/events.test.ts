@@ -22,12 +22,14 @@ function listener(patch: {
   projectId?: string;
   triggerType?: string;
   triggerGlob?: string;
+  triggerBusEvent?: string;
   enabled?: boolean;
 }): {
   id: string;
   projectId: string;
   triggerType: string;
   triggerGlob: string;
+  triggerBusEvent: string;
   enabled: boolean;
 } {
   const base = {
@@ -35,6 +37,7 @@ function listener(patch: {
     projectId: "proj-a",
     triggerType: "manual",
     triggerGlob: "",
+    triggerBusEvent: "",
     enabled: true,
   };
   return Object.assign({}, base, patch);
@@ -257,5 +260,67 @@ describe("eventRunReason", () => {
       }),
       "save:src/a.ts",
     );
+  });
+});
+
+describe("bus event script trigger", () => {
+  it("matches explicit bus event subscriptions", () => {
+    const taskEvent = {
+      id: "e-task",
+      type: "task.created",
+      projectId: "proj-a",
+      scriptId: "",
+      path: "42",
+      detail: "Voice follow-up",
+      createdAt: 1,
+    };
+    assert.equal(
+      scriptListensToEvent(
+        listener({ triggerType: "event", triggerBusEvent: "task.created" }),
+        taskEvent,
+      ),
+      true,
+    );
+    assert.equal(
+      scriptListensToEvent(
+        listener({ triggerType: "event", triggerBusEvent: "voice.segment.final" }),
+        taskEvent,
+      ),
+      false,
+    );
+  });
+
+  it("never lets a script hear its own script.ran", () => {
+    const ranEvent = {
+      id: "e-ran",
+      type: "script.ran",
+      projectId: "proj-a",
+      scriptId: "s1",
+      path: "exec-1",
+      detail: "success",
+      createdAt: 1,
+    };
+    assert.equal(
+      scriptListensToEvent(
+        Object.assign(listener({ triggerType: "event", triggerBusEvent: "script.ran" }), {
+          id: "s1",
+        }),
+        ranEvent,
+      ),
+      false,
+    );
+    assert.equal(
+      scriptListensToEvent(
+        Object.assign(listener({ triggerType: "event", triggerBusEvent: "script.ran" }), {
+          id: "s2",
+        }),
+        ranEvent,
+      ),
+      true,
+    );
+  });
+
+  it("aliases note.page.written to note.page.created", () => {
+    assert.equal(canonicalBusEventType("note.page.written"), "note.page.created");
   });
 });

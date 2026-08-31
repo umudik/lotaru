@@ -4,7 +4,7 @@ import {
   ListTodo,
   NotebookPen,
   Settings,
-  Terminal,
+  SquareTerminal,
   BookOpen,
   Activity,
   FileText,
@@ -14,6 +14,10 @@ import {
   MicOff,
   Loader2,
   Bot,
+  Wand2,
+  Network,
+  ScrollText,
+  LayoutTemplate,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -73,10 +77,17 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             <p className="truncate px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {projectName}
             </p>
-            <NavGroup label="State">
+            <NavGroup label="Listen">
               <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
+              <NavItem to={`/projects/${projectId}/rules`} label="Rules" icon={Wand2} />
+            </NavGroup>
+            <NavGroup label="Automation">
               <NavItem to={`/projects/${projectId}/agents`} label="Agents" icon={Bot} />
-              <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={Terminal} />
+              <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={ScrollText} />
+              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
+            </NavGroup>
+            <NavGroup label="Shell">
+              <NavItem to={`/projects/${projectId}/terminal`} label="Terminal" icon={SquareTerminal} />
             </NavGroup>
             <NavGroup label="Work">
               <NavItem to={`/projects/${projectId}/tasks`} label="Tasks" icon={ListTodo} />
@@ -94,7 +105,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
               <NavItem
                 to={`/projects/${projectId}/knowledge/documentation/templates`}
                 label="Doc templates"
-                icon={FileText}
+                icon={LayoutTemplate}
               />
               <NavItem
                 to={`/projects/${projectId}/knowledge/diagrams/list`}
@@ -104,14 +115,11 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
               <NavItem
                 to={`/projects/${projectId}/knowledge/diagrams/templates`}
                 label="Diagram templates"
-                icon={GitBranch}
+                icon={Network}
               />
             </NavGroup>
             <NavGroup label="Sources">
               <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
-            </NavGroup>
-            <NavGroup label="Log">
-              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
             </NavGroup>
           </div>
         ) : fallbackProjectId ? (
@@ -130,52 +138,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
       <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
         {projectId !== null ? (
           <div className="space-y-1">
-            {voice.armed && voice.listening && voice.projectId === projectId ? (
-              <VoiceLevelBars
-                level={voice.level}
-                active={true}
-                className="mx-1"
-              />
-            ) : null}
-            <button
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                voice.armed && voice.projectId === projectId
-                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/20"
-                  : "bg-destructive/15 text-destructive hover:bg-destructive/20",
-              )}
-              onClick={() => {
-                if (voice.armed && voice.projectId === projectId) {
-                  voice.stop();
-                  return;
-                }
-                void voice.start(projectId).catch((err: unknown) => {
-                  const message =
-                    err instanceof Error && err.message.length > 0
-                      ? err.message
-                      : "Could not start Listen.";
-                  toast.error(message);
-                });
-              }}
-            >
-              {voice.reconnecting && voice.projectId === projectId ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : voice.listening && voice.projectId === projectId ? (
-                <MicOff className="h-4 w-4" />
-              ) : voice.armed && voice.projectId === projectId ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Mic className="h-4 w-4" />
-              )}
-              {voice.reconnecting && voice.projectId === projectId
-                ? "Reconnecting"
-                : voice.listening && voice.projectId === projectId
-                  ? "Listening"
-                  : voice.armed && voice.projectId === projectId
-                    ? "Connecting"
-                    : "Listen"}
-            </button>
+            <SidebarListenButton projectId={projectId} voice={voice} />
             {voice.error.length > 0 ? (
               <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
             ) : null}
@@ -195,6 +158,64 @@ function NavGroup(props: { label: string; children: React.ReactNode }): React.JS
       </p>
       {props.children}
     </div>
+  );
+}
+
+function SidebarListenButton(props: {
+  projectId: string;
+  voice: ReturnType<typeof useVoiceListen>;
+}): React.JSX.Element {
+  const listenActive = props.voice.armed && props.voice.projectId === props.projectId;
+  const listenLive = listenActive && props.voice.listening;
+  let listenLabel = "Listen";
+  if (props.voice.reconnecting && listenActive) {
+    listenLabel = "Reconnecting";
+  } else if (listenLive) {
+    listenLabel = "Listening";
+  } else if (listenActive) {
+    listenLabel = "Connecting";
+  }
+  return (
+    <button
+      type="button"
+      className={cn(
+        "relative flex h-9 w-full items-center gap-2 overflow-hidden rounded-md px-2.5 text-sm font-medium transition-colors",
+        listenActive
+          ? "bg-success/15 text-success hover:bg-success/20"
+          : "bg-destructive/15 text-destructive hover:bg-destructive/20",
+      )}
+      onClick={() => {
+        if (listenActive) {
+          props.voice.stop();
+          return;
+        }
+        void props.voice.start(props.projectId).catch((err: unknown) => {
+          const message =
+            err instanceof Error && err.message.length > 0
+              ? err.message
+              : "Could not start Listen.";
+          toast.error(message);
+        });
+      }}
+    >
+      {props.voice.reconnecting && listenActive ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+      ) : listenLive ? (
+        <MicOff className="h-4 w-4 shrink-0 opacity-90" />
+      ) : listenActive ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+      ) : (
+        <Mic className="h-4 w-4 shrink-0 opacity-90" />
+      )}
+      <span className={cn("min-w-0 flex-1 truncate text-left", listenLive && "pr-[4.25rem]")}>
+        {listenLabel}
+      </span>
+      {listenLive ? (
+        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center">
+          <VoiceLevelBars level={props.voice.level} active={true} size="wide" className="shrink-0" />
+        </span>
+      ) : null}
+    </button>
   );
 }
 

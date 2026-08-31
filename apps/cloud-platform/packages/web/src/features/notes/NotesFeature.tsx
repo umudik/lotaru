@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Loader2, Pause, Play, Plus, RotateCcw, Settings, Trash2, Volume2 } from "lucide-react";
+import { Loader2, Pause, Play, Plus, RotateCcw, Trash2, Volume2 } from "lucide-react";
+import { AiSettingsLink } from "@/components/AiSettingsLink";
+import { VoiceSettingsLink } from "@/components/VoiceSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -438,14 +440,14 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
         <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-4">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Translate, polish, and summary use Agent AI. Read-aloud uses Voice settings.
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <AiSettingsLink />
+              <VoiceSettingsLink />
+            </div>
           </div>
-          <Link
-            to="/settings"
-            className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            aria-label="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
         </div>
         <form
           className="flex gap-2 px-4 pb-3"
@@ -523,10 +525,9 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
               </Button>
             </div>
             <p className="border-b border-border/70 px-6 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              On runs that job when you add or edit a page. Translate uses the language in
-              Settings. Polish keeps the meaning and restores Turkish characters. Summary
-              shortens the same language. Each job keeps its own text, and each text can be
-              read aloud.
+              On runs that job when you add or edit a page. Translate uses the target language in
+              Voice settings. Polish and summary use Agent AI. Each job keeps its own text, and each
+              text can be read aloud.
             </p>
             <form
               className="border-b border-border/70 px-6 py-4"
@@ -714,7 +715,7 @@ function jobFailureText(errorText: string): string {
   if (trimmed.length > 0) {
     return trimmed;
   }
-  return "Ollama did not finish. Retry, or pick a model in Settings.";
+  return "Agent AI did not finish. Retry, or check Agent settings (provider and Ollama model).";
 }
 
 function VariantCard(props: {
@@ -763,7 +764,7 @@ function VariantCard(props: {
         </div>
       </div>
       {props.status === "pending" ? (
-        <p className="note-pulse text-sm text-warn">Waiting on Ollama. It keeps going until the model answers.</p>
+        <p className="note-pulse text-sm text-warn">Waiting on Agent AI. It keeps going until the model answers.</p>
       ) : props.status === "error" ? (
         <p className="text-sm text-destructive">{jobFailureText(failureText)}</p>
       ) : (

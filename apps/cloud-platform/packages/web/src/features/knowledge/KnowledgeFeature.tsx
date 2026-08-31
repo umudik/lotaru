@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { PageContent } from "@/components/layout/PageContent";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -129,20 +131,23 @@ function TemplatesPage(props: {
         title={heading}
         subtitle={`Event → ${listLabel}. Templates turn State into Knowledge.`}
         actions={
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            New template
-          </Button>
+          <div className="flex items-center gap-2">
+            <AiSettingsLink />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              New template
+            </Button>
+          </div>
         }
       />
-      <div className="flex min-h-0 flex-1">
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <PageContent className="flex min-h-0 flex-1 overflow-hidden p-0">
+        <div className="min-h-0 flex-1 overflow-y-auto py-2">
           {templates.length === 0 ? (
             <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
               <p className="text-sm font-semibold text-foreground">No templates yet</p>
@@ -199,8 +204,8 @@ function TemplatesPage(props: {
           </p>
         </div>
         {createOpen ? (
-          <aside className="flex w-[380px] shrink-0 flex-col border-l border-white/[0.07] bg-[#0a0a0a]">
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+          <aside className="flex w-[380px] shrink-0 flex-col border-l border-border bg-card/20">
+            <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
               <h2 className="text-sm font-semibold">New template</h2>
               <Button type="button" variant="ghost" size="sm" onClick={closeCreate}>
                 Close
@@ -270,7 +275,7 @@ function TemplatesPage(props: {
                 </Select>
               </div>
               {error.length > 0 ? <p className="text-xs text-destructive">{error}</p> : null}
-              <div className="mt-auto flex gap-2 border-t border-white/[0.06] pt-4">
+              <div className="mt-auto flex gap-2 border-t border-border/60 pt-4">
                 <Button type="button" variant="outline" className="flex-1" onClick={closeCreate}>
                   Cancel
                 </Button>
@@ -282,7 +287,7 @@ function TemplatesPage(props: {
             </form>
           </aside>
         ) : null}
-      </div>
+      </PageContent>
     </div>
   );
 }
@@ -329,9 +334,10 @@ function ArtifactsPage(props: {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title={heading}
-        subtitle="Generated from templates when matching events land."
+        subtitle="Generated from templates when matching events land. Uses shared Agent AI."
+        actions={<AiSettingsLink />}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <PageContent className="overflow-y-auto">
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         {artifacts.length === 0 ? (
           <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
@@ -377,7 +383,7 @@ function ArtifactsPage(props: {
             ))}
           </ul>
         )}
-      </div>
+      </PageContent>
     </div>
   );
 }
@@ -482,8 +488,8 @@ export function KnowledgeFeature(props: { projectId: string }): React.JSX.Elemen
   const base = knowledgeBase(props.projectId);
   return (
     <Routes>
-      <Route index element={<Navigate to={`${base}/documentation/templates`} replace />} />
-      <Route path="documentation" element={<Navigate to={`${base}/documentation/templates`} replace />} />
+      <Route index element={<Navigate to={`${base}/documentation/list`} replace />} />
+      <Route path="documentation" element={<Navigate to={`${base}/documentation/list`} replace />} />
       <Route
         path="documentation/templates"
         element={<TemplatesPage projectId={props.projectId} kind="document" />}
@@ -506,7 +512,7 @@ export function KnowledgeFeature(props: { projectId: string }): React.JSX.Elemen
         path="diagrams/list/:artifactId"
         element={<ArtifactDetail projectId={props.projectId} kind="diagram" />}
       />
-      <Route path="*" element={<Navigate to={`${base}/documentation/templates`} replace />} />
+      <Route path="*" element={<Navigate to={`${base}/documentation/list`} replace />} />
     </Routes>
   );
 }

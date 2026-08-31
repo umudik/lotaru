@@ -1,68 +1,186 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plus, Play, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
+import { AiSettingsLink } from "@/components/AiSettingsLink";
+import { InlineErrorBanner } from "@/components/InlineErrorBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { EmptyStatePanel } from "@/components/EmptyStatePanel";
+import { ResizeHandle } from "@script/components/resize-handle";
+import { useDragResize } from "@script/hooks/use-drag-resize";
 import { useSession } from "@/hooks/useSession";
 import {
   createAgent,
   deleteAgent,
+  fetchAgentSettings,
   fetchAgents,
+  fetchAppSettings,
+  fetchEventTypes,
+  patchAgent,
   runAgentNow,
+  type EventTypeOption,
   type LotaruAgent,
 } from "@/lib/api";
-import { CATALOG_EVENT_TYPES, catalogEventLabel } from "@/lib/event-catalog";
+import { eventLabelWithRules } from "@/lib/event-catalog";
+import { agentRuntimeDetail } from "@/lib/agent-runtime-label";
 import { cn } from "@/lib/utils";
+import {
+  AgentDetailPanel,
+  draftFromAgent,
+  emptyAgentDraft,
+  type CreateDraft,
+} from "./AgentDetailPanel";
 
-function hourOptions(): number[] {
-  const hours: number[] = [];
-  for (let hour = 0; hour < 24; hour += 1) {
-    hours.push(hour);
+type PanelMode = "closed" | "create" | "edit";
+
+function detailPanelWidth(open: boolean, size: number): number {
+  if (open) {
+    return size;
   }
-  return hours;
-}
-
-function minuteOptions(): number[] {
-  return [0, 15, 30, 45];
+  return 0;
 }
 
 export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
   const session = useSession();
   const [agents, setAgents] = useState<LotaruAgent[]>([]);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [trigger, setTrigger] = useState<"event" | "schedule">("schedule");
-  const [eventType, setEventType] = useState("note.page.written");
-  const [scheduleHour, setScheduleHour] = useState(21);
-  const [scheduleMinute, setScheduleMinute] = useState(0);
-  const [includeVoice, setIncludeVoice] = useState(true);
-  const [noteBookTitle, setNoteBookTitle] = useState("Günlük");
+  const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
+  const [panelMode, setPanelMode] = useState<PanelMode>("closed");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<CreateDraft>(emptyAgentDraft());
+  const [runtime, setRuntime] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [runningId, setRunningId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [viewportMaxDetail, setViewportMaxDetail] = useState(960);
+  const detailResize = useDragResize({
+    storageKey: "agents-workspace-detail-width",
+    initial: 520,
+    min: 380,
+    max: viewportMaxDetail,
+  });
 
-    const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (): Promise<void> => {
     if (session === null) {
       return;
     }
-    const data = await fetchAgents(session, props.projectId);
-    setAgents(data.agents);
+    const [agentData, eventTypeData] = await Promise.all([
+      fetchAgents(session, props.projectId),
+      fetchEventTypes(session, props.projectId),
+    ]);
+    setAgents(agentData.agents);
+    setEventTypes(eventTypeData.eventTypes);
   }, [session, props.projectId]);
 
-  useEffect(() => {
-    void load().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : "load failed");
-    });
-  }, [load]);
+  const loadRuntime = useCallback(async (): Promise<void> => {
+    if (session === null) {
+      return;
+    }
+    const [agentData, appData] = await Promise.all([
+      fetchAgentSettings(session),
+      fetchAppSettings(session),
+    ]);
+    setRuntime(
+      agentRuntimeDetail(
+        agentData.profile.kind,
+        appData.settings.ollamaModel,
+        agentData.profile.mode,
+      ),
+    );
+  }, [session]);
 
-  function closeCreate(): void {
-    setCreateOpen(false);
-    setTitle("");
-    setPrompt("");
+  useEffect(() => {
+    void (async () => {
+      try {
+        await load();
+        setError("");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "load failed");
+      } finally {
+        setLoading(false);
+      }
+    })();
+    void loadRuntime().catch(() => {
+      setRuntime("");
+    });
+  }, [load, loadRuntime]);
+
+  useEffect(() => {
+    function onVisible(): void {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void loadRuntime().catch(() => {
+        setRuntime("");
+      });
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
+  }, [loadRuntime]);
+
+  useEffect(() => {
+    setPanelMode("closed");
+    setSelectedId(null);
+    setDraft(emptyAgentDraft());
+    setError("");
+  }, [props.projectId]);
+
+  useEffect(() => {
+    function syncMax(): void {
+      setViewportMaxDetail(Math.max(480, Math.floor(window.innerWidth * 0.78)));
+    }
+    syncMax();
+    window.addEventListener("resize", syncMax);
+    return () => {
+      window.removeEventListener("resize", syncMax);
+    };
+  }, []);
+
+  let selectedAgent: LotaruAgent | null = null;
+  if (selectedId !== null) {
+    for (const agent of agents) {
+      if (agent.id === selectedId) {
+        selectedAgent = agent;
+      }
+    }
+  }
+
+  const detailOpen = panelMode !== "closed";
+
+  function closePanel(): void {
+    setPanelMode("closed");
+    setSelectedId(null);
+    setDraft(emptyAgentDraft());
+    setError("");
+  }
+
+  function openCreate(): void {
+    setPanelMode("create");
+    setSelectedId(null);
+    setDraft(emptyAgentDraft());
+    setError("");
+  }
+
+  function selectAgent(agentId: string): void {
+    if (selectedId === agentId && panelMode === "edit") {
+      closePanel();
+      return;
+    }
+    let found: LotaruAgent | null = null;
+    for (const agent of agents) {
+      if (agent.id === agentId) {
+        found = agent;
+      }
+    }
+    if (found === null) {
+      return;
+    }
+    setPanelMode("edit");
+    setSelectedId(agentId);
+    setDraft(draftFromAgent(found));
     setError("");
   }
 
@@ -70,28 +188,32 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     if (session === null) {
       return;
     }
-    const trimmedTitle = title.trim();
-    const trimmedPrompt = prompt.trim();
+    const trimmedTitle = draft.title.trim();
+    const trimmedPrompt = draft.prompt.trim();
     if (trimmedTitle.length === 0 || trimmedPrompt.length === 0) {
+      setError("Title and prompt are required");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      await createAgent(session, {
+      const created = await createAgent(session, {
         projectId: props.projectId,
         title: trimmedTitle,
         prompt: trimmedPrompt,
-        trigger,
-        eventType: trigger === "event" ? eventType : undefined,
-        scheduleHour: trigger === "schedule" ? scheduleHour : undefined,
-        scheduleMinute: trigger === "schedule" ? scheduleMinute : undefined,
-        includeVoice,
-        noteBookTitle: noteBookTitle.trim(),
-        enabled: true,
+        trigger: draft.trigger,
+        eventType: draft.trigger === "event" ? draft.eventType : undefined,
+        scheduleHour: draft.trigger === "schedule" ? draft.scheduleHour : undefined,
+        scheduleMinute: draft.trigger === "schedule" ? draft.scheduleMinute : undefined,
+        includeVoice: draft.includeVoice,
+        action: draft.action,
+        noteBookTitle: draft.noteBookTitle.trim(),
+        enabled: draft.enabled,
       });
-      closeCreate();
       await load();
+      setSelectedId(created.id);
+      setPanelMode("edit");
+      setDraft(draftFromAgent(created));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "create failed");
     } finally {
@@ -99,22 +221,57 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     }
   }
 
-  async function onDelete(agentId: string): Promise<void> {
-    if (session === null) {
+  async function onSave(): Promise<void> {
+    if (session === null || selectedId === null) {
       return;
     }
-    await deleteAgent(session, agentId);
+    const trimmedTitle = draft.title.trim();
+    const trimmedPrompt = draft.prompt.trim();
+    if (trimmedTitle.length === 0 || trimmedPrompt.length === 0) {
+      setError("Title and prompt are required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await patchAgent(session, selectedId, {
+        title: trimmedTitle,
+        prompt: trimmedPrompt,
+        trigger: draft.trigger,
+        eventType: draft.trigger === "event" ? draft.eventType : "",
+        scheduleHour: draft.scheduleHour,
+        scheduleMinute: draft.scheduleMinute,
+        includeVoice: draft.includeVoice,
+        action: draft.action,
+        noteBookTitle: draft.noteBookTitle.trim(),
+        enabled: draft.enabled,
+      });
+      await load();
+      setDraft(draftFromAgent(saved));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onDelete(): Promise<void> {
+    if (session === null || selectedId === null) {
+      return;
+    }
+    await deleteAgent(session, selectedId);
+    closePanel();
     await load();
   }
 
-  async function onRun(agentId: string): Promise<void> {
-    if (session === null) {
+  async function onRun(): Promise<void> {
+    if (session === null || selectedId === null) {
       return;
     }
-    setRunningId(agentId);
+    setRunningId(selectedId);
     setError("");
     try {
-      await runAgentNow(session, agentId);
+      await runAgentNow(session, selectedId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "run failed");
     } finally {
@@ -122,186 +279,130 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     }
   }
 
+  // Rules and bus-writing agents both mint event types the user named.
+  const mintedLabels: Record<string, string> = {};
+  for (const entry of eventTypes) {
+    if (entry.kind === "rule" || entry.kind === "agent") {
+      mintedLabels[entry.type] = entry.label;
+    }
+  }
+
+  let agentsSubtitle =
+    "An agent runs one prompt when an event fires or at a set time each day, then turns the reply into a note, a task, an event on the bus, or nothing.";
+  if (runtime.length > 0) {
+    agentsSubtitle = `${runtime} · ${agentsSubtitle}`;
+  }
+
   return (
-    <div className="space-y-4 p-6">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Agents"
-        subtitle="Prompt + daily schedule or event. Optional voice context and note book write."
+        subtitle={agentsSubtitle}
         actions={
-          <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            New agent
-          </Button>
+          <div className="flex items-center gap-2">
+            <AiSettingsLink />
+            <Button type="button" size="sm" className="shrink-0" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              New agent
+            </Button>
+          </div>
         }
       />
-
-      {error.length > 0 ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
-      ) : null}
-
-      {createOpen ? (
-        <div className="panel-card space-y-3 p-4">
-          <div className="space-y-1">
-            <Label htmlFor="agent-title">Title</Label>
-            <Input
-              id="agent-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Daily journal"
-            />
+      <div className="flex min-h-0 flex-1 overflow-hidden border-t">
+      <div className="flex min-w-[280px] flex-1 flex-col px-8">
+        {error.length > 0 && panelMode === "closed" ? (
+          <div className="mt-3">
+            <InlineErrorBanner message={error} />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="agent-prompt">Prompt</Label>
-            <textarea
-              id="agent-prompt"
-              className="min-h-[120px] w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Read today's voice transcripts and write a short daily journal."
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="agent-trigger">Trigger</Label>
-              <Select
-                id="agent-trigger"
-                value={trigger}
-                onChange={(event) => {
-                  if (event.target.value === "event" || event.target.value === "schedule") {
-                    setTrigger(event.target.value);
-                  }
-                }}
-              >
-                <option value="schedule">Daily schedule</option>
-                <option value="event">Event</option>
-              </Select>
-            </div>
-            {trigger === "event" ? (
-              <div className="space-y-1">
-                <Label htmlFor="agent-event">Event</Label>
-                <Select
-                  id="agent-event"
-                  value={eventType}
-                  onChange={(event) => setEventType(event.target.value)}
-                >
-                  {CATALOG_EVENT_TYPES.map((entry) => (
-                    <option key={entry} value={entry}>
-                      {catalogEventLabel(entry)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="agent-hour">Hour</Label>
-                  <Select
-                    id="agent-hour"
-                    value={String(scheduleHour)}
-                    onChange={(event) => setScheduleHour(Number(event.target.value))}
-                  >
-                    {hourOptions().map((hour) => (
-                      <option key={hour} value={hour}>
-                        {String(hour).padStart(2, "0")}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="agent-minute">Minute</Label>
-                  <Select
-                    id="agent-minute"
-                    value={String(scheduleMinute)}
-                    onChange={(event) => setScheduleMinute(Number(event.target.value))}
-                  >
-                    {minuteOptions().map((minute) => (
-                      <option key={minute} value={minute}>
-                        {String(minute).padStart(2, "0")}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-            <div>
-              <p className="text-sm font-medium">Include voice transcripts</p>
-              <p className="text-xs text-muted-foreground">Inject recent segments into the prompt</p>
-            </div>
-            <Switch checked={includeVoice} onCheckedChange={setIncludeVoice} />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="agent-book">Note book title</Label>
-            <Input
-              id="agent-book"
-              value={noteBookTitle}
-              onChange={(event) => setNoteBookTitle(event.target.value)}
-              placeholder="Günlük"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              If set, agent output becomes a page in this book and emits note.page.written.
-            </p>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={closeCreate}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void onCreate()} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Create
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="space-y-2">
-        {agents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No agents yet. Create one for a daily journal or an event-driven workflow.
-          </p>
         ) : null}
-        {agents.map((agent) => (
-          <div
-            key={agent.id}
-            className={cn(
-              "panel-card flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between",
-              agent.enabled !== true && "opacity-60",
-            )}
-          >
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-semibold">{agent.title}</p>
-              <p className="text-xs text-muted-foreground">
-                {agent.trigger === "schedule"
-                  ? `Daily at ${String(agent.scheduleHour).padStart(2, "0")}:${String(agent.scheduleMinute).padStart(2, "0")}`
-                  : catalogEventLabel(agent.eventType)}
-                {agent.includeVoice ? " · voice" : ""}
-                {agent.noteBookTitle.length > 0 ? ` · notes → ${agent.noteBookTitle}` : ""}
-              </p>
-              <p className="line-clamp-3 text-sm text-muted-foreground">{agent.prompt}</p>
+
+        <div className="min-h-0 flex-1 overflow-y-auto py-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading agents…</p>
+          ) : agents.length === 0 ? (
+            <EmptyStatePanel
+              title="No agents yet"
+              description="Pick when it runs, write the prompt, choose what happens to the reply. Rules from the Rules page show up in the event list, so an agent can react to something you said out loud."
+              action={
+                <Button type="button" size="sm" onClick={openCreate}>
+                  <Plus className="h-4 w-4" />
+                  New agent
+                </Button>
+              }
+            />
+          ) : (
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  type="button"
+                  className={cn(
+                    "panel-card rounded-lg p-4 text-left transition-colors hover:bg-secondary/40",
+                    selectedId === agent.id && panelMode === "edit" && "ring-1 ring-primary",
+                    agent.enabled !== true && "opacity-60",
+                  )}
+                  onClick={() => {
+                    selectAgent(agent.id);
+                  }}
+                >
+                  <p className="text-sm font-semibold">{agent.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {agent.trigger === "schedule"
+                      ? `Daily at ${String(agent.scheduleHour).padStart(2, "0")}:${String(agent.scheduleMinute).padStart(2, "0")}`
+                      : eventLabelWithRules(agent.eventType, mintedLabels)}
+                    {agent.action === "note" ? " → note" : ""}
+                    {agent.action === "task" ? " → task" : ""}
+                    {agent.action === "event" ? ` → ${agent.outputEventType}` : ""}
+                    {agent.includeVoice ? " · voice" : ""}
+                    {agent.enabled !== true ? " · off" : ""}
+                  </p>
+                  <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{agent.prompt}</p>
+                </button>
+              ))}
             </div>
-            <div className="flex shrink-0 gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => void onRun(agent.id)}
-                disabled={runningId === agent.id}
-              >
-                {runningId === agent.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                Run
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => void onDelete(agent.id)}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
+          )}
+        </div>
       </div>
+
+      {detailOpen ? (
+        <ResizeHandle onMouseDown={detailResize.onHandleMouseDown} active={detailResize.dragging} />
+      ) : null}
+
+      <div
+        className={cn(
+          "flex shrink-0 flex-col overflow-hidden bg-card/20",
+          detailOpen && !detailResize.dragging && "transition-[width] duration-200 ease-out",
+        )}
+        style={{ width: detailPanelWidth(detailOpen, detailResize.size) }}
+      >
+        {detailOpen ? (
+          <AgentDetailPanel
+            mode={panelMode === "create" ? "create" : "edit"}
+            agent={selectedAgent}
+            draft={draft}
+            runtimeLabel={runtime}
+            eventTypes={eventTypes}
+            saving={saving}
+            running={runningId.length > 0}
+            error={error}
+            onDraftChange={setDraft}
+            onClose={closePanel}
+            onCreate={() => {
+              void onCreate();
+            }}
+            onSave={() => {
+              void onSave();
+            }}
+            onRun={() => {
+              void onRun();
+            }}
+            onDelete={() => {
+              void onDelete();
+            }}
+          />
+        ) : null}
+      </div>
+    </div>
     </div>
   );
 }

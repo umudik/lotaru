@@ -96,4 +96,64 @@ describe("knowledge templates fire", () => {
     assert.equal(artifacts[0].body, "body-one");
     assert.equal(artifacts[1].body, "body-two");
   });
+
+  it("keeps an empty artifact body when the agent fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lotaru-knowledge-templates-fail-"));
+    const databasePath = join(dir, "app.sqlite");
+    const db = openKnowledgeTemplateDb(databasePath);
+    saveAgentProfile(openAgentDb(databasePath), {
+      kind: "ollama",
+      mode: "ask",
+      command: "",
+    });
+    const templateId = randomUUID();
+    const createdAt = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO knowledge_templates (id, project_id, kind, title, event_type, description, language, enabled, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      templateId,
+      PROJECT_ID,
+      "document",
+      "Quality report",
+      "file.changed",
+      "Summarize what changed.",
+      "en",
+      1,
+      createdAt,
+      "tester@lotaru.local",
+    );
+
+    const errors: string[] = [];
+    await fireKnowledgeTemplatesForEvent({
+      databasePath,
+      projectId: PROJECT_ID,
+      eventId: "evt-fail",
+      eventType: "file.changed",
+      path: "src/c.ts",
+      detail: "edited",
+      projectCwd: () => dir,
+      runAgent: async () => {
+        throw new Error("Ollama unavailable");
+      },
+      onAgentError: (failure) => {
+        errors.push(failure.message);
+      },
+    });
+
+    const raw = db
+      .prepare(
+        "SELECT body FROM knowledge_artifacts WHERE project_id = ? AND template_id = ?",
+      )
+      .all(PROJECT_ID, templateId);
+    assert.equal(Array.isArray(raw), true);
+    assert.equal(raw.length, 1);
+    const rowSchema = z.object({ body: z.string() });
+    const parsed = rowSchema.safeParse(raw[0]);
+    if (parsed.success !== true) {
+      assert.fail("artifact row missing");
+    }
+    assert.equal(parsed.data.body, "");
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /Ollama unavailable/);
+  });
 });

@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import type { WebSocket } from "ws";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import {
   EVENT_APP_STARTED,
   EVENT_CLOCK_TICK,
   EVENT_FILE_CHANGED,
+  EVENT_SCRIPT_RAN,
   canonicalBusEventType,
   eventRunReason,
   isBusEventType,
@@ -29,32 +30,24 @@ import { ensureEventLogSchema, eventsById, listProjectEvents, recordEvent } from
 import { createFileWatchers } from "../file-watch.js";
 import { mergeGithubWatches, pollGithubOnce, startGithubPoller, type GithubWatch } from "../github-poll.js";
 import { listGithubReposAt } from "../github-remote.js";
-import { createIntentTask } from "../intent-task.js";
-import { fireKnowledgeTemplatesForEvent } from "./knowledge-templates.js";
-import { fireAgentsForEvent } from "./agents.js";
-import { setLotaruEventPublisher } from "../event-bus.js";
 import {
-  claimReactionFire,
-  deleteReaction,
-  ensureReactionSchema,
-  insertReaction,
-  listEnabledGithubRepos,
-  listReactions,
-  loadGithubToken,
-  parseReactionInput,
-  releaseReactionFire,
-} from "../reaction-store.js";
+  fireKnowledgeTemplatesForEvent,
+  listProjectEventTemplates,
+} from "./knowledge-templates.js";
+import { fireAgentsForEvent, listAgents, openAgentsDb } from "./agents.js";
+import { setLotaruEventPublisher, tryPublishLotaruEvent } from "../event-bus.js";
+import { ensureGithubSchema, loadGithubToken } from "../github-store.js";
 import {
   eventListenerRefs,
-  reactionEventTypesForClient,
-  reactionFireFingerprint,
-  reactionMatchesEvent,
-  REACTION_CREATE_TASK,
+  isKnownEventType,
+  type NamedEventAgent,
   type NamedEventScript,
-} from "../reactions.js";
+  type NamedEventTemplate,
+} from "../event-registry.js";
+import { tickVoiceBatchScans } from "../voice-batch.js";
 
 type RuntimeKind = "shell" | "docker";
-type TriggerKind = "save" | "manual" | "startup" | "scheduled";
+type TriggerKind = "save" | "manual" | "startup" | "scheduled" | "event";
 type ConcurrencyKind = "restart" | "queue" | "ignore" | "parallel";
 type ExecutionStatus = "pending" | "running" | "success" | "failed" | "cancelled";
 
@@ -86,6 +79,7 @@ type Script = {
   docker_platform: string;
   trigger_type: TriggerKind;
   trigger_glob: string;
+  trigger_bus_event: string;
   trigger_cron: string;
   concurrency: ConcurrencyKind;
   enabled: boolean;
@@ -156,6 +150,7 @@ CREATE TABLE IF NOT EXISTS script_scripts (
   docker_platform TEXT NOT NULL DEFAULT '',
   trigger_type TEXT NOT NULL,
   trigger_glob TEXT NOT NULL DEFAULT '',
+  trigger_bus_event TEXT NOT NULL DEFAULT '',
   trigger_cron TEXT NOT NULL DEFAULT '',
   concurrency TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -179,7 +174,7 @@ function isRuntime(v: unknown): v is RuntimeKind {
   return parseHostRuntime(v) === "shell";
 }
 function isTrigger(v: unknown): v is TriggerKind {
-  return v === "save" || v === "manual" || v === "startup" || v === "scheduled";
+  return v === "save" || v === "manual" || v === "startup" || v === "scheduled" || v === "event";
 }
 function isConcurrency(v: unknown): v is ConcurrencyKind {
   return v === "restart" || v === "queue" || v === "ignore" || v === "parallel";
@@ -193,6 +188,7 @@ type CreateScriptBody = {
   docker_platform: string;
   trigger_type: TriggerKind;
   trigger_glob: string;
+  trigger_bus_event: string;
   trigger_cron: string;
   concurrency: ConcurrencyKind;
   enabled: boolean;
@@ -208,7 +204,7 @@ function optionalString(raw: unknown): string | "invalid" {
   return raw;
 }
 
-function validateCreateScript(body: unknown): CreateScriptBody | string {
+export function validateCreateScript(body: unknown): CreateScriptBody | string {
   if (typeof body !== "object" || body === null) {
     return "body must be object";
   }
@@ -244,6 +240,18 @@ function validateCreateScript(body: unknown): CreateScriptBody | string {
   if (triggerCron === "invalid") {
     return "trigger_cron must be a string";
   }
+  const triggerBusEvent = optionalString(b["trigger_bus_event"]);
+  if (triggerBusEvent === "invalid") {
+    return "trigger_bus_event must be a string";
+  }
+  if (b["trigger_type"] === "event") {
+    if (triggerBusEvent.length === 0) {
+      return "trigger_bus_event required for event trigger";
+    }
+    if (isKnownEventType(canonicalBusEventType(triggerBusEvent)) !== true) {
+      return "invalid trigger_bus_event";
+    }
+  }
   let enabled = true;
   if (b["enabled"] !== undefined) {
     if (typeof b["enabled"] !== "boolean") {
@@ -259,13 +267,14 @@ function validateCreateScript(body: unknown): CreateScriptBody | string {
     docker_platform: dockerPlatform,
     trigger_type: b["trigger_type"],
     trigger_glob: triggerGlob,
+    trigger_bus_event: triggerBusEvent,
     trigger_cron: triggerCron,
     concurrency: b["concurrency"],
     enabled,
   };
 }
 
-function parseEnvVarsBody(raw: unknown): Record<string, string> | string {
+export function parseEnvVarsBody(raw: unknown): Record<string, string> | string {
   if (raw === undefined) {
     return {};
   }
@@ -298,7 +307,17 @@ export async function registerScriptRunnerModule(
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
   ensureEventLogSchema(db);
-  ensureReactionSchema(db);
+  ensureGithubSchema(db);
+  const scriptColumns = db.prepare("PRAGMA table_info(script_scripts)").all() as { name: string }[];
+  let hasTriggerBusEvent = false;
+  for (const column of scriptColumns) {
+    if (column.name === "trigger_bus_event") {
+      hasTriggerBusEvent = true;
+    }
+  }
+  if (hasTriggerBusEvent !== true) {
+    db.exec("ALTER TABLE script_scripts ADD COLUMN trigger_bus_event TEXT NOT NULL DEFAULT ''");
+  }
   db.prepare("UPDATE script_scripts SET runtime = 'shell' WHERE runtime != 'shell'").run();
 
   const startedAtBoot = Date.now();
@@ -328,6 +347,7 @@ export async function registerScriptRunnerModule(
     docker_platform: string;
     trigger_type: string;
     trigger_glob: string;
+    trigger_bus_event: string;
     trigger_cron: string;
     concurrency: string;
     enabled: number;
@@ -378,6 +398,7 @@ export async function registerScriptRunnerModule(
       docker_platform: row.docker_platform,
       trigger_type: isTrigger(row.trigger_type) ? row.trigger_type : "manual",
       trigger_glob: row.trigger_glob,
+      trigger_bus_event: row.trigger_bus_event.length > 0 ? row.trigger_bus_event : "",
       trigger_cron: row.trigger_cron,
       concurrency: isConcurrency(row.concurrency) ? row.concurrency : "ignore",
       enabled: row.enabled === 1,
@@ -421,20 +442,6 @@ export async function registerScriptRunnerModule(
       return null;
     }
     return getOrCreateProjectSettings(projectId, user.id);
-  }
-
-  async function githubReactionContext(projectId: string): Promise<{
-    connected: boolean;
-    repos: string[];
-  }> {
-    const token = loadGithubToken(db);
-    const connected = token.length > 0;
-    const bridge = getProjectById(projectId);
-    let repos: string[] = [];
-    if (bridge !== null) {
-      repos = await listGithubReposAt(bridge.repoPath);
-    }
-    return { connected, repos };
   }
 
   function getScript(id: string): Script | null {
@@ -570,12 +577,43 @@ export async function registerScriptRunnerModule(
       ts: endedAt,
     });
     const script = getScript(exec.script_id);
+    if (script !== null) {
+      tryPublishLotaruEvent(
+        {
+          type: EVENT_SCRIPT_RAN,
+          projectId: script.project_id,
+          scriptId: script.id,
+          path: executionId,
+          detail: status,
+        },
+        "live",
+      );
+    }
     if (script !== null && queued.delete(script.id)) {
-      triggerScript(script, "queue:drain");
+      triggerScript(script, "queue:drain", null);
     }
   }
 
-  function startExecution(script: Script, project: ProjectSettings, reason: string): void {
+  /** Bus payload the run was triggered by, surfaced to the script as env vars. */
+  function eventEnv(event: LotaruEvent | null): Record<string, string> {
+    if (event === null) {
+      return {};
+    }
+    return {
+      LOTARU_EVENT_ID: event.id,
+      LOTARU_EVENT_TYPE: event.type,
+      LOTARU_EVENT_PATH: event.path,
+      LOTARU_EVENT_DETAIL: event.detail,
+      LOTARU_PROJECT_ID: event.projectId,
+    };
+  }
+
+  function startExecution(
+    script: Script,
+    project: ProjectSettings,
+    reason: string,
+    event: LotaruEvent | null,
+  ): void {
     const executionId = nanoid(12);
     const now = Date.now();
     const logPath = join(logsDir, `${executionId}.log`);
@@ -660,7 +698,7 @@ export async function registerScriptRunnerModule(
         const spec = hostShellSpawn(process.platform, script.command);
         const childProc = spawn(spec.cmd, spec.args, {
           cwd,
-          env: hostProcessEnv({}),
+          env: hostProcessEnv(eventEnv(event)),
           stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
         });
@@ -709,7 +747,7 @@ export async function registerScriptRunnerModule(
     run();
   }
 
-  function triggerScript(script: Script, reason: string): void {
+  function triggerScript(script: Script, reason: string, event: LotaruEvent | null): void {
     if (!script.enabled) {
       return;
     }
@@ -719,7 +757,7 @@ export async function registerScriptRunnerModule(
     }
     if (isScriptRunning(script.id)) {
       if (script.concurrency === "parallel") {
-        startExecution(script, project, reason);
+        startExecution(script, project, reason, event);
         return;
       }
       if (script.concurrency === "restart") {
@@ -733,7 +771,7 @@ export async function registerScriptRunnerModule(
       }
       return;
     }
-    startExecution(script, project, reason);
+    startExecution(script, project, reason, event);
   }
 
   function listenerScript(script: Script): EventListenerScript {
@@ -742,6 +780,7 @@ export async function registerScriptRunnerModule(
       projectId: script.project_id,
       triggerType: script.trigger_type,
       triggerGlob: script.trigger_glob,
+      triggerBusEvent: script.trigger_bus_event,
       enabled: script.enabled,
     };
   }
@@ -753,9 +792,14 @@ export async function registerScriptRunnerModule(
       scriptId: string;
       path: string;
       detail: string;
+      /**
+       * Set when an agent published this event. Agents subscribe to each other
+       * like anything else, so the chain — not a blanket skip — is what keeps a
+       * cycle from running forever.
+       */
+      agentChain?: readonly string[];
     },
     emitKind: "live" | "replay",
-    flags: { skipAgents: boolean } = { skipAgents: false },
   ): LotaruEvent {
     const event: LotaruEvent = {
       id: nanoid(12),
@@ -768,32 +812,6 @@ export async function registerScriptRunnerModule(
     };
     recordEvent(db, event);
     const reason = eventRunReason(event);
-    const reactions = listReactions(db, event.projectId);
-    let skipClaim = false;
-    if (emitKind === "replay") {
-      skipClaim = true;
-    }
-    for (const reaction of reactions) {
-      if (!reactionMatchesEvent(reaction, event)) {
-        continue;
-      }
-      const fingerprint = reactionFireFingerprint(reaction, event);
-      if (skipClaim !== true) {
-        if (!claimReactionFire(db, fingerprint, reaction.id)) {
-          continue;
-        }
-      }
-      try {
-        if (reaction.action === REACTION_CREATE_TASK) {
-          createIntentTask(event, reaction);
-        }
-      } catch (err) {
-        if (skipClaim !== true) {
-          releaseReactionFire(db, fingerprint);
-        }
-        app.log.error({ err, type: event.type }, "reaction failed");
-      }
-    }
     void fireKnowledgeTemplatesForEvent({
       databasePath: options.databasePath,
       projectId: event.projectId,
@@ -801,36 +819,31 @@ export async function registerScriptRunnerModule(
       eventType: event.type,
       path: event.path,
       detail: event.detail,
+      onAgentError: (failure) => {
+        app.log.warn(failure, "knowledge template agent failed");
+      },
     }).catch((err) => {
       app.log.error({ err, type: event.type }, "knowledge template fire failed");
     });
-    if (flags.skipAgents !== true) {
-      void fireAgentsForEvent({
-        databasePath: options.databasePath,
-        projectId: event.projectId,
-        eventId: event.id,
-        eventType: event.type,
-        path: event.path,
-        detail: event.detail,
-        emitEvent: (nested) => emitLotaruEvent(nested, "live", { skipAgents: true }),
-      }).catch((err) => {
-        app.log.error({ err, type: event.type }, "agent fire failed");
-      });
-    }
-    if (event.scriptId.length > 0) {
-      const targeted = getScript(event.scriptId);
-      if (targeted === null) {
-        return event;
-      }
-      if (scriptListensToEvent(listenerScript(targeted), event)) {
-        triggerScript(targeted, reason);
-      }
-      return event;
-    }
+    void fireAgentsForEvent({
+      databasePath: options.databasePath,
+      projectId: event.projectId,
+      eventId: event.id,
+      eventType: event.type,
+      path: event.path,
+      detail: event.detail,
+      agentChain: partial.agentChain,
+      emitEvent: (nested) => emitLotaruEvent(nested, "live"),
+    }).catch((err) => {
+      app.log.error({ err, type: event.type }, "agent fire failed");
+    });
+    // Scripts are event subscribers like everything else: no event is routed to
+    // one script by id. scriptListensToEvent keeps a script from hearing its own
+    // script.ran, which is the only self-reference the bus can produce.
     const scripts = listScripts(event.projectId);
     for (const script of scripts) {
       if (scriptListensToEvent(listenerScript(script), event)) {
-        triggerScript(script, reason);
+        triggerScript(script, reason, event);
       }
     }
     return event;
@@ -838,21 +851,7 @@ export async function registerScriptRunnerModule(
 
   setLotaruEventPublisher(emitLotaruEvent);
 
-  function projectIdForGithubRepo(repo: string): string {
-    const row = db
-      .prepare("SELECT project_id FROM lotaru_reactions WHERE repo = ? AND enabled = 1 LIMIT 1")
-      .get(repo) as { project_id: string } | undefined;
-    if (row === undefined) {
-      return "";
-    }
-    return row.project_id;
-  }
-
   async function loadGithubWatches(): Promise<GithubWatch[]> {
-    const fromReactions: GithubWatch[] = [];
-    for (const repo of listEnabledGithubRepos(db)) {
-      fromReactions.push({ repo, projectId: projectIdForGithubRepo(repo) });
-    }
     const fromRemotes: GithubWatch[] = [];
     for (const project of refreshProjectRegistry()) {
       const remotes = await listGithubReposAt(project.repoPath);
@@ -860,7 +859,7 @@ export async function registerScriptRunnerModule(
         fromRemotes.push({ repo, projectId: project.id });
       }
     }
-    return mergeGithubWatches(fromReactions, fromRemotes);
+    return mergeGithubWatches(fromRemotes);
   }
 
   function emitGithubPoll(payload: { type: string; projectId: string; path: string; detail: string }): void {
@@ -890,12 +889,17 @@ export async function registerScriptRunnerModule(
 
   function refreshFileWatches(): void {
     const projects = refreshProjectRegistry();
+    const dataRoot = resolve(options.dataDir);
     const targets: { projectId: string; rootPath: string }[] = [];
     for (const project of projects) {
       if (project.repoPath.length === 0) {
         continue;
       }
       if (!existsSync(project.repoPath)) {
+        continue;
+      }
+      const repoRoot = resolve(project.repoPath);
+      if (repoRoot === dataRoot) {
         continue;
       }
       targets.push({ projectId: project.id, rootPath: project.repoPath });
@@ -905,7 +909,9 @@ export async function registerScriptRunnerModule(
 
   function tickClock(): void {
     const projects = refreshProjectRegistry();
+    const projectIds: string[] = [];
     for (const project of projects) {
+      projectIds.push(project.id);
       emitLotaruEvent({
         type: EVENT_CLOCK_TICK,
         projectId: project.id,
@@ -914,6 +920,12 @@ export async function registerScriptRunnerModule(
         detail: "",
       }, "live");
     }
+    void tickVoiceBatchScans({
+      databasePath: options.databasePath,
+      projectIds,
+    }).catch((err) => {
+      app.log.error({ err }, "voice batch scan failed");
+    });
   }
 
   db.prepare(
@@ -1075,7 +1087,6 @@ export async function registerScriptRunnerModule(
         }
         throw failure;
       }
-      const reactions = listReactions(db, project.project_id);
       const scripts: NamedEventScript[] = [];
       for (const script of listScripts(project.project_id)) {
         const listen = listenerScript(script);
@@ -1084,10 +1095,26 @@ export async function registerScriptRunnerModule(
           projectId: listen.projectId,
           triggerType: listen.triggerType,
           triggerGlob: listen.triggerGlob,
+          triggerBusEvent: listen.triggerBusEvent,
           enabled: listen.enabled,
           name: script.name,
         });
       }
+      const agentRows = listAgents(openAgentsDb(options.databasePath), project.project_id);
+      const agents: NamedEventAgent[] = [];
+      for (const agent of agentRows) {
+        agents.push({
+          id: agent.id,
+          title: agent.title,
+          trigger: agent.trigger,
+          eventType: agent.eventType,
+          enabled: agent.enabled,
+        });
+      }
+      const templates: NamedEventTemplate[] = listProjectEventTemplates(
+        options.databasePath,
+        project.project_id,
+      );
       const events = [];
       for (const event of stored.events) {
         events.push({
@@ -1099,7 +1126,7 @@ export async function registerScriptRunnerModule(
           detail: event.detail,
           createdAt: event.createdAt,
           replayable: replayPayloadsFromStored(event).length > 0,
-          listeners: eventListenerRefs(event, reactions, scripts),
+          listeners: eventListenerRefs(event, scripts, agents, templates),
         });
       }
       return { events, next: stored.next };
@@ -1402,7 +1429,7 @@ export async function registerScriptRunnerModule(
       }
       const id = nanoid(12);
       db.prepare(
-        "INSERT INTO script_scripts (id, project_id, owner_id, name, command, runtime, docker_image, docker_platform, trigger_type, trigger_glob, trigger_cron, concurrency, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO script_scripts (id, project_id, owner_id, name, command, runtime, docker_image, docker_platform, trigger_type, trigger_glob, trigger_bus_event, trigger_cron, concurrency, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         id,
         project.project_id,
@@ -1414,6 +1441,7 @@ export async function registerScriptRunnerModule(
         parsed.docker_platform,
         parsed.trigger_type,
         parsed.trigger_glob,
+        parsed.trigger_bus_event,
         parsed.trigger_cron,
         parsed.concurrency,
         parsed.enabled ? 1 : 0,
@@ -1456,7 +1484,7 @@ export async function registerScriptRunnerModule(
         return reply.code(400).send({ error: parsed });
       }
       db.prepare(
-        "UPDATE script_scripts SET name = ?, command = ?, runtime = ?, docker_image = ?, docker_platform = ?, trigger_type = ?, trigger_glob = ?, trigger_cron = ?, concurrency = ?, enabled = ? WHERE id = ?",
+        "UPDATE script_scripts SET name = ?, command = ?, runtime = ?, docker_image = ?, docker_platform = ?, trigger_type = ?, trigger_glob = ?, trigger_bus_event = ?, trigger_cron = ?, concurrency = ?, enabled = ? WHERE id = ?",
       ).run(
         parsed.name,
         parsed.command,
@@ -1465,6 +1493,7 @@ export async function registerScriptRunnerModule(
         parsed.docker_platform,
         parsed.trigger_type,
         parsed.trigger_glob,
+        parsed.trigger_bus_event,
         parsed.trigger_cron,
         parsed.concurrency,
         parsed.enabled ? 1 : 0,
@@ -1506,7 +1535,7 @@ export async function registerScriptRunnerModule(
     if (isScriptRunning(owned.script.id)) {
       return reply.code(409).send({ error: "script already running" });
     }
-    triggerScript(owned.script, "run");
+    triggerScript(owned.script, "run", null);
     return { ok: true };
   });
 
@@ -1592,106 +1621,15 @@ export async function registerScriptRunnerModule(
     return { log: readFileSync(exec.log_path, "utf8") };
   });
 
-  app.get<{ Params: { projectId: string } }>(
-    "/api/v1/projects/:projectId/reactions",
-    async (request, reply) => {
-      const user = await requireUser(request);
-      if (user === null) {
-        return reply.code(401).send({ error: "unauthorized" });
-      }
-      const project = await requireProjectAccess(request.params.projectId, user);
-      if (project === null) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      const ctx = await githubReactionContext(project.project_id);
-      const githubReady = ctx.connected === true && ctx.repos.length > 0;
-      return {
-        reactions: listReactions(db, project.project_id),
-        eventTypes: reactionEventTypesForClient(githubReady),
-        githubConnected: ctx.connected,
-        githubRepos: ctx.repos,
-      };
-    },
-  );
 
-  app.post<{ Params: { projectId: string } }>(
-    "/api/v1/projects/:projectId/reactions",
-    async (request, reply) => {
-      const user = await requireUser(request);
-      if (user === null) {
-        return reply.code(401).send({ error: "unauthorized" });
-      }
-      const project = await requireProjectAccess(request.params.projectId, user);
-      if (project === null) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      try {
-        const parsed = parseReactionInput(request.body);
-        let repo = parsed.repo;
-        if (parsed.eventType.startsWith("github.")) {
-          const ctx = await githubReactionContext(project.project_id);
-          if (ctx.connected !== true) {
-            return reply.code(400).send({ error: "Connect GitHub in Settings first" });
-          }
-          if (repo.length === 0 && ctx.repos.length === 1) {
-            const only = ctx.repos[0];
-            if (only !== undefined) {
-              repo = only;
-            }
-          }
-          let allowed = false;
-          for (const remote of ctx.repos) {
-            if (remote === repo) {
-              allowed = true;
-            }
-          }
-          if (allowed !== true) {
-            return reply.code(400).send({ error: "This project has no matching GitHub remote" });
-          }
-        }
-        const input = Object.assign({}, parsed, { repo });
-        const reaction = insertReaction(db, project.project_id, input);
-        refreshFileWatches();
-        if (input.eventType.startsWith("github.")) {
-          void loadGithubWatches()
-            .then((watches) => pollGithubOnce(db, watches, emitGithubPoll))
-            .catch(() => {
-              return;
-            });
-        }
-        return reply.code(201).send({ reaction });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Invalid reaction";
-        return reply.code(400).send({ error: message });
-      }
-    },
-  );
-
-  app.delete<{ Params: { projectId: string; id: string } }>(
-    "/api/v1/projects/:projectId/reactions/:id",
-    async (request, reply) => {
-      const user = await requireUser(request);
-      if (user === null) {
-        return reply.code(401).send({ error: "unauthorized" });
-      }
-      const project = await requireProjectAccess(request.params.projectId, user);
-      if (project === null) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      if (!deleteReaction(db, project.project_id, request.params.id)) {
-        return reply.code(404).send({ error: "not found" });
-      }
-      refreshFileWatches();
-      return { ok: true };
-    },
-  );
-
-  startGithubPoller(db, loadGithubWatches, emitGithubPoll);
+  const stopGithubPoller = startGithubPoller(db, loadGithubWatches, emitGithubPoll);
 
   app.addHook("onClose", async () => {
     if (clockTimer !== undefined) {
       clearInterval(clockTimer);
     }
+    stopGithubPoller();
+    await fileWatchers.closeAll();
     for (const info of running.values()) {
       info.cancel();
     }

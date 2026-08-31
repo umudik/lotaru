@@ -6,33 +6,36 @@ import { createEpicRecords } from "../../../../task-bridge/apps/backend/dist/ser
 import { spawnEpicWorkflow, syncEpicStage } from "../../../../task-bridge/apps/backend/dist/services/epic-service.js";
 import { resolveNewTaskPlacement } from "../../../../task-bridge/apps/backend/dist/services/workflow-service.js";
 import { getProjectById } from "../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import type { LotaruEvent } from "./events.js";
-import { fillReactionTitle, type TaskReaction } from "./reactions.js";
+import { emitTaskCreated } from "./project-events.js";
 
-export function createIntentTask(event: LotaruEvent, reaction: TaskReaction): number {
-  const project = getProjectById(event.projectId);
+/** Shared path for anything that turns a bus event into a task. */
+export function createProjectTask(input: {
+  projectId: string;
+  title: string;
+  description: string;
+  createdBy: string;
+}): number {
+  const project = getProjectById(input.projectId);
   if (project === null) {
     throw new Error("Unknown project");
   }
-  const title = fillReactionTitle(reaction.titleTemplate, event);
-  const description = `${event.type}\n${event.path}\n${event.detail}`;
   const placement = resolveNewTaskPlacement(project.id);
   const id = allocateTaskId();
   createEpicRecords({
     id,
     projectId: project.id,
-    title,
-    description,
+    title: input.title,
+    description: input.description,
     stageId: placement.stageId,
-    createdBy: "lotaru",
+    createdBy: input.createdBy,
   });
   const epic = upsertBridgeTask({
     id,
     projectId: project.id,
     projectName: project.name,
-    title,
-    description,
-    createdBy: "lotaru",
+    title: input.title,
+    description: input.description,
+    createdBy: input.createdBy,
     createdAt: null,
     stageId: placement.stageId,
     assignee: placement.assignee,
@@ -45,5 +48,11 @@ export function createIntentTask(event: LotaruEvent, reaction: TaskReaction): nu
   });
   spawnEpicWorkflow(epic);
   syncEpicStage(epic.id);
+  emitTaskCreated({
+    projectId: project.id,
+    taskId: epic.id,
+    title: input.title,
+  });
   return epic.id;
 }
+

@@ -6,15 +6,17 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { loadAppSettings, openSettingsDb, type AppSettings } from "../app-settings.js";
-import { titleFromBody } from "../note-language.js";
+import { runProjectAgentPrompt } from "../agent-prompt.js";
+import { titleFromBody, languageLabel } from "../note-language.js";
+import { emitNoteBookCreated, emitNotePageCreated } from "../project-events.js";
 import {
   nextRetryDelayMs,
   OLLAMA_MODEL_REQUIRED,
   ollamaJobRetryKey,
-  polishText,
+  polishSystemPrompt,
   shouldRetryOllama,
-  summarizeText,
-  translateText,
+  summarySystemPrompt,
+  translationSystemPrompt,
 } from "../ollama.js";
 import { synthesizeSpeech } from "../tts.js";
 import type { Identity } from "./identity.js";
@@ -145,6 +147,25 @@ export type AppendedNotePage = {
   pageTitle: string;
 };
 
+type NoteJobEnqueue = (pageId: string) => void;
+
+const noteJobEnqueueSlot: { handler: NoteJobEnqueue | false } = { handler: false };
+
+export function bindNoteJobEnqueue(handler: NoteJobEnqueue): void {
+  noteJobEnqueueSlot.handler = handler;
+}
+
+export function releaseNoteJobEnqueue(): void {
+  noteJobEnqueueSlot.handler = false;
+}
+
+function notifyNotePageAdded(pageId: string): void {
+  if (noteJobEnqueueSlot.handler === false) {
+    return;
+  }
+  noteJobEnqueueSlot.handler(pageId);
+}
+
 export function appendNotePageByBookTitle(input: {
   databasePath: string;
   projectId: string;
@@ -152,6 +173,7 @@ export function appendNotePageByBookTitle(input: {
   pageTitle: string;
   body: string;
   createdBy: string;
+  emitBusEvent?: boolean;
 }): AppendedNotePage {
   const db = openNotesDb(input.databasePath);
   const bookTitle = input.bookTitle.trim().slice(0, 200);
@@ -173,6 +195,11 @@ export function appendNotePageByBookTitle(input: {
     db.prepare(
       "INSERT INTO note_books (id, project_id, title, created_at, created_by, translate_on, polish_on, summarize_on) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
     ).run(bookId, input.projectId, bookTitleFinal, createdAt, input.createdBy);
+    emitNoteBookCreated({
+      projectId: input.projectId,
+      bookId,
+      title: bookTitleFinal,
+    });
   }
   let pageTitle = input.pageTitle.trim().slice(0, 200);
   if (pageTitle.length === 0) {
@@ -184,6 +211,19 @@ export function appendNotePageByBookTitle(input: {
   db.prepare(
     "INSERT INTO note_pages (id, book_id, title, body, position, created_at, translated_body, translation_status, polished_body, polish_status, summary_body, summary_status) VALUES (?, ?, ?, ?, ?, ?, '', 'none', '', 'none', '', 'none')",
   ).run(pageId, bookId, pageTitle, input.body, position, createdAt);
+  notifyNotePageAdded(pageId);
+  let shouldEmit = true;
+  if (input.emitBusEvent === false) {
+    shouldEmit = false;
+  }
+  if (shouldEmit) {
+    emitNotePageCreated({
+      projectId: input.projectId,
+      bookId,
+      pageId,
+      pageTitle,
+    });
+  }
   return {
     bookId,
     bookTitle: bookTitleFinal,
@@ -469,6 +509,18 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
   const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let draining = false;
 
+  bindNoteJobEnqueue((pageId) => {
+    const page = getPage(db, pageId);
+    if (page === null) {
+      return;
+    }
+    const book = getBook(db, page.bookId);
+    if (book === null) {
+      return;
+    }
+    queuePageJobs(page, book, false);
+  });
+
   function clearJobRetry(kind: ProcessKind, pageId: string): void {
     const key = ollamaJobRetryKey(kind, pageId);
     retryAttempts.delete(key);
@@ -529,14 +581,21 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
       return;
     }
     const settings = loadAppSettings(settingsDb);
+    const book = getBook(db, page.bookId);
+    if (book === null) {
+      clearJobRetry(kind, pageId);
+      return;
+    }
     try {
       if (kind === "translate") {
-        const translated = await translateText(
-          settings.ollamaHost,
-          settings.ollamaModel,
-          settings.targetLanguage,
-          page.body,
-        );
+        const label = languageLabel(settings.targetLanguage);
+        const translated = await runProjectAgentPrompt({
+          databasePath: options.databasePath,
+          projectId: book.projectId,
+          prompt: page.body,
+          systemPrompt: translationSystemPrompt(label),
+          mode: "ask",
+        });
         db.prepare(
           "UPDATE note_pages SET translated_body = ?, translation_status = 'ready', translation_error = '' WHERE id = ?",
         ).run(translated, page.id);
@@ -544,14 +603,26 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
         return;
       }
       if (kind === "polish") {
-        const polished = await polishText(settings.ollamaHost, settings.ollamaModel, page.body);
+        const polished = await runProjectAgentPrompt({
+          databasePath: options.databasePath,
+          projectId: book.projectId,
+          prompt: page.body,
+          systemPrompt: polishSystemPrompt(),
+          mode: "ask",
+        });
         db.prepare(
           "UPDATE note_pages SET polished_body = ?, polish_status = 'ready', polish_error = '' WHERE id = ?",
         ).run(polished, page.id);
         clearJobRetry(kind, pageId);
         return;
       }
-      const summary = await summarizeText(settings.ollamaHost, settings.ollamaModel, page.body);
+      const summary = await runProjectAgentPrompt({
+        databasePath: options.databasePath,
+        projectId: book.projectId,
+        prompt: page.body,
+        systemPrompt: summarySystemPrompt(),
+        mode: "ask",
+      });
       db.prepare(
         "UPDATE note_pages SET summary_body = ?, summary_status = 'ready', summary_error = '' WHERE id = ?",
       ).run(summary, page.id);
@@ -711,6 +782,11 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     db.prepare(
       "INSERT INTO note_books (id, project_id, title, created_at, created_by, translate_on, polish_on, summarize_on) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
     ).run(book.id, book.projectId, book.title, book.createdAt, book.createdBy);
+    emitNoteBookCreated({
+      projectId: book.projectId,
+      bookId: book.id,
+      title: book.title,
+    });
     return reply.code(201).send(bookPayload(db, book));
   });
 
@@ -831,6 +907,12 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     db.prepare(
       "INSERT INTO note_pages (id, book_id, title, body, position, created_at, translated_body, translation_status, polished_body, polish_status, summary_body, summary_status) VALUES (?, ?, ?, ?, ?, ?, '', 'none', '', 'none', '', 'none')",
     ).run(page.id, page.bookId, page.title, page.body, page.position, page.createdAt);
+    emitNotePageCreated({
+      projectId: book.projectId,
+      bookId: book.id,
+      pageId: page.id,
+      pageTitle: page.title,
+    });
     queuePageJobs(page, book, false);
     const stored = getPage(db, page.id);
     if (stored === null) {
@@ -970,6 +1052,16 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
       const message = err instanceof Error ? err.message : "Speech failed";
       return reply.code(502).send({ error: message });
     }
+  });
+
+  app.addHook("onClose", async () => {
+    releaseNoteJobEnqueue();
+    for (const timer of retryTimers.values()) {
+      clearTimeout(timer);
+    }
+    retryTimers.clear();
+    db.close();
+    settingsDb.close();
   });
 }
 

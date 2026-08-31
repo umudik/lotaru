@@ -1,25 +1,14 @@
 import Database from "better-sqlite3";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
-  getProjectById,
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { loadAppSettings, openSettingsDb } from "../app-settings.js";
-import {
-  AGENT_TIMEOUT_MS,
-  agentCliSpec,
-  spawnAgentCli,
-  type AgentKind,
-  type AgentMode,
-} from "../agent-runtime.js";
-import { loadAgentProfile, openAgentDb } from "../agent-store.js";
-import { requireExistingDirectory } from "../folder-path.js";
-import { runOllamaChat } from "../ollama.js";
-import { REACTION_EVENT_TYPES } from "../reactions.js";
+import { runProjectAgentPrompt } from "../agent-prompt.js";
+import type { AgentKind, AgentMode } from "../agent-runtime.js";
+import { isKnownEventType } from "../event-registry.js";
+import { cachedSqlite } from "../sqlite-cache.js";
 import type { Identity } from "./identity.js";
 
 export type KnowledgeKind = "document" | "diagram";
@@ -127,21 +116,13 @@ function canSeeProject(options: ModuleOptions, projectId: string, userId: string
 }
 
 function requireKnownEventType(eventType: string): void {
-  let known = false;
-  for (const entry of REACTION_EVENT_TYPES) {
-    if (entry === eventType) {
-      known = true;
-    }
-  }
-  if (known !== true) {
+  if (isKnownEventType(eventType) !== true) {
     throw new Error("Unknown event type");
   }
 }
 
 export function openKnowledgeTemplateDb(databasePath: string): Database.Database {
-  mkdirSync(dirname(databasePath), { recursive: true });
-  const db = new Database(databasePath);
-  db.pragma("journal_mode = WAL");
+  return cachedSqlite("knowledge-templates", databasePath, (db) => {
   db.pragma("foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_templates (
@@ -173,7 +154,7 @@ export function openKnowledgeTemplateDb(databasePath: string): Database.Database
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_artifacts_project ON knowledge_artifacts(project_id, kind);
   `);
-  return db;
+  });
 }
 
 function templateFromRow(row: z.infer<typeof templateRowSchema>): KnowledgeTemplate | null {
@@ -302,47 +283,7 @@ function getArtifact(db: Database.Database, artifactId: string): KnowledgeArtifa
   return artifactFromRow(parsed.data, templateTitle);
 }
 
-function resolveProjectCwd(options: ModuleOptions, projectId: string): string {
-  if (options.projectCwd !== undefined) {
-    return options.projectCwd(projectId);
-  }
-  const project = getProjectById(projectId);
-  if (project === null || project.repoPath.trim().length === 0) {
-    return process.cwd();
-  }
-  try {
-    return requireExistingDirectory(project.repoPath);
-  } catch {
-    return process.cwd();
-  }
-}
-
-async function defaultRunAgent(
-  options: ModuleOptions,
-  input: { kind: AgentKind; mode: AgentMode; prompt: string; cwd: string },
-): Promise<string> {
-  if (options.runAgent !== undefined) {
-    return options.runAgent(input);
-  }
-  if (input.kind === "ollama") {
-    const settingsDb = openSettingsDb(options.databasePath);
-    const settings = loadAppSettings(settingsDb);
-    return runOllamaChat(
-      settings.ollamaHost,
-      settings.ollamaModel,
-      "You write knowledge artifacts.",
-      input.prompt,
-    );
-  }
-  const profile = loadAgentProfile(openAgentDb(options.databasePath));
-  const spec = agentCliSpec({
-    kind: input.kind,
-    mode: input.mode,
-    command: profile.command,
-    prompt: input.prompt,
-  });
-  return spawnAgentCli(spec, input.cwd, AGENT_TIMEOUT_MS);
-}
+const KNOWLEDGE_AGENT_SYSTEM = "You write knowledge artifacts.";
 
 function artifactPrompt(
   template: KnowledgeTemplate,
@@ -378,6 +319,27 @@ async function viewersFrom(request: FastifyRequest, options: ModuleOptions): Pro
     return [];
   }
   return [{ email: user.email, sub: user.id }];
+}
+
+/** Every event-driven template in the project, for the events log. */
+export function listProjectEventTemplates(
+  databasePath: string,
+  projectId: string,
+): { id: string; title: string; eventType: string; enabled: boolean }[] {
+  const db = openKnowledgeTemplateDb(databasePath);
+  const rows = db
+    .prepare("SELECT id, title, event_type, enabled FROM knowledge_templates WHERE project_id = ?")
+    .all(projectId) as { id: string; title: string; event_type: string; enabled: number }[];
+  const templates: { id: string; title: string; eventType: string; enabled: boolean }[] = [];
+  for (const row of rows) {
+    templates.push({
+      id: row.id,
+      title: row.title,
+      eventType: row.event_type,
+      enabled: row.enabled === 1,
+    });
+  }
+  return templates;
 }
 
 export function listEnabledTemplatesForEvent(
@@ -417,6 +379,7 @@ export async function fireKnowledgeTemplatesForEvent(input: {
   detail: string;
   projectCwd?: (projectId: string) => string;
   runAgent?: AgentRunFn;
+  onAgentError?: (failure: { templateId: string; eventId: string; message: string }) => void;
 }): Promise<void> {
   const templates = listEnabledTemplatesForEvent(
     input.databasePath,
@@ -427,7 +390,6 @@ export async function fireKnowledgeTemplatesForEvent(input: {
     return;
   }
   const db = openKnowledgeTemplateDb(input.databasePath);
-  const profile = loadAgentProfile(openAgentDb(input.databasePath));
   for (const template of templates) {
     const artifactId = randomUUID();
     const createdAt = new Date().toISOString();
@@ -446,50 +408,30 @@ export async function fireKnowledgeTemplatesForEvent(input: {
       createdAt,
     );
     try {
-      let cwd = process.cwd();
-      if (input.projectCwd !== undefined) {
-        cwd = input.projectCwd(template.projectId);
-      } else {
-        const project = getProjectById(template.projectId);
-        if (project !== null && project.repoPath.trim().length > 0) {
-          try {
-            cwd = requireExistingDirectory(project.repoPath);
-          } catch {
-            cwd = process.cwd();
-          }
-        }
-      }
       const prompt = artifactPrompt(template, input.eventType, input.detail, input.path);
-      let text = "";
-      if (input.runAgent !== undefined) {
-        text = await input.runAgent({
-          kind: profile.kind,
-          mode: profile.mode,
-          prompt,
-          cwd,
-        });
-      } else if (profile.kind === "ollama") {
-        const settingsDb = openSettingsDb(input.databasePath);
-        const settings = loadAppSettings(settingsDb);
-        text = await runOllamaChat(
-          settings.ollamaHost,
-          settings.ollamaModel,
-          "You write knowledge artifacts.",
-          prompt,
-        );
-      } else {
-        const spec = agentCliSpec({
-          kind: profile.kind,
-          mode: profile.mode,
-          command: profile.command,
-          prompt,
-        });
-        text = await spawnAgentCli(spec, cwd, AGENT_TIMEOUT_MS);
-      }
+      const text = await runProjectAgentPrompt({
+        databasePath: input.databasePath,
+        projectId: template.projectId,
+        prompt,
+        systemPrompt: KNOWLEDGE_AGENT_SYSTEM,
+        projectCwd: input.projectCwd,
+        runAgent: input.runAgent,
+      });
       if (text.trim().length > 0) {
         db.prepare("UPDATE knowledge_artifacts SET body = ? WHERE id = ?").run(text, artifactId);
       }
-    } catch {
+    } catch (err) {
+      let message = "agent failed";
+      if (err instanceof Error && err.message.length > 0) {
+        message = err.message;
+      }
+      if (input.onAgentError !== undefined) {
+        input.onAgentError({
+          templateId: template.id,
+          eventId: input.eventId,
+          message,
+        });
+      }
       continue;
     }
   }
@@ -769,4 +711,8 @@ export async function registerKnowledgeTemplatesModule(
       return reply.code(401).send({ error: "unauthorized" });
     },
   );
+
+  app.addHook("onClose", async () => {
+    db.close();
+  });
 }

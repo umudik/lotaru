@@ -2,7 +2,7 @@ import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import "@fastify/multipart";
 import { config as loadDotenv } from "dotenv";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,6 +10,7 @@ import { registerTaskBridgeModule } from "../../../../task-bridge/apps/backend/d
 import { registerObservability } from "../../../../task-bridge/apps/backend/dist/observability.js";
 import { createIdentity } from "./modules/identity.js";
 import { registerAgentsModule } from "./modules/agents.js";
+import { registerTerminalModule } from "./modules/terminal.js";
 import { registerKnowledgeModule } from "./modules/knowledge.js";
 import { registerKnowledgeTemplatesModule } from "./modules/knowledge-templates.js";
 import { registerNotesModule } from "./modules/notes.js";
@@ -17,7 +18,10 @@ import { registerProjectsModule } from "./modules/projects.js";
 import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
 import { registerVoiceModule } from "./modules/voice.js";
+import { registerVoiceRulesModule } from "./modules/voice-rules.js";
 import { lotaruDatabasePath } from "./lotaru-db.js";
+import { closeCachedSqlite } from "./sqlite-cache.js";
+import { buildHealthReport, type HealthModuleFlags } from "./health.js";
 import { shouldServeSpaIndex, spaFileHeaders, apiRouteMissingBody, apiPath } from "./spa-fallback.js";
 import { resolveStartOptions, type StartOptions } from "./start-options.js";
 
@@ -45,7 +49,7 @@ function applyDataEnv(dataDirectory: string): string {
   return dbPath;
 }
 
-export async function start(opts: StartOptions): Promise<{ url: string }> {
+export async function start(opts: StartOptions): Promise<{ url: string; app: FastifyInstance }> {
   process.env.FOOKIE_SELF_HOST = "1";
   process.env.FOOKIE_MODE = "1";
 
@@ -60,16 +64,6 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
 
   await app.register(fastifyWebsocket);
   registerObservability(app);
-  const modules = {
-    voice: false,
-  };
-  app.get("/healthz", async () => ({
-    status: "ok",
-    service: "lotaru",
-    modules: {
-      voice: modules.voice,
-    },
-  }));
 
   const identity = await createIdentity({
     publicUrl,
@@ -88,6 +82,9 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
   });
   await registerAgentsModule(app, {
     databasePath: dbPath,
+    identity,
+  });
+  await registerTerminalModule(app, {
     identity,
   });
   await registerKnowledgeTemplatesModule(app, {
@@ -112,7 +109,39 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
     dataDir: dataDirectory,
     databasePath: dbPath,
   });
-  modules.voice = true;
+  await registerVoiceRulesModule(app, {
+    databasePath: dbPath,
+    identity,
+  });
+
+  // The event bus reuses long-lived SQLite handles; hand them back on shutdown.
+  app.addHook("onClose", async () => {
+    closeCachedSqlite();
+  });
+
+  const moduleFlags: HealthModuleFlags = {
+    voice: true,
+    scriptRunner: true,
+    agents: true,
+    voiceRules: true,
+    notes: true,
+    knowledge: true,
+    knowledgeTemplates: true,
+    terminal: true,
+    settings: true,
+    projects: true,
+  };
+
+  app.get("/healthz", async (_request, reply) => {
+    const report = await buildHealthReport({
+      databasePath: dbPath,
+      modules: moduleFlags,
+    });
+    if (report.status === "degraded") {
+      return reply.code(503).send(report);
+    }
+    return report;
+  });
 
   let webRoot = resolve(join(process.cwd(), "packages", "web", "dist"));
   if (opts.staticDir !== null) {
@@ -150,7 +179,45 @@ export async function start(opts: StartOptions): Promise<{ url: string }> {
   await app.listen({ host, port });
   const url = `http://${host}:${String(port)}`;
   app.log.info(`lotaru ready on ${url}`);
-  return { url };
+  return { url, app };
+}
+
+const SHUTDOWN_FORCE_MS = 30_000;
+
+function bindGracefulShutdown(app: FastifyInstance): void {
+  let shuttingDown = false;
+
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    app.log.info({ signal }, "lotaru shutting down");
+    const forceTimer = setTimeout(() => {
+      app.log.error("lotaru forced exit after shutdown timeout");
+      process.exit(1);
+    }, SHUTDOWN_FORCE_MS);
+    forceTimer.unref();
+    void app
+      .close()
+      .then(() => {
+        clearTimeout(forceTimer);
+        app.log.info("lotaru stopped");
+        process.exit(0);
+      })
+      .catch((err: unknown) => {
+        clearTimeout(forceTimer);
+        app.log.error({ err }, "lotaru shutdown failed");
+        process.exit(1);
+      });
+  };
+
+  process.on("SIGINT", () => {
+    shutdown("SIGINT");
+  });
+  process.on("SIGTERM", () => {
+    shutdown("SIGTERM");
+  });
 }
 
 function isMainEntry(): boolean {
@@ -171,8 +238,12 @@ function isMainEntry(): boolean {
 
 if (isMainEntry()) {
   const opts = resolveStartOptions(process.argv.slice(2), process.env, homedir());
-  void start(opts).catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
+  void start(opts)
+    .then(({ app }) => {
+      bindGracefulShutdown(app);
+    })
+    .catch((err: unknown) => {
+      console.error(err);
+      process.exit(1);
+    });
 }

@@ -158,7 +158,25 @@ export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      reject(err);
+      const codeSchema = z.object({ code: z.string(), path: z.string().optional() });
+      const parsed = codeSchema.safeParse(err);
+      if (parsed.success === true && parsed.data.code === "ENOENT") {
+        let binary = spec.command;
+        if (parsed.data.path !== undefined && parsed.data.path.trim().length > 0) {
+          binary = parsed.data.path.trim();
+        }
+        reject(
+          new Error(
+            `CLI binary "${binary}" not found on PATH. In Docker, host CLIs (agent/claude/codex) are unavailable — switch Agent AI to Local Ollama, or run Lotaru on the host.`,
+          ),
+        );
+        return;
+      }
+      if (err instanceof Error && err.message.length > 0) {
+        reject(err);
+        return;
+      }
+      reject(new Error("Agent failed to start"));
     });
     child.on("close", (code) => {
       clearTimeout(timer);

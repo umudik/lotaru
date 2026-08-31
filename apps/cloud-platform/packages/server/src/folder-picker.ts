@@ -11,8 +11,15 @@ const WINDOWS_DIRECTORY_PICKER_SCRIPT =
 export function folderPickerSpec(platform: string): FolderPickerSpec {
   if (platform === "win32") {
     return {
-      cmd: "powershell",
-      args: ["-NoProfile", "-STA", "-Command", WINDOWS_DIRECTORY_PICKER_SCRIPT],
+      cmd: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-STA",
+        "-Command",
+        WINDOWS_DIRECTORY_PICKER_SCRIPT,
+      ],
     };
   }
   if (platform === "darwin") {

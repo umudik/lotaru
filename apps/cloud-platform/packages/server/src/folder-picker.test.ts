@@ -5,9 +5,10 @@ import { folderPickerSpec, parseFolderPickerStdout } from "./folder-picker.js";
 describe("folderPickerSpec", () => {
   it("uses PowerShell STA folder dialog on Windows", () => {
     const spec = folderPickerSpec("win32");
-    assert.equal(spec.cmd, "powershell");
+    assert.equal(spec.cmd, "powershell.exe");
     assert.equal(spec.args.includes("-STA"), true);
     assert.equal(spec.args.includes("-Command"), true);
+    assert.equal(spec.args.includes("Bypass"), true);
   });
 
   it("uses osascript on macOS", () => {

@@ -16,7 +16,55 @@ export type FileWatchers = {
   closeAll(): Promise<void>;
 };
 
-const IGNORED_SEGMENTS = ["node_modules", ".git", "dist", "build", ".next", ".script"];
+const IGNORED_SEGMENTS = [
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".script",
+  ".aws",
+  ".cache",
+  ".local",
+  ".cursor",
+];
+
+function isSqliteSidecarName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".sqlite")) {
+    return true;
+  }
+  if (lower.endsWith(".sqlite-wal")) {
+    return true;
+  }
+  if (lower.endsWith(".sqlite-shm")) {
+    return true;
+  }
+  if (lower.endsWith(".db-wal")) {
+    return true;
+  }
+  if (lower.endsWith(".db-shm")) {
+    return true;
+  }
+  if (lower.endsWith("-journal")) {
+    return true;
+  }
+  return false;
+}
+
+function isIgnoredRuntimeFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower === ".ds_store") {
+    return true;
+  }
+  if (lower === "thumbs.db") {
+    return true;
+  }
+  if (isSqliteSidecarName(lower)) {
+    return true;
+  }
+  return false;
+}
 
 export function shouldIgnoreWatchPath(filePath: string): boolean {
   const normalised = filePath.replaceAll("\\", "/");
@@ -26,6 +74,9 @@ export function shouldIgnoreWatchPath(filePath: string): boolean {
       if (segment === ignored) {
         return true;
       }
+    }
+    if (isIgnoredRuntimeFileName(segment)) {
+      return true;
     }
   }
   return false;

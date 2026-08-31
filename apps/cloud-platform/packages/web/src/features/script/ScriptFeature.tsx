@@ -40,7 +40,7 @@ function ScriptProjectPage(props: {
 }): React.JSX.Element {
   useBootstrap(props.projectId);
   return (
-    <div className="w-full px-8 py-6">
+    <div className="w-full">
       <ProjectScriptView projectId={props.projectId} projectName={props.projectName} />
     </div>
   );

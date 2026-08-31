@@ -47,21 +47,8 @@ export type TtsVoiceOption = {
   gender: string;
 };
 
-export type TaskReaction = {
-  id: string;
-  projectId: string;
-  eventType: string;
-  repo: string;
-  action: "create_task";
-  titleTemplate: string;
-  enabled: boolean;
-  createdAt: number;
-};
-
-export type LotaruReaction = TaskReaction;
-
 export type LotaruEventListener = {
-  kind: "reaction" | "script";
+  kind: "script" | "agent" | "knowledge";
   id: string;
   label: string;
 };
@@ -88,45 +75,6 @@ export async function saveGithubSettings(session: Session, token: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
   });
-}
-
-export async function fetchProjectReactions(session: Session, projectId: string) {
-  return request<{
-    reactions: LotaruReaction[];
-    eventTypes: string[];
-    githubConnected: boolean;
-    githubRepos: string[];
-  }>(session, `/api/v1/projects/${encodeURIComponent(projectId)}/reactions`);
-}
-
-export async function createProjectReaction(
-  session: Session,
-  projectId: string,
-  input: {
-    action: "create_task";
-    eventType: string;
-    repo: string;
-    titleTemplate: string;
-    enabled: boolean;
-  },
-) {
-  return request<{ reaction: LotaruReaction }>(
-    session,
-    `/api/v1/projects/${encodeURIComponent(projectId)}/reactions`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
-}
-
-export async function deleteProjectReaction(session: Session, projectId: string, reactionId: string) {
-  await request<{ ok: boolean }>(
-    session,
-    `/api/v1/projects/${encodeURIComponent(projectId)}/reactions/${encodeURIComponent(reactionId)}`,
-    { method: "DELETE" },
-  );
 }
 
 export async function fetchProjectEvents(
@@ -218,6 +166,9 @@ export type KnowledgeItem = {
   diagram: KnowledgeOutput;
 };
 
+/** "event" publishes the reply on the bus as the agent's own event type. */
+export type AgentAction = "none" | "note" | "task" | "event";
+
 export type LotaruAgent = {
   id: string;
   projectId: string;
@@ -225,9 +176,12 @@ export type LotaruAgent = {
   prompt: string;
   trigger: "event" | "schedule";
   eventType: string;
+  /** The event type this agent mints; it publishes on it while the action is "event". */
+  outputEventType: string;
   scheduleHour: number;
   scheduleMinute: number;
   includeVoice: boolean;
+  action: AgentAction;
   noteBookTitle: string;
   enabled: boolean;
   createdAt: string;
@@ -261,12 +215,37 @@ export async function createAgent(
     scheduleHour?: number;
     scheduleMinute?: number;
     includeVoice?: boolean;
+    action?: AgentAction;
     noteBookTitle?: string;
     enabled?: boolean;
   },
 ) {
   return request<LotaruAgent>(session, "/api/agents", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function patchAgent(
+  session: Session,
+  agentId: string,
+  input: {
+    title?: string;
+    prompt?: string;
+    trigger?: "event" | "schedule";
+    eventType?: string;
+    scheduleHour?: number;
+    scheduleMinute?: number;
+    includeVoice?: boolean;
+    action?: AgentAction;
+    noteBookTitle?: string;
+    enabled?: boolean;
+  },
+) {
+  return request<LotaruAgent>(session, `/api/agents/${encodeURIComponent(agentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
 }
@@ -281,6 +260,134 @@ export async function runAgentNow(session: Session, agentId: string) {
   return request<{ ok: boolean }>(session, `/api/agents/${encodeURIComponent(agentId)}/run`, {
     method: "POST",
   });
+}
+
+export type VoiceRule = {
+  id: string;
+  projectId: string;
+  name: string;
+  slug: string;
+  instruction: string;
+  eventType: string;
+  enabled: boolean;
+  subscriberCount: number;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type EventSubscriber = {
+  kind: "agent" | "script" | "knowledge";
+  eventType: string;
+  id: string;
+  label: string;
+  enabled: boolean;
+};
+
+export type VoiceRuleHit = {
+  id: string;
+  projectId: string;
+  ruleId: string;
+  slug: string;
+  title: string;
+  summary: string;
+  quote: string;
+  eventId: string;
+  createdAt: number;
+};
+
+export type VoiceRuleMatch = {
+  slug: string;
+  title: string;
+  summary: string;
+  quote: string;
+};
+
+export type EventTypeOption = {
+  type: string;
+  label: string;
+  kind: "platform" | "rule" | "agent";
+};
+
+export async function fetchEventTypes(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<{ eventTypes: EventTypeOption[] }>(
+    session,
+    `/api/event-types?${query.toString()}`,
+  );
+}
+
+export async function fetchVoiceRules(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<{ rules: VoiceRule[]; hits: VoiceRuleHit[]; runtime: AgentKind }>(
+    session,
+    `/api/voice-rules?${query.toString()}`,
+  );
+}
+
+export async function fetchVoiceRuleSubscribers(session: Session, ruleId: string) {
+  return request<{ subscribers: EventSubscriber[] }>(
+    session,
+    `/api/voice-rules/${encodeURIComponent(ruleId)}/subscribers`,
+  );
+}
+
+export async function createVoiceRule(
+  session: Session,
+  input: {
+    projectId: string;
+    name: string;
+    slug?: string;
+    instruction: string;
+    enabled?: boolean;
+  },
+) {
+  return request<VoiceRule>(session, "/api/voice-rules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function patchVoiceRule(
+  session: Session,
+  ruleId: string,
+  input: { name?: string; slug?: string; instruction?: string; enabled?: boolean },
+) {
+  return request<VoiceRule>(session, `/api/voice-rules/${encodeURIComponent(ruleId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteVoiceRule(session: Session, ruleId: string) {
+  return request<{ ok: boolean }>(session, `/api/voice-rules/${encodeURIComponent(ruleId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function testVoiceRules(session: Session, projectId: string, transcript: string) {
+  return request<{ matches: VoiceRuleMatch[]; ran: boolean; error: string }>(
+    session,
+    "/api/voice-rules/test",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId, transcript }),
+    },
+  );
+}
+
+export async function scanVoiceRulesNow(session: Session, projectId: string) {
+  return request<{ ran: boolean; scanned: number; matched: number; skipped: string }>(
+    session,
+    "/api/voice-rules/scan",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    },
+  );
 }
 
 export async function fetchAgentRuns(session: Session, agentId: string) {
@@ -341,18 +448,6 @@ export type VoiceSegment = {
   createdAt: number;
 };
 
-export type VoiceIntentDecision = {
-  id: string;
-  projectId: string;
-  segmentId: string;
-  emit: boolean;
-  title: string;
-  summary: string;
-  reason: string;
-  eventId: string;
-  createdAt: number;
-};
-
 export async function fetchVoiceSegments(
   session: Session,
   projectId: string,
@@ -370,14 +465,6 @@ export async function fetchVoiceSegments(
   return request<{ segments: VoiceSegment[]; next: string[] }>(
     session,
     `/api/voice/segments?${query.toString()}`,
-  );
-}
-
-export async function fetchVoiceDecisions(session: Session, projectId: string, limit = 50) {
-  const query = new URLSearchParams({ projectId, limit: String(limit) });
-  return request<{ decisions: VoiceIntentDecision[] }>(
-    session,
-    `/api/voice/decisions?${query.toString()}`,
   );
 }
 
@@ -447,6 +534,20 @@ export async function fetchAgentSettings(session: Session) {
 export async function saveAgentSettings(session: Session, profile: AgentProfile) {
   return request<{ profile: AgentProfile }>(session, "/api/settings/agent", {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+}
+
+export async function probeAgentSettings(session: Session, profile: AgentProfile) {
+  return request<{
+    reachable: boolean;
+    kind: AgentKind;
+    command: string;
+    detail: string;
+    error: string;
+  }>(session, "/api/settings/agent/probe", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
   });

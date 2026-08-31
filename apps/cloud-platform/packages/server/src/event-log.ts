@@ -6,6 +6,13 @@ const EVENT_LOG_KEEP = 2000;
 const EVENT_PAGE_MAX = 200;
 const EVENT_PAGE_DEFAULT = 40;
 
+/**
+ * The clock fires every ten seconds — 8640 rows a day, per project. Under one
+ * shared cap it evicts every event worth reading within hours, so it gets its
+ * own much smaller budget and everything else keeps the full window.
+ */
+const EVENT_LOG_KEEP_CLOCK = 60;
+
 const eventRowSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -137,9 +144,50 @@ export function recordEvent(db: Database.Database, event: LotaruEvent): void {
     event.detail,
     event.createdAt,
   );
+  pruneEventLog(db, event.projectId);
+}
+
+export function pruneEventLog(db: Database.Database, projectId: string): void {
   db.prepare(
-    "DELETE FROM lotaru_events WHERE project_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM lotaru_events WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT ?))",
-  ).run(event.projectId, event.projectId, EVENT_LOG_KEEP);
+    `DELETE FROM lotaru_events
+     WHERE project_id = ? AND type IN (?, ?)
+       AND id NOT IN (
+         SELECT id FROM (
+           SELECT id FROM lotaru_events
+           WHERE project_id = ? AND type IN (?, ?)
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?
+         )
+       )`,
+  ).run(
+    projectId,
+    EVENT_CLOCK_TICK,
+    "schedule.fired",
+    projectId,
+    EVENT_CLOCK_TICK,
+    "schedule.fired",
+    EVENT_LOG_KEEP_CLOCK,
+  );
+  db.prepare(
+    `DELETE FROM lotaru_events
+     WHERE project_id = ? AND type NOT IN (?, ?)
+       AND id NOT IN (
+         SELECT id FROM (
+           SELECT id FROM lotaru_events
+           WHERE project_id = ? AND type NOT IN (?, ?)
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?
+         )
+       )`,
+  ).run(
+    projectId,
+    EVENT_CLOCK_TICK,
+    "schedule.fired",
+    projectId,
+    EVENT_CLOCK_TICK,
+    "schedule.fired",
+    EVENT_LOG_KEEP,
+  );
 }
 
 export function listProjectEvents(db: Database.Database, input: EventListInput): EventListPage {

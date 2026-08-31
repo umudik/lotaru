@@ -27,6 +27,9 @@ services:
       FOOKIE_ADMIN_NAME: ${FOOKIE_ADMIN_NAME:-Admin}
       LOTARU_VOICE_SIDECAR_URL: http://voice-sidecar:18765
       LOTARU_MCP_URL: http://lotaru-mcp:18766/mcp
+      LOTARU_OLLAMA_HOST: ${LOTARU_OLLAMA_HOST:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - fookie-cloud-data:/data
       - /var/run/docker.sock:/var/run/docker.sock

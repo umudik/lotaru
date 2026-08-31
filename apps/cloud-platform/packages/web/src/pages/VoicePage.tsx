@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { VoiceSettingsLink } from "@/components/VoiceSettingsLink";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useVoiceListen } from "@/features/voice/VoiceListenContext";
@@ -8,10 +10,10 @@ import { VoiceWaveform } from "@/features/voice/VoiceWaveform";
 import { useSession } from "@/hooks/useSession";
 import {
   ApiError,
-  fetchVoiceDecisions,
+  fetchVoiceRules,
   fetchVoiceSegments,
   fetchVoiceStatus,
-  type VoiceIntentDecision,
+  type VoiceRuleHit,
   type VoiceSegment,
 } from "@/lib/api";
 import { cn, formatMillis } from "@/lib/utils";
@@ -85,9 +87,9 @@ function liveHint(
   }
   if (listeningThisProject !== true) {
     if (sidecarReachable) {
-      return "Mic is off. Press Listen.";
+      return "Mic is off. Use Listen in the sidebar footer.";
     }
-    return "Speech engine is warming up. Try Listen in a moment.";
+    return "Speech engine is warming up. Try Listen in the sidebar in a moment.";
   }
   if (phase === "speaking") {
     return "Wave moves with your voice — keep talking.";
@@ -103,7 +105,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
   const voice = useVoiceListen();
   const [segments, setSegments] = useState<VoiceSegment[]>([]);
   const [nextCursor, setNextCursor] = useState("");
-  const [decisions, setDecisions] = useState<VoiceIntentDecision[]>([]);
+  const [hits, setHits] = useState<VoiceRuleHit[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
@@ -115,7 +117,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     checked: false,
   });
 
-    useEffect(() => {
+  useEffect(() => {
     if (session === null) {
       return;
     }
@@ -163,9 +165,9 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     setLoading(true);
     void Promise.all([
       fetchVoiceSegments(session, props.projectId, { limit: TRANSCRIPT_PAGE }),
-      fetchVoiceDecisions(session, props.projectId, 40),
+      fetchVoiceRules(session, props.projectId),
     ])
-      .then(([segmentData, decisionData]) => {
+      .then(([segmentData, ruleData]) => {
         setSegments(segmentData.segments);
         const nextPage = segmentData.next[0];
         if (nextPage !== undefined) {
@@ -173,13 +175,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
         } else {
           setNextCursor("");
         }
-        const emitted: VoiceIntentDecision[] = [];
-        for (const row of decisionData.decisions) {
-          if (row.emit) {
-            emitted.push(row);
-          }
-        }
-        setDecisions(emitted);
+        setHits(ruleData.hits);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -212,26 +208,6 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
       return merged;
     });
   }, [voice.liveSegments]);
-
-  useEffect(() => {
-    if (voice.lastDecision === null) {
-      return;
-    }
-    const decision = voice.lastDecision;
-    if (decision.emit !== true) {
-      return;
-    }
-    setDecisions((prev) => {
-      const next: VoiceIntentDecision[] = [decision];
-      for (const row of prev) {
-        if (row.id === decision.id) {
-          continue;
-        }
-        next.push(row);
-      }
-      return next;
-    });
-  }, [voice.lastDecision]);
 
   async function loadMore(): Promise<void> {
     if (session === null || nextCursor.length === 0 || loadingMore) {
@@ -278,28 +254,10 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Voice"
-        subtitle="Speak → text → work. Transcript is kept; audio is not."
-        actions={
-          <Button
-            type="button"
-            size="sm"
-            variant={liveOnThisProject ? "destructive" : "default"}
-            onClick={() => {
-              if (liveOnThisProject) {
-                voice.stop();
-                return;
-              }
-              void voice.start(props.projectId).catch((err: unknown) => {
-                setError(err instanceof Error ? err.message : "mic failed");
-              });
-            }}
-          >
-            {liveOnThisProject ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            {liveOnThisProject ? "Stop" : "Listen"}
-          </Button>
-        }
+        subtitle="Speak → text → work. Use Listen in the sidebar. Transcript is kept; audio is not."
+        actions={<VoiceSettingsLink />}
       />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+      <PageContent className="space-y-4 overflow-y-auto">
         {error.length > 0 || voice.error.length > 0 ? (
           <p className="text-sm text-destructive">
             {error.length > 0 ? error : voice.error}
@@ -321,7 +279,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
                   sidecarUi.checked !== true
                     ? "text-muted-foreground"
                     : sidecarUi.reachable
-                      ? "text-emerald-400"
+                      ? "text-success"
                       : "text-destructive",
                 )}
                 aria-live="polite"
@@ -336,9 +294,9 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
                 className={cn(
                   "text-xs font-medium",
                   voice.reconnecting
-                    ? "text-amber-400"
+                    ? "text-warn"
                     : voice.phase === "speaking"
-                      ? "text-emerald-400"
+                      ? "text-success"
                       : "text-muted-foreground",
                 )}
                 aria-live="polite"
@@ -414,8 +372,14 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
         </section>
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Work</h2>
+            <h2 className="text-sm font-semibold">Rule matches</h2>
             <div className="flex flex-wrap items-center gap-3">
+              <Link
+                className="text-[11px] text-muted-foreground underline underline-offset-2"
+                to={`/projects/${props.projectId}/rules`}
+              >
+                Rules
+              </Link>
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
                 to={`/projects/${props.projectId}/agents`}
@@ -424,75 +388,58 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
               </Link>
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/tasks`}
-              >
-                Tasks
-              </Link>
-              <Link
-                className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/events?type=voice.intent`}
+                to={`/projects/${props.projectId}/events`}
               >
                 Events
               </Link>
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Emitted voice.intent events. Use Agents for scheduled or event-driven follow-up.
+            Every couple of minutes your transcript is scanned against the project rules. Each match
+            emits its own event for agents and scripts to pick up.
           </p>
-          {voice.lastDecision !== null && voice.lastDecision.emit === true ? (
-            <div className="panel-card space-y-2 border border-emerald-500/30 bg-emerald-500/5 p-4">
-              <p className="text-sm font-medium">
-                Latest intent
-                {voice.lastDecision.title.length > 0 ? ` — ${voice.lastDecision.title}` : ""}
-              </p>
-              {voice.lastDecision.summary.length > 0 ? (
-                <p className="text-xs text-muted-foreground">{voice.lastDecision.summary}</p>
-              ) : null}
-              <Link
-                className="inline-block text-xs font-medium underline underline-offset-2"
-                to={`/projects/${props.projectId}/tasks`}
-              >
-                Open Tasks
-              </Link>
-            </div>
-          ) : null}
-          {loading !== true && decisions.length === 0 ? (
+          {loading !== true && hits.length === 0 ? (
             <div className="panel-card space-y-2 px-6 py-10 text-center">
-              <p className="text-sm font-semibold">No work intents yet</p>
+              <p className="text-sm font-semibold">Nothing has matched yet</p>
               <p className="text-sm text-muted-foreground">
-                Clear asks (“create a task…”) emit here. Greetings stay in the transcript only.
+                Rules decide what counts as an ask. Without one, everything you say stays in the
+                transcript above.
               </p>
+              <Link
+                className="inline-block text-sm font-medium underline underline-offset-2"
+                to={`/projects/${props.projectId}/rules`}
+              >
+                Set up rules
+              </Link>
             </div>
           ) : (
             <ul className="space-y-2">
-              {decisions.map((decision) => (
-                <li key={decision.id} className="panel-card p-4 text-sm">
-                  <p className="font-medium">
-                    {decision.title.length > 0 ? decision.title : "voice.intent"}
+              {hits.map((hit) => (
+                <li key={hit.id} className="panel-card p-4 text-sm">
+                  <p className="font-medium">{hit.title}</p>
+                  <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                    voice.rule.{hit.slug}
                   </p>
-                  {decision.summary.length > 0 ? (
-                    <p className="mt-2 text-xs text-muted-foreground">{decision.summary}</p>
+                  {hit.summary.length > 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">{hit.summary}</p>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    <Link
-                      className="text-[11px] text-muted-foreground underline underline-offset-2"
-                      to={`/projects/${props.projectId}/tasks`}
-                    >
-                      Tasks
-                    </Link>
-                    <Link
-                      className="text-[11px] text-muted-foreground underline underline-offset-2"
-                      to={`/projects/${props.projectId}/events?type=voice.intent`}
-                    >
-                      Event
-                    </Link>
-                  </div>
+                  {hit.quote.length > 0 ? (
+                    <p className="mt-2 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+                      {hit.quote}
+                    </p>
+                  ) : null}
+                  <Link
+                    className="mt-2 inline-block text-[11px] text-muted-foreground underline underline-offset-2"
+                    to={`/projects/${props.projectId}/events?type=voice.rule.${hit.slug}`}
+                  >
+                    Event
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </section>
-      </div>
+      </PageContent>
     </div>
   );
 }
