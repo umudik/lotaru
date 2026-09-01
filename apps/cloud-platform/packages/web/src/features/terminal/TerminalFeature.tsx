@@ -123,7 +123,7 @@ export function TerminalFeature(props: { projectId: string }): React.JSX.Element
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Terminal"
-        subtitle="Host shell in the project folder. Not Agent AI — runs commands on this machine."
+        info="Host shell in the project folder. Runs commands on this machine."
       />
       <PageContent className="flex flex-col">
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">

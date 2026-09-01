@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
@@ -17,12 +16,9 @@ import {
   fetchVoiceRules,
   patchVoiceRule,
   scanVoiceRulesNow,
-  testVoiceRules,
-  type AgentKind,
   type EventSubscriber,
   type VoiceRule,
   type VoiceRuleHit,
-  type VoiceRuleMatch,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -34,31 +30,20 @@ import {
 
 type PanelMode = "closed" | "create" | "edit";
 
-type TestResult = { matches: VoiceRuleMatch[]; ran: boolean; error: string };
-
-const STARTERS: { name: string; instruction: string }[] = [
-  {
-    name: "Hatırlatma",
-    instruction:
-      "Konuşan kişi ileride yapılacak bir şeyi hatırlatmamı istediğinde: \"şunu hatırlat\", \"aklımda kalsın\", \"yarın şunu yap\" gibi.",
-  },
-  {
-    name: "Task",
-    instruction:
-      "Konuşan kişi somut bir iş açılmasını istediğinde: \"buna task aç\", \"şunu yapmamız lazım\", \"bunu listeye ekle\" gibi.",
-  },
-  {
-    name: "Karar",
-    instruction:
-      "Konuşan kişi bir karara vardığını söylediğinde: \"şöyle yapıyoruz\", \"karar verdik\", \"bundan sonra böyle olacak\" gibi.",
-  },
-];
-
-function runtimeLabel(kind: AgentKind): string {
-  if (kind === "ollama") {
-    return "Matching on local Ollama";
+function nameTaken(rules: readonly VoiceRule[], name: string, exceptId: string): boolean {
+  const needle = name.trim().toLowerCase();
+  if (needle.length === 0) {
+    return false;
   }
-  return `Matching on ${kind}`;
+  for (const rule of rules) {
+    if (rule.id === exceptId) {
+      continue;
+    }
+    if (rule.name.trim().toLowerCase() === needle) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function relativeTime(ms: number): string {
@@ -79,7 +64,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
   const session = useSession();
   const [rules, setRules] = useState<VoiceRule[]>([]);
   const [hits, setHits] = useState<VoiceRuleHit[]>([]);
-  const [runtime, setRuntime] = useState<AgentKind>("ollama");
   const [subscribers, setSubscribers] = useState<EventSubscriber[]>([]);
   const [panelMode, setPanelMode] = useState<PanelMode>("closed");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,9 +72,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [testTranscript, setTestTranscript] = useState("");
-  const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [testing, setTesting] = useState(false);
   const [viewportMaxDetail, setViewportMaxDetail] = useState(960);
   const detailResize = useDragResize({
     storageKey: "rules-workspace-detail-width",
@@ -106,7 +87,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     const data = await fetchVoiceRules(session, props.projectId);
     setRules(data.rules);
     setHits(data.hits);
-    setRuntime(data.runtime);
   }, [session, props.projectId]);
 
   useEffect(() => {
@@ -126,7 +106,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     setPanelMode("closed");
     setSelectedId(null);
     setDraft(emptyRuleDraft());
-    setTestResult(null);
     setError("");
   }, [props.projectId]);
 
@@ -171,16 +150,14 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     setPanelMode("closed");
     setSelectedId(null);
     setDraft(emptyRuleDraft());
-    setTestResult(null);
     setSubscribers([]);
     setError("");
   }
 
-  function openCreate(seed: RuleDraft | null): void {
+  function openCreate(): void {
     setPanelMode("create");
     setSelectedId(null);
-    setDraft(seed !== null ? seed : emptyRuleDraft());
-    setTestResult(null);
+    setDraft(emptyRuleDraft());
     setError("");
   }
 
@@ -201,7 +178,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     setPanelMode("edit");
     setSelectedId(ruleId);
     setDraft(draftFromRule(found));
-    setTestResult(null);
     setSubscribers([]);
     setError("");
     void loadSubscribers(ruleId);
@@ -214,7 +190,11 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     const name = draft.name.trim();
     const instruction = draft.instruction.trim();
     if (name.length === 0 || instruction.length === 0) {
-      setError("Name and match description are required");
+      setError("Name and match are required");
+      return;
+    }
+    if (nameTaken(rules, name, "")) {
+      setError("Name already used");
       return;
     }
     setSaving(true);
@@ -223,7 +203,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
       const created = await createVoiceRule(session, {
         projectId: props.projectId,
         name,
-        slug: draft.slug.trim().length > 0 ? draft.slug.trim() : undefined,
         instruction,
         enabled: draft.enabled,
       });
@@ -246,7 +225,11 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     const name = draft.name.trim();
     const instruction = draft.instruction.trim();
     if (name.length === 0 || instruction.length === 0) {
-      setError("Name and match description are required");
+      setError("Name and match are required");
+      return;
+    }
+    if (nameTaken(rules, name, selectedId)) {
+      setError("Name already used");
       return;
     }
     setSaving(true);
@@ -254,7 +237,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     try {
       const saved = await patchVoiceRule(session, selectedId, {
         name,
-        slug: draft.slug.trim().length > 0 ? draft.slug.trim() : undefined,
         instruction,
         enabled: draft.enabled,
       });
@@ -282,25 +264,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     await load();
   }
 
-  async function onTest(): Promise<void> {
-    if (session === null) {
-      return;
-    }
-    setTesting(true);
-    try {
-      const result = await testVoiceRules(session, props.projectId, testTranscript.trim());
-      setTestResult(result);
-    } catch (err: unknown) {
-      setTestResult({
-        matches: [],
-        ran: false,
-        error: err instanceof Error ? err.message : "test failed",
-      });
-    } finally {
-      setTesting(false);
-    }
-  }
-
   async function onScanNow(): Promise<void> {
     if (session === null) {
       return;
@@ -324,15 +287,12 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
   }
 
   const enabledCount = rules.filter((rule) => rule.enabled).length;
-  let subtitle =
-    "Every couple of minutes Lotaru reads what you said out loud and emits an event for each rule that matches. Scripts, agents, and notes subscribe to those events.";
-  subtitle = `${runtimeLabel(runtime)} · ${subtitle}`;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
-        title="Rules"
-        subtitle={subtitle}
+        title="Event extractors"
+        info="An extractor turns something you said into an event. Responders and scripts can subscribe to that event."
         actions={
           <div className="flex items-center gap-2">
             <AiSettingsLink />
@@ -354,11 +314,11 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
               size="sm"
               className="shrink-0"
               onClick={() => {
-                openCreate(null);
+                openCreate();
               }}
             >
               <Plus className="h-4 w-4" />
-              New rule
+              New extractor
             </Button>
           </div>
         }
@@ -373,53 +333,24 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
 
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-3">
             {loading ? (
-              <p className="text-sm text-muted-foreground">Loading rules…</p>
+              <p className="text-sm text-muted-foreground">Loading extractors…</p>
             ) : rules.length === 0 ? (
-              <div className="space-y-4">
-                <EmptyStatePanel
-                  title="No rules yet"
-                  description="A rule turns something you say into an event. Name it, describe in your own words when it should match, and everything else subscribes to the event it emits."
-                  action={
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        openCreate(null);
-                      }}
-                    >
-                      <Plus className="h-4 w-4" />
-                      New rule
-                    </Button>
-                  }
-                />
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    Start from one of these
-                  </p>
-                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
-                    {STARTERS.map((starter) => (
-                      <button
-                        key={starter.name}
-                        type="button"
-                        className="panel-card rounded-lg p-4 text-left transition-colors hover:bg-secondary/40"
-                        onClick={() => {
-                          openCreate({
-                            name: starter.name,
-                            slug: "",
-                            instruction: starter.instruction,
-                            enabled: true,
-                          });
-                        }}
-                      >
-                        <p className="text-sm font-semibold">{starter.name}</p>
-                        <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-                          {starter.instruction}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <EmptyStatePanel
+                title="No extractors yet"
+                description=""
+                action={
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      openCreate();
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    New extractor
+                  </Button>
+                }
+              />
             ) : (
               <>
                 <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
@@ -437,15 +368,9 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
                       }}
                     >
                       <p className="text-sm font-semibold">{rule.name}</p>
-                      <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                        {rule.eventType}
-                        {rule.enabled !== true ? " · off" : ""}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {rule.subscriberCount === 0
-                          ? "No listeners yet"
-                          : `${String(rule.subscriberCount)} listener${rule.subscriberCount === 1 ? "" : "s"}`}
-                      </p>
+                      {rule.enabled !== true ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Off</p>
+                      ) : null}
                       <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
                         {rule.instruction}
                       </p>
@@ -458,10 +383,7 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
                     Recent matches
                   </p>
                   {hits.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nothing matched yet. Turn on Listen, say something a rule covers, then use
-                      Scan now instead of waiting for the timer.
-                    </p>
+                    <p className="text-sm text-muted-foreground">Nothing matched yet.</p>
                   ) : (
                     <ul className="space-y-2">
                       {hits.map((hit) => (
@@ -472,9 +394,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
                               {relativeTime(hit.createdAt)}
                             </span>
                           </div>
-                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                            voice.rule.{hit.slug}
-                          </p>
                           {hit.summary.length > 0 ? (
                             <p className="mt-1 text-xs text-muted-foreground">{hit.summary}</p>
                           ) : null}
@@ -488,24 +407,6 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
                     </ul>
                   )}
                 </div>
-
-                <p className="pb-4 text-xs text-muted-foreground">
-                  To act on a rule, open{" "}
-                  <Link
-                    to={`/projects/${props.projectId}/agents`}
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    Agents
-                  </Link>{" "}
-                  or{" "}
-                  <Link
-                    to={`/projects/${props.projectId}/scripts`}
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    Scripts
-                  </Link>{" "}
-                  and subscribe to its event.
-                </p>
               </>
             )}
           </div>
@@ -532,15 +433,8 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
               draft={draft}
               saving={saving}
               error={error}
-              testing={testing}
-              testTranscript={testTranscript}
-              testResult={testResult}
               subscribers={subscribers}
               onDraftChange={setDraft}
-              onTestTranscriptChange={setTestTranscript}
-              onTest={() => {
-                void onTest();
-              }}
               onClose={closePanel}
               onCreate={() => {
                 void onCreate();

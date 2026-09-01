@@ -202,7 +202,7 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
             {busEventOptions.map((entry) => (
               <SelectItem key={entry.type} value={entry.type}>
                 {entry.kind === 'rule' && entry.label.length > 0
-                  ? `Rule: ${entry.label}`
+                  ? `Extractor: ${entry.label}`
                   : catalogEventLabel(entry.type)}
               </SelectItem>
             ))}

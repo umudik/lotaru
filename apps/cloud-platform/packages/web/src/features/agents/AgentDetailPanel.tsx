@@ -56,7 +56,6 @@ type Props = {
   mode: "create" | "edit";
   agent: LotaruAgent | null;
   draft: CreateDraft;
-  runtimeLabel: string;
   eventTypes: EventTypeOption[];
   saving: boolean;
   running: boolean;
@@ -71,7 +70,7 @@ type Props = {
 
 export function AgentDetailPanel(props: Props): React.JSX.Element {
   const heading =
-    props.mode === "create" ? "New agent" : props.agent !== null ? props.agent.title : "Agent";
+    props.mode === "create" ? "New responder" : props.agent !== null ? props.agent.title : "Responder";
 
   let options = props.eventTypes;
   if (options.length === 0) {
@@ -100,10 +99,7 @@ export function AgentDetailPanel(props: Props): React.JSX.Element {
       <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{heading}</p>
-          <p className="text-xs text-muted-foreground">
-            Shared Agent AI
-            {props.runtimeLabel.length > 0 ? `: ${props.runtimeLabel}` : ""}
-          </p>
+          <p className="text-xs text-muted-foreground">Shared AI</p>
         </div>
         <Button
           type="button"
@@ -177,7 +173,7 @@ export function AgentDetailPanel(props: Props): React.JSX.Element {
                     }}
                   >
                     {ruleOptions.length > 0 ? (
-                      <optgroup label="Your rules">
+                      <optgroup label="Extractors">
                         {ruleOptions.map((entry) => (
                           <option key={entry.type} value={entry.type}>
                             {entry.label.length > 0 ? entry.label : entry.type}
@@ -186,7 +182,7 @@ export function AgentDetailPanel(props: Props): React.JSX.Element {
                       </optgroup>
                     ) : null}
                     {agentOptions.length > 0 ? (
-                      <optgroup label="Your agents">
+                      <optgroup label="Responders">
                         {agentOptions.map((entry) => (
                           <option key={entry.type} value={entry.type}>
                             {entry.label.length > 0 ? entry.label : entry.type}

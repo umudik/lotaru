@@ -357,7 +357,7 @@ export function EventsPage(): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Events"
-        subtitle="Project event log. Agents and scripts listen here — configure listeners in Agents or Scripts."
+        info="What happened in this project."
         actions={
           <div className="flex items-center gap-2">
             <Label htmlFor="event-type-filter" className="sr-only">
@@ -386,7 +386,7 @@ export function EventsPage(): React.JSX.Element {
             >
               <option value="">All types</option>
               {ruleTypes.length > 0 ? (
-                <optgroup label="Your rules">
+                <optgroup label="Extractors">
                   {ruleTypes.map((entry) => (
                     <option key={entry.type} value={entry.type}>
                       {entry.label.length > 0 ? entry.label : entry.type}
@@ -395,7 +395,7 @@ export function EventsPage(): React.JSX.Element {
                 </optgroup>
               ) : null}
               {agentTypes.length > 0 ? (
-                <optgroup label="Your agents">
+                <optgroup label="Responders">
                   {agentTypes.map((entry) => (
                     <option key={entry.type} value={entry.type}>
                       {entry.label.length > 0 ? entry.label : entry.type}
@@ -427,10 +427,6 @@ export function EventsPage(): React.JSX.Element {
             <p className="text-sm font-medium">
               {typeFilter.length > 0 ? "No events match this type." : "No events recorded yet."}
             </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Clock ticks, file saves, app start, pull requests, and voice rule matches land
-              here.
-            </p>
           </div>
         ) : (
           <>
@@ -456,7 +452,7 @@ export function EventsPage(): React.JSX.Element {
                             className="text-[11px] text-muted-foreground underline underline-offset-2"
                             to={`/projects/${projectId}/rules`}
                           >
-                            Open Rules
+                            Open extractors
                           </Link>
                         ) : null}
                       </div>
@@ -507,7 +503,7 @@ export function EventsPage(): React.JSX.Element {
                           className="underline underline-offset-2"
                           to={`/projects/${projectId}/agents`}
                         >
-                          Agents
+                          Event responders
                         </Link>{" "}
                         or{" "}
                         <Link

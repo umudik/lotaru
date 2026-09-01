@@ -167,7 +167,7 @@ export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number
         }
         reject(
           new Error(
-            `CLI binary "${binary}" not found on PATH. In Docker, host CLIs (agent/claude/codex) are unavailable — switch Agent AI to Local Ollama, or run Lotaru on the host.`,
+            `CLI binary "${binary}" not found on PATH. In Docker, host CLIs (agent/claude/codex) are unavailable — switch AI to Local Ollama, or run Lotaru on the host.`,
           ),
         );
         return;
@@ -176,7 +176,7 @@ export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number
         reject(err);
         return;
       }
-      reject(new Error("Agent failed to start"));
+      reject(new Error("Responder failed to start"));
     });
     child.on("close", (code) => {
       clearTimeout(timer);

@@ -14,9 +14,11 @@ export function EmptyStatePanel(props: {
   return (
     <div className={cn(shellClass)}>
       <p className="text-sm font-semibold text-foreground">{props.title}</p>
-      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-        {props.description}
-      </p>
+      {props.description.length > 0 ? (
+        <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+          {props.description}
+        </p>
+      ) : null}
       {props.action !== undefined ? <div className="mt-4">{props.action}</div> : null}
     </div>
   );

@@ -42,7 +42,7 @@ function TemplatesPage(props: {
   const [title, setTitle] = useState("");
   const [eventType, setEventType] = useState("file.changed");
   const [description, setDescription] = useState("");
-  const [language, setLanguage] = useState("tr");
+  const [language, setLanguage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -96,6 +96,9 @@ function TemplatesPage(props: {
     if (trimmed.length === 0) {
       return;
     }
+    if (language.trim().length === 0) {
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -129,7 +132,7 @@ function TemplatesPage(props: {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title={heading}
-        subtitle={`Event → ${listLabel}. Templates turn State into Knowledge.`}
+        info={`Event → ${listLabel}. Templates turn State into Knowledge.`}
         actions={
           <div className="flex items-center gap-2">
             <AiSettingsLink />
@@ -279,7 +282,11 @@ function TemplatesPage(props: {
                 <Button type="button" variant="outline" className="flex-1" onClick={closeCreate}>
                   Cancel
                 </Button>
-                <Button type="submit" className="flex-1" disabled={saving || title.trim().length === 0}>
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={saving || title.trim().length === 0 || language.trim().length === 0}
+                >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Save
                 </Button>
@@ -334,7 +341,7 @@ function ArtifactsPage(props: {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title={heading}
-        subtitle="Generated from templates when matching events land. Uses shared Agent AI."
+        info="Generated from templates when matching events land."
         actions={<AiSettingsLink />}
       />
       <PageContent className="overflow-y-auto">

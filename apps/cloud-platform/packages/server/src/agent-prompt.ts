@@ -21,7 +21,19 @@ export type AgentRunFn = (input: {
 }) => Promise<string>;
 
 const DEFAULT_AGENT_SYSTEM =
-  "You are a Lotaru assistant. Answer clearly and stay on topic.";
+  "You are a Lotaru assistant. Answer clearly and stay on topic. Write in the same language as the user's instructions and the event text. Do not switch to English unless those are in English.";
+
+export function replyLanguageInstruction(targetLanguageLabel: string): string {
+  const label = targetLanguageLabel.trim();
+  const follow =
+    "Write the reply in the same language as the user's instructions and the event text.";
+  const scaffold =
+    "English lines in this prompt are platform scaffolding. Do not switch the body to English unless the instructions are in English.";
+  if (label.length === 0) {
+    return `${follow} ${scaffold}`;
+  }
+  return `${follow} ${scaffold} If the instructions do not pick a language, write in ${label}.`;
+}
 
 export type RunProjectAgentOptions = {
   databasePath: string;
@@ -63,7 +75,7 @@ function projectWorkingDirectory(
   }
   const repoPath = project.repoPath.trim();
   if (repoPath.length === 0) {
-    throw new Error("Set a project folder before running Agents");
+    throw new Error("Set a project folder before running a responder");
   }
   return requireExistingDirectory(repoPath);
 }
@@ -105,7 +117,6 @@ export async function runProjectAgentPrompt(input: RunProjectAgentOptions): Prom
   return spawnAgentCli(spec, cwd, AGENT_TIMEOUT_MS);
 }
 
-/** Which engine the shared Agent AI setting currently points at. */
 export function activeAgentKind(databasePath: string): AgentKind {
   return loadAgentProfile(openAgentDb(databasePath)).kind;
 }

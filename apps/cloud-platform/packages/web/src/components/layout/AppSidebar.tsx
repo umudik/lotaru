@@ -79,12 +79,11 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             </p>
             <NavGroup label="Listen">
               <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
-              <NavItem to={`/projects/${projectId}/rules`} label="Rules" icon={Wand2} />
+              <NavItem to={`/projects/${projectId}/rules`} label="Event extractors" icon={Wand2} />
             </NavGroup>
             <NavGroup label="Automation">
-              <NavItem to={`/projects/${projectId}/agents`} label="Agents" icon={Bot} />
+              <NavItem to={`/projects/${projectId}/agents`} label="Event responders" icon={Bot} />
               <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={ScrollText} />
-              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
             </NavGroup>
             <NavGroup label="Shell">
               <NavItem to={`/projects/${projectId}/terminal`} label="Terminal" icon={SquareTerminal} />
@@ -120,6 +119,9 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             </NavGroup>
             <NavGroup label="Sources">
               <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
+            </NavGroup>
+            <NavGroup label="Log">
+              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
             </NavGroup>
           </div>
         ) : fallbackProjectId ? (

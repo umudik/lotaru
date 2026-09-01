@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
+import { PageInfoButton } from "@/components/layout/PageInfoButton";
 import { cn } from "@/lib/utils";
 
 export type Crumb = { label: string; to: string | null };
@@ -11,6 +12,7 @@ type PageHeaderProps = {
   breadcrumb: Crumb[] | null;
   title: string;
   subtitle: string | null;
+  info: string | null;
   actions: ReactNode | null;
   className: string | null;
 };
@@ -44,6 +46,14 @@ export function PageHeader(rawProps: Partial<PageHeaderProps> & Pick<PageHeaderP
       subtitle = rawProps.subtitle;
     }
   }
+  let info: string | null = null;
+  if ("info" in rawProps) {
+    if (rawProps.info === null) {
+      info = null;
+    } else if (typeof rawProps.info === "string" && rawProps.info.length > 0) {
+      info = rawProps.info;
+    }
+  }
   let actions: ReactNode | null = null;
   if ("actions" in rawProps && rawProps.actions !== null && rawProps.actions !== undefined) {
     actions = rawProps.actions;
@@ -69,7 +79,10 @@ export function PageHeader(rawProps: Partial<PageHeaderProps> & Pick<PageHeaderP
             {contextExtra}
           </div>
         ) : null}
-        <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+          {info !== null ? <PageInfoButton text={info} /> : null}
+        </div>
         {subtitle !== null ? <p className="text-xs text-muted-foreground">{subtitle}</p> : null}
       </div>
       {actions !== null ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}

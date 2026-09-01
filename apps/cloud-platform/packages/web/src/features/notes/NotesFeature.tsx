@@ -441,7 +441,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              Translate, polish, and summary use Agent AI. Read-aloud uses Voice settings.
+              Translate, polish, and summary use AI. Read-aloud uses Voice settings.
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
               <AiSettingsLink />
@@ -526,7 +526,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
             </div>
             <p className="border-b border-border/70 px-6 py-2 text-[11px] leading-relaxed text-muted-foreground">
               On runs that job when you add or edit a page. Translate uses the target language in
-              Voice settings. Polish and summary use Agent AI. Each job keeps its own text, and each
+              Voice settings. Polish and summary use AI. Each job keeps its own text, and each
               text can be read aloud.
             </p>
             <form
@@ -715,7 +715,7 @@ function jobFailureText(errorText: string): string {
   if (trimmed.length > 0) {
     return trimmed;
   }
-  return "Agent AI did not finish. Retry, or check Agent settings (provider and Ollama model).";
+  return "AI did not finish. Retry, or check AI settings.";
 }
 
 function VariantCard(props: {
@@ -764,7 +764,7 @@ function VariantCard(props: {
         </div>
       </div>
       {props.status === "pending" ? (
-        <p className="note-pulse text-sm text-warn">Waiting on Agent AI. It keeps going until the model answers.</p>
+        <p className="note-pulse text-sm text-warn">Waiting on AI. It keeps going until the model answers.</p>
       ) : props.status === "error" ? (
         <p className="text-sm text-destructive">{jobFailureText(failureText)}</p>
       ) : (

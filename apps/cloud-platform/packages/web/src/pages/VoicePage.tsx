@@ -254,7 +254,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Voice"
-        subtitle="Speak → text → work. Use Listen in the sidebar. Transcript is kept; audio is not."
+        info="Speak to text. Use Listen in the sidebar. Transcript is kept; audio is not."
         actions={<VoiceSettingsLink />}
       />
       <PageContent className="space-y-4 overflow-y-auto">
@@ -372,19 +372,19 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
         </section>
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Rule matches</h2>
+            <h2 className="text-sm font-semibold">Matches</h2>
             <div className="flex flex-wrap items-center gap-3">
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
                 to={`/projects/${props.projectId}/rules`}
               >
-                Rules
+                Event extractors
               </Link>
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
                 to={`/projects/${props.projectId}/agents`}
               >
-                Agents
+                Event responders
               </Link>
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
@@ -394,22 +394,14 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
               </Link>
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Every couple of minutes your transcript is scanned against the project rules. Each match
-            emits its own event for agents and scripts to pick up.
-          </p>
           {loading !== true && hits.length === 0 ? (
             <div className="panel-card space-y-2 px-6 py-10 text-center">
               <p className="text-sm font-semibold">Nothing has matched yet</p>
-              <p className="text-sm text-muted-foreground">
-                Rules decide what counts as an ask. Without one, everything you say stays in the
-                transcript above.
-              </p>
               <Link
                 className="inline-block text-sm font-medium underline underline-offset-2"
                 to={`/projects/${props.projectId}/rules`}
               >
-                Set up rules
+                Set up extractors
               </Link>
             </div>
           ) : (

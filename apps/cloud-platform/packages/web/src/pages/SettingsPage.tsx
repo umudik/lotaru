@@ -201,7 +201,12 @@ export function SettingsPage(): React.JSX.Element {
     if (loading || settings === null) {
       return;
     }
-    if (location.hash !== "#github" && location.hash !== "#ai" && location.hash !== "#voice") {
+    if (
+      location.hash !== "#github" &&
+      location.hash !== "#ai" &&
+      location.hash !== "#voice" &&
+      location.hash !== "#language"
+    ) {
       return;
     }
     const section = document.getElementById(location.hash.slice(1));
@@ -460,9 +465,9 @@ export function SettingsPage(): React.JSX.Element {
                 <Cpu className="h-4 w-4" />
               </div>
               <div>
-                <h2 className="text-base font-semibold">Agent AI</h2>
+                <h2 className="text-base font-semibold">AI</h2>
                 <p className="text-xs text-muted-foreground">
-                  Single runtime for Chat, Agents, Notes translate/polish/summary, and Knowledge.
+                  Single runtime for Chat, Event responders, Notes translate/polish/summary, and Knowledge.
                   Chat always runs in ask mode. Log in to each CLI on this machine.
                 </p>
               </div>
@@ -472,7 +477,7 @@ export function SettingsPage(): React.JSX.Element {
                 <div>
                   <h3 className="text-sm font-semibold">Default runtime</h3>
                   <p className="text-xs text-muted-foreground">
-                    Provider used by Chat, Agents, Notes jobs, and Knowledge. Chat always runs in
+                    Provider used by Chat, Event responders, Notes jobs, and Knowledge. Chat always runs in
                     ask mode.
                   </p>
                 </div>
@@ -565,7 +570,7 @@ export function SettingsPage(): React.JSX.Element {
                 <div>
                   <h3 className="text-sm font-semibold">Local Ollama</h3>
                   <p className="text-xs text-muted-foreground">
-                    Endpoint for Agent AI when provider is Ollama. Voice intent scanning always
+                    Endpoint for AI when provider is Ollama. Voice intent scanning always
                     uses this local model. In Docker use http://host.docker.internal:11434 (Ollama
                     must listen on 0.0.0.0).
                   </p>
@@ -650,7 +655,7 @@ export function SettingsPage(): React.JSX.Element {
               </p>
             </div>
           </div>
-          <div className="space-y-5 border-t border-border/60 pt-5">
+          <div id="language" className="space-y-5 border-t border-border/60 pt-5">
             <div className="flex items-center gap-3">
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-secondary">
                 <Languages className="h-3.5 w-3.5" />
@@ -658,12 +663,14 @@ export function SettingsPage(): React.JSX.Element {
               <div>
                 <h3 className="text-sm font-semibold">Language</h3>
                 <p className="text-xs text-muted-foreground">
-                  Target for note translation and the default read-aloud voice
+                  Notes translate into this language. Speech uses a matching voice. Event
+                  responders follow the language of your prompt; they use this only when the
+                  prompt does not pick one.
                 </p>
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="target-language">Target language</Label>
+              <Label htmlFor="target-language">Default language</Label>
               <Select
                 id="target-language"
                 value={current.targetLanguage}

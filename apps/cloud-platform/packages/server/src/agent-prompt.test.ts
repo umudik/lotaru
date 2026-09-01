@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { runLocalOllamaPrompt, runProjectAgentPrompt } from "./agent-prompt.js";
+import { replyLanguageInstruction, runLocalOllamaPrompt, runProjectAgentPrompt } from "./agent-prompt.js";
 import { openSettingsDb } from "./app-settings.js";
 import { saveAgentProfile, openAgentDb } from "./agent-store.js";
 
@@ -33,6 +33,21 @@ describe("runProjectAgentPrompt", () => {
     assert.equal(reply, "ok");
     assert.equal(capturedKind, "claude");
     assert.equal(capturedMode, "ask");
+  });
+});
+
+describe("replyLanguageInstruction", () => {
+  it("follows the prompt language and falls back to the settings label", () => {
+    const line = replyLanguageInstruction("Turkish");
+    assert.match(line, /same language as the user's instructions/);
+    assert.match(line, /platform scaffolding/);
+    assert.match(line, /write in Turkish/);
+  });
+
+  it("omits a fallback when no settings language is given", () => {
+    const line = replyLanguageInstruction("   ");
+    assert.match(line, /same language as the user's instructions/);
+    assert.equal(line.includes("If the instructions do not pick a language"), false);
   });
 });
 

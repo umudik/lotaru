@@ -11,9 +11,7 @@ import { useSession } from "@/hooks/useSession";
 import {
   createAgent,
   deleteAgent,
-  fetchAgentSettings,
   fetchAgents,
-  fetchAppSettings,
   fetchEventTypes,
   patchAgent,
   runAgentNow,
@@ -21,7 +19,6 @@ import {
   type LotaruAgent,
 } from "@/lib/api";
 import { eventLabelWithRules } from "@/lib/event-catalog";
-import { agentRuntimeDetail } from "@/lib/agent-runtime-label";
 import { cn } from "@/lib/utils";
 import {
   AgentDetailPanel,
@@ -46,7 +43,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
   const [panelMode, setPanelMode] = useState<PanelMode>("closed");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CreateDraft>(emptyAgentDraft());
-  const [runtime, setRuntime] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [runningId, setRunningId] = useState("");
@@ -71,23 +67,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     setEventTypes(eventTypeData.eventTypes);
   }, [session, props.projectId]);
 
-  const loadRuntime = useCallback(async (): Promise<void> => {
-    if (session === null) {
-      return;
-    }
-    const [agentData, appData] = await Promise.all([
-      fetchAgentSettings(session),
-      fetchAppSettings(session),
-    ]);
-    setRuntime(
-      agentRuntimeDetail(
-        agentData.profile.kind,
-        appData.settings.ollamaModel,
-        agentData.profile.mode,
-      ),
-    );
-  }, [session]);
-
   useEffect(() => {
     void (async () => {
       try {
@@ -99,27 +78,7 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
         setLoading(false);
       }
     })();
-    void loadRuntime().catch(() => {
-      setRuntime("");
-    });
-  }, [load, loadRuntime]);
-
-  useEffect(() => {
-    function onVisible(): void {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      void loadRuntime().catch(() => {
-        setRuntime("");
-      });
-    }
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("pageshow", onVisible);
-    };
-  }, [loadRuntime]);
+  }, [load]);
 
   useEffect(() => {
     setPanelMode("closed");
@@ -287,23 +246,17 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     }
   }
 
-  let agentsSubtitle =
-    "An agent runs one prompt when an event fires or at a set time each day, then turns the reply into a note, a task, an event on the bus, or nothing.";
-  if (runtime.length > 0) {
-    agentsSubtitle = `${runtime} · ${agentsSubtitle}`;
-  }
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
-        title="Agents"
-        subtitle={agentsSubtitle}
+        title="Event responders"
+        info="A responder runs one prompt when an event fires or at a set time each day, then turns the reply into a note, a task, an event on the bus, or nothing."
         actions={
           <div className="flex items-center gap-2">
             <AiSettingsLink />
             <Button type="button" size="sm" className="shrink-0" onClick={openCreate}>
               <Plus className="h-4 w-4" />
-              New agent
+              New responder
             </Button>
           </div>
         }
@@ -318,15 +271,15 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
 
         <div className="min-h-0 flex-1 overflow-y-auto py-3">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading agents…</p>
+            <p className="text-sm text-muted-foreground">Loading responders…</p>
           ) : agents.length === 0 ? (
             <EmptyStatePanel
-              title="No agents yet"
-              description="Pick when it runs, write the prompt, choose what happens to the reply. Rules from the Rules page show up in the event list, so an agent can react to something you said out loud."
+              title="No responders yet"
+              description="Pick when it runs, write the prompt, choose what happens to the reply."
               action={
                 <Button type="button" size="sm" onClick={openCreate}>
                   <Plus className="h-4 w-4" />
-                  New agent
+                  New responder
                 </Button>
               }
             />
@@ -380,7 +333,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
             mode={panelMode === "create" ? "create" : "edit"}
             agent={selectedAgent}
             draft={draft}
-            runtimeLabel={runtime}
             eventTypes={eventTypes}
             saving={saving}
             running={runningId.length > 0}

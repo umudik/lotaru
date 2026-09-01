@@ -111,6 +111,24 @@
     @apply flex shrink-0 items-center justify-between gap-4 border-b border-border/60 px-8 py-4;
   }
 
+  .page-info-popover {
+    display: none;
+    inset: unset;
+    margin: 0;
+    width: 20rem;
+    max-width: calc(100vw - 24px);
+    border-radius: 0.75rem;
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--card));
+    padding: 0.85rem 1rem;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .page-info-popover:is(:popover-open, .\:popover-open),
+  .page-info-popover[data-open] {
+    display: block;
+  }
+
   .panel-card {
     @apply rounded-2xl border border-border/70 bg-card shadow-[0_8px_30px_rgba(0,0,0,0.35)];
   }

@@ -6,7 +6,7 @@ export function AiSettingsLink(): React.JSX.Element {
       to="/settings#ai"
       className="text-xs font-medium text-muted-foreground hover:text-foreground"
     >
-      Agent settings
+      AI settings
     </Link>
   );
 }

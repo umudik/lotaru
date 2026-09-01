@@ -5,7 +5,9 @@ import { z } from "zod";
 import {
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { runProjectAgentPrompt, type AgentRunFn } from "../agent-prompt.js";
+import { replyLanguageInstruction, runProjectAgentPrompt, type AgentRunFn } from "../agent-prompt.js";
+import { loadAppSettings, openSettingsDb } from "../app-settings.js";
+import { languageLabel } from "../note-language.js";
 import { AGENT_TIMEOUT_MS } from "../agent-runtime.js";
 import {
   EVENT_AGENT_RAN,
@@ -457,11 +459,18 @@ function noteBookFor(agent: LotaruAgent): string {
   return agent.title.trim();
 }
 
-function buildPrompt(agent: LotaruAgent, eventType: string, path: string, detail: string, voice: string): string {
+function buildPrompt(
+  agent: LotaruAgent,
+  eventType: string,
+  path: string,
+  detail: string,
+  voice: string,
+  targetLanguageLabel: string,
+): string {
   const parts = [
     agent.prompt,
     "",
-    `Agent title: ${agent.title}`,
+    `Responder title: ${agent.title}`,
     `Trigger event: ${eventType}`,
   ];
   if (path.length > 0) {
@@ -479,34 +488,31 @@ function buildPrompt(agent: LotaruAgent, eventType: string, path: string, detail
       `Write a clear journal-style note body. The platform saves your full reply as a page in the note book titled "${noteBookFor(agent)}".`,
       "Return only the note body text, no surrounding commentary.",
     );
-    return parts.join("\n");
-  }
-  if (agent.action === "task") {
+  } else if (agent.action === "task") {
     parts.push(
       "",
       "Write the task this event calls for. Put a short imperative title on the first line, then the details below it.",
       "The platform files your reply as a task, so return only the task text.",
     );
-    return parts.join("\n");
-  }
-  if (agent.action === "event") {
+  } else if (agent.action === "event") {
     parts.push(
       "",
       `The platform publishes your reply on the bus as ${agentOutputEventType(agent)}, and whatever subscribes to that event reads it as the payload.`,
       "Return only the payload text, no surrounding commentary.",
     );
-    return parts.join("\n");
+  } else {
+    let mcpUrl = "http://127.0.0.1:18766/mcp";
+    const fromEnv = process.env.LOTARU_MCP_URL;
+    if (fromEnv !== undefined && fromEnv.trim().length > 0) {
+      mcpUrl = fromEnv.trim();
+    }
+    parts.push(
+      "",
+      `Lotaru MCP is available without authentication at ${mcpUrl}.`,
+      "Use MCP tools for voice segments, note books, events, scripts, and responders when the prompt needs platform data.",
+    );
   }
-  let mcpUrl = "http://127.0.0.1:18766/mcp";
-  const fromEnv = process.env.LOTARU_MCP_URL;
-  if (fromEnv !== undefined && fromEnv.trim().length > 0) {
-    mcpUrl = fromEnv.trim();
-  }
-  parts.push(
-    "",
-    `Lotaru MCP is available without authentication at ${mcpUrl}.`,
-    "Use MCP tools for voice segments, note books, events, scripts, and agents when the prompt needs platform data.",
-  );
+  parts.push("", replyLanguageInstruction(targetLanguageLabel));
   return parts.join("\n");
 }
 
@@ -730,7 +736,15 @@ async function executeAgent(input: {
     if (input.agent.includeVoice) {
       voice = voiceContext(input.options.databasePath, input.agent.projectId);
     }
-    const prompt = buildPrompt(input.agent, input.eventType, input.path, input.detail, voice);
+    const settings = loadAppSettings(openSettingsDb(input.options.databasePath));
+    const prompt = buildPrompt(
+      input.agent,
+      input.eventType,
+      input.path,
+      input.detail,
+      voice,
+      languageLabel(settings.targetLanguage),
+    );
     const text = await runAgentText({
       options: input.options,
       prompt,

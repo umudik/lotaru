@@ -116,7 +116,7 @@ export async function registerVoiceRulesModule(
     return {
       rules,
       hits: listRuleHits(db, projectId, HIT_HISTORY_LIMIT),
-      // Matching runs on whatever Settings → Agent AI points at.
+      // Matching runs on whatever Settings → AI points at.
       runtime: activeAgentKind(options.databasePath),
     };
   });
