@@ -150,44 +150,28 @@ export function recordEvent(db: Database.Database, event: LotaruEvent): void {
 export function pruneEventLog(db: Database.Database, projectId: string): void {
   db.prepare(
     `DELETE FROM lotaru_events
-     WHERE project_id = ? AND type IN (?, ?)
+     WHERE project_id = ? AND (type LIKE 'clock.%' OR type = 'schedule.fired')
        AND id NOT IN (
          SELECT id FROM (
            SELECT id FROM lotaru_events
-           WHERE project_id = ? AND type IN (?, ?)
+           WHERE project_id = ? AND (type LIKE 'clock.%' OR type = 'schedule.fired')
            ORDER BY created_at DESC, id DESC
            LIMIT ?
          )
        )`,
-  ).run(
-    projectId,
-    EVENT_CLOCK_TICK,
-    "schedule.fired",
-    projectId,
-    EVENT_CLOCK_TICK,
-    "schedule.fired",
-    EVENT_LOG_KEEP_CLOCK,
-  );
+  ).run(projectId, projectId, EVENT_LOG_KEEP_CLOCK);
   db.prepare(
     `DELETE FROM lotaru_events
-     WHERE project_id = ? AND type NOT IN (?, ?)
+     WHERE project_id = ? AND type NOT LIKE 'clock.%' AND type != 'schedule.fired'
        AND id NOT IN (
          SELECT id FROM (
            SELECT id FROM lotaru_events
-           WHERE project_id = ? AND type NOT IN (?, ?)
+           WHERE project_id = ? AND type NOT LIKE 'clock.%' AND type != 'schedule.fired'
            ORDER BY created_at DESC, id DESC
            LIMIT ?
          )
        )`,
-  ).run(
-    projectId,
-    EVENT_CLOCK_TICK,
-    "schedule.fired",
-    projectId,
-    EVENT_CLOCK_TICK,
-    "schedule.fired",
-    EVENT_LOG_KEEP,
-  );
+  ).run(projectId, projectId, EVENT_LOG_KEEP);
 }
 
 export function listProjectEvents(db: Database.Database, input: EventListInput): EventListPage {

@@ -7,8 +7,12 @@ import {
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { runProjectAgentPrompt } from "../agent-prompt.js";
 import type { AgentKind, AgentMode } from "../agent-runtime.js";
-import { isKnownEventType } from "../event-registry.js";
+import { subscriberMaySelect, type NamedEventTemplate } from "../event-registry.js";
+import { connectedKindsAt } from "../connection-store.js";
 import { cachedSqlite } from "../sqlite-cache.js";
+import { requireConnectedAiToolId } from "../ai-health.js";
+import { openSettingsDb } from "../app-settings.js";
+import { calendarHitsNow, parseCalendarCron } from "../calendar-schedule.js";
 import type { Identity } from "./identity.js";
 
 export type KnowledgeKind = "document" | "diagram";
@@ -19,9 +23,12 @@ export type KnowledgeTemplate = {
   kind: KnowledgeKind;
   title: string;
   eventType: string;
+  scheduleCron: string;
   description: string;
   language: string;
+  aiToolId: string;
   enabled: boolean;
+  marketplaceId: string;
   createdAt: string;
   createdBy: string;
 };
@@ -65,11 +72,22 @@ const templateRowSchema = z.object({
   kind: z.string(),
   title: z.string(),
   event_type: z.string(),
+  schedule_cron: z.string(),
   description: z.string(),
   language: z.string(),
+  ai_tool_id: z.string(),
   enabled: z.number(),
+  marketplace_id: z.string(),
   created_at: z.string(),
   created_by: z.string(),
+});
+
+const namedTemplateRowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  event_type: z.string(),
+  schedule_cron: z.string(),
+  enabled: z.number(),
 });
 
 const artifactRowSchema = z.object({
@@ -90,16 +108,20 @@ const createTemplateSchema = z.object({
   kind: kindSchema,
   title: z.string().trim().min(1),
   eventType: z.string().trim().min(1),
+  scheduleCron: z.string().optional(),
   description: z.string().trim(),
   language: z.string().trim().min(1),
+  aiToolId: z.string().trim().optional(),
   enabled: z.boolean().optional(),
 });
 
 const patchTemplateSchema = z.object({
   title: z.string().trim().min(1).optional(),
   eventType: z.string().trim().min(1).optional(),
+  scheduleCron: z.string().optional(),
   description: z.string().trim().optional(),
   language: z.string().trim().min(1).optional(),
+  aiToolId: z.string().trim().optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -115,10 +137,60 @@ function canSeeProject(options: ModuleOptions, projectId: string, userId: string
   return userCanAccessProject(projectId, userId);
 }
 
-function requireKnownEventType(eventType: string): void {
-  if (isKnownEventType(eventType) !== true) {
+function requireOfferedEventType(databasePath: string, eventType: string): void {
+  if (subscriberMaySelect(eventType, connectedKindsAt(databasePath)) !== true) {
     throw new Error("Unknown event type");
   }
+}
+
+function bindTemplateTrigger(
+  databasePath: string,
+  eventType: string,
+  scheduleCron: string,
+): { eventType: string; scheduleCron: string } {
+  const offered = eventType.trim();
+  if (offered.length === 0) {
+    throw new Error("event type required");
+  }
+  requireOfferedEventType(databasePath, offered);
+  if (scheduleCron.trim().length > 0) {
+    return { eventType: offered, scheduleCron: "" };
+  }
+  return { eventType: offered, scheduleCron: "" };
+}
+
+function templateDueAt(template: KnowledgeTemplate, at: Date): boolean {
+  const cron = template.scheduleCron.trim();
+  if (cron.length === 0) {
+    return true;
+  }
+  try {
+    const spec = parseCalendarCron(cron);
+    return calendarHitsNow(spec, at);
+  } catch {
+    return false;
+  }
+}
+
+const pragmaColumnSchema = z.object({
+  name: z.string(),
+});
+
+function knowledgeTableHasColumn(db: Database.Database, column: string): boolean {
+  const raw = db.prepare("PRAGMA table_info(knowledge_templates)").all();
+  if (Array.isArray(raw) !== true) {
+    return false;
+  }
+  for (const entry of raw) {
+    const parsed = pragmaColumnSchema.safeParse(entry);
+    if (parsed.success !== true) {
+      continue;
+    }
+    if (parsed.data.name === column) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function openKnowledgeTemplateDb(databasePath: string): Database.Database {
@@ -131,9 +203,12 @@ export function openKnowledgeTemplateDb(databasePath: string): Database.Database
       kind TEXT NOT NULL,
       title TEXT NOT NULL,
       event_type TEXT NOT NULL,
+      schedule_cron TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL,
       language TEXT NOT NULL,
+      ai_tool_id TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
+      marketplace_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       created_by TEXT NOT NULL
     );
@@ -154,6 +229,18 @@ export function openKnowledgeTemplateDb(databasePath: string): Database.Database
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_artifacts_project ON knowledge_artifacts(project_id, kind);
   `);
+  if (knowledgeTableHasColumn(db, "ai_tool_id") !== true) {
+    db.exec("ALTER TABLE knowledge_templates ADD COLUMN ai_tool_id TEXT NOT NULL DEFAULT ''");
+  }
+  if (knowledgeTableHasColumn(db, "schedule_cron") !== true) {
+    db.exec("ALTER TABLE knowledge_templates ADD COLUMN schedule_cron TEXT NOT NULL DEFAULT ''");
+  }
+  if (knowledgeTableHasColumn(db, "marketplace_id") !== true) {
+    db.exec("ALTER TABLE knowledge_templates ADD COLUMN marketplace_id TEXT NOT NULL DEFAULT ''");
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_templates_market ON knowledge_templates(project_id, marketplace_id) WHERE marketplace_id != ''",
+  );
   });
 }
 
@@ -168,9 +255,12 @@ function templateFromRow(row: z.infer<typeof templateRowSchema>): KnowledgeTempl
     kind: kindParsed.data,
     title: row.title,
     eventType: row.event_type,
+    scheduleCron: row.schedule_cron,
     description: row.description,
     language: row.language,
+    aiToolId: row.ai_tool_id,
     enabled: row.enabled === 1,
+    marketplaceId: row.marketplace_id,
     createdAt: row.created_at,
     createdBy: row.created_by,
   };
@@ -325,18 +415,28 @@ async function viewersFrom(request: FastifyRequest, options: ModuleOptions): Pro
 export function listProjectEventTemplates(
   databasePath: string,
   projectId: string,
-): { id: string; title: string; eventType: string; enabled: boolean }[] {
+): NamedEventTemplate[] {
   const db = openKnowledgeTemplateDb(databasePath);
-  const rows = db
-    .prepare("SELECT id, title, event_type, enabled FROM knowledge_templates WHERE project_id = ?")
-    .all(projectId) as { id: string; title: string; event_type: string; enabled: number }[];
-  const templates: { id: string; title: string; eventType: string; enabled: boolean }[] = [];
-  for (const row of rows) {
+  const raw = db
+    .prepare(
+      "SELECT id, title, event_type, schedule_cron, enabled FROM knowledge_templates WHERE project_id = ?",
+    )
+    .all(projectId);
+  const templates: NamedEventTemplate[] = [];
+  if (Array.isArray(raw) !== true) {
+    return templates;
+  }
+  for (const entry of raw) {
+    const parsed = namedTemplateRowSchema.safeParse(entry);
+    if (parsed.success !== true) {
+      continue;
+    }
     templates.push({
-      id: row.id,
-      title: row.title,
-      eventType: row.event_type,
-      enabled: row.enabled === 1,
+      id: parsed.data.id,
+      title: parsed.data.title,
+      eventType: parsed.data.event_type,
+      scheduleCron: parsed.data.schedule_cron,
+      enabled: parsed.data.enabled === 1,
     });
   }
   return templates;
@@ -370,6 +470,110 @@ export function listEnabledTemplatesForEvent(
   return templates;
 }
 
+const marketplaceIdRowSchema = z.object({
+  marketplace_id: z.string().min(1),
+});
+
+export function listMarketplaceInstallIds(db: Database.Database, projectId: string): string[] {
+  const raw = db
+    .prepare(
+      "SELECT marketplace_id FROM knowledge_templates WHERE project_id = ? AND marketplace_id != ''",
+    )
+    .all(projectId);
+  const ids: string[] = [];
+  if (Array.isArray(raw) !== true) {
+    return ids;
+  }
+  for (const entry of raw) {
+    const parsed = marketplaceIdRowSchema.safeParse(entry);
+    if (parsed.success !== true) {
+      continue;
+    }
+    ids.push(parsed.data.marketplace_id);
+  }
+  return ids;
+}
+
+export function findMarketplaceInstall(
+  db: Database.Database,
+  projectId: string,
+  marketplaceId: string,
+): KnowledgeTemplate | null {
+  const trimmed = marketplaceId.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const parsed = templateRowSchema.safeParse(
+    db
+      .prepare("SELECT * FROM knowledge_templates WHERE project_id = ? AND marketplace_id = ?")
+      .get(projectId, trimmed),
+  );
+  if (parsed.success !== true) {
+    return null;
+  }
+  return templateFromRow(parsed.data);
+}
+
+export function insertMarketplaceInstall(
+  db: Database.Database,
+  input: {
+    projectId: string;
+    marketplaceId: string;
+    kind: KnowledgeKind;
+    title: string;
+    eventType: string;
+    description: string;
+    language: string;
+    createdBy: string;
+  },
+): KnowledgeTemplate {
+  const existing = findMarketplaceInstall(db, input.projectId, input.marketplaceId);
+  if (existing !== null) {
+    return existing;
+  }
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    "INSERT INTO knowledge_templates (id, project_id, kind, title, event_type, schedule_cron, description, language, ai_tool_id, enabled, marketplace_id, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    input.projectId,
+    input.kind,
+    input.title.slice(0, 200),
+    input.eventType,
+    "",
+    input.description,
+    input.language,
+    "",
+    0,
+    input.marketplaceId,
+    createdAt,
+    input.createdBy,
+  );
+  const created = getTemplate(db, id);
+  if (created === null) {
+    throw new Error("template missing");
+  }
+  return created;
+}
+
+export function deleteMarketplaceInstall(
+  db: Database.Database,
+  projectId: string,
+  marketplaceId: string,
+): KnowledgeTemplate | null {
+  const existing = findMarketplaceInstall(db, projectId, marketplaceId);
+  if (existing === null) {
+    return null;
+  }
+  db.prepare("DELETE FROM knowledge_templates WHERE id = ?").run(existing.id);
+  const gone = findMarketplaceInstall(db, projectId, marketplaceId);
+  if (gone !== null) {
+    throw new Error("uninstall failed");
+  }
+  return existing;
+}
+
 export async function fireKnowledgeTemplatesForEvent(input: {
   databasePath: string;
   projectId: string;
@@ -377,6 +581,7 @@ export async function fireKnowledgeTemplatesForEvent(input: {
   eventType: string;
   path: string;
   detail: string;
+  createdAt: number;
   projectCwd?: (projectId: string) => string;
   runAgent?: AgentRunFn;
   onAgentError?: (failure: { templateId: string; eventId: string; message: string }) => void;
@@ -389,8 +594,12 @@ export async function fireKnowledgeTemplatesForEvent(input: {
   if (templates.length === 0) {
     return;
   }
+  const at = new Date(input.createdAt);
   const db = openKnowledgeTemplateDb(input.databasePath);
   for (const template of templates) {
+    if (templateDueAt(template, at) !== true) {
+      continue;
+    }
     const artifactId = randomUUID();
     const createdAt = new Date().toISOString();
     db.prepare(
@@ -416,6 +625,7 @@ export async function fireKnowledgeTemplatesForEvent(input: {
         systemPrompt: KNOWLEDGE_AGENT_SYSTEM,
         projectCwd: input.projectCwd,
         runAgent: input.runAgent,
+        aiToolId: template.aiToolId,
       });
       if (text.trim().length > 0) {
         db.prepare("UPDATE knowledge_artifacts SET body = ? WHERE id = ?").run(text, artifactId);
@@ -480,10 +690,15 @@ export async function registerKnowledgeTemplatesModule(
     if (parsed.success !== true) {
       return reply.code(400).send({ error: "Invalid template" });
     }
+    let incomingCron = "";
+    if (parsed.data.scheduleCron !== undefined) {
+      incomingCron = parsed.data.scheduleCron;
+    }
+    let bound;
     try {
-      requireKnownEventType(parsed.data.eventType);
+      bound = bindTemplateTrigger(options.databasePath, parsed.data.eventType, incomingCron);
     } catch {
-      return reply.code(400).send({ error: "Unknown event type" });
+      return reply.code(400).send({ error: "Invalid template" });
     }
     for (const viewer of viewers) {
       if (!canSeeProject(options, parsed.data.projectId, viewer.sub)) {
@@ -493,19 +708,34 @@ export async function registerKnowledgeTemplatesModule(
       if (parsed.data.enabled === false) {
         enabled = 0;
       }
+      let aiToolId = "";
+      try {
+        if (parsed.data.aiToolId !== undefined) {
+          aiToolId = await requireConnectedAiToolId(
+            openSettingsDb(options.databasePath),
+            parsed.data.aiToolId,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Invalid AI tool";
+        return reply.code(400).send({ error: message });
+      }
       const id = randomUUID();
       const createdAt = new Date().toISOString();
       db.prepare(
-        "INSERT INTO knowledge_templates (id, project_id, kind, title, event_type, description, language, enabled, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO knowledge_templates (id, project_id, kind, title, event_type, schedule_cron, description, language, ai_tool_id, enabled, marketplace_id, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         id,
         parsed.data.projectId,
         parsed.data.kind,
         parsed.data.title.slice(0, 200),
-        parsed.data.eventType,
+        bound.eventType,
+        bound.scheduleCron,
         parsed.data.description,
         parsed.data.language,
+        aiToolId,
         enabled,
+        "",
         createdAt,
         viewer.email,
       );
@@ -533,13 +763,6 @@ export async function registerKnowledgeTemplatesModule(
       if (parsed.success !== true) {
         return reply.code(400).send({ error: "Invalid template" });
       }
-      if (parsed.data.eventType !== undefined) {
-        try {
-          requireKnownEventType(parsed.data.eventType);
-        } catch {
-          return reply.code(400).send({ error: "Unknown event type" });
-        }
-      }
       for (const viewer of viewers) {
         if (!canSeeProject(options, existing.projectId, viewer.sub)) {
           return reply.code(404).send({ error: "not found" });
@@ -548,9 +771,19 @@ export async function registerKnowledgeTemplatesModule(
         if (parsed.data.title !== undefined) {
           title = parsed.data.title.slice(0, 200);
         }
-        let eventType = existing.eventType;
+        let incomingEvent = existing.eventType;
         if (parsed.data.eventType !== undefined) {
-          eventType = parsed.data.eventType;
+          incomingEvent = parsed.data.eventType;
+        }
+        let incomingCron = existing.scheduleCron;
+        if (parsed.data.scheduleCron !== undefined) {
+          incomingCron = parsed.data.scheduleCron;
+        }
+        let bound;
+        try {
+          bound = bindTemplateTrigger(options.databasePath, incomingEvent, incomingCron);
+        } catch {
+          return reply.code(400).send({ error: "Invalid template" });
         }
         let description = existing.description;
         if (parsed.data.description !== undefined) {
@@ -564,9 +797,21 @@ export async function registerKnowledgeTemplatesModule(
         if (parsed.data.enabled !== undefined) {
           enabled = parsed.data.enabled ? 1 : 0;
         }
+        let aiToolId = existing.aiToolId;
+        if (parsed.data.aiToolId !== undefined) {
+          try {
+            aiToolId = await requireConnectedAiToolId(
+              openSettingsDb(options.databasePath),
+              parsed.data.aiToolId,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Invalid AI tool";
+            return reply.code(400).send({ error: message });
+          }
+        }
         db.prepare(
-          "UPDATE knowledge_templates SET title = ?, event_type = ?, description = ?, language = ?, enabled = ? WHERE id = ?",
-        ).run(title, eventType, description, language, enabled, existing.id);
+          "UPDATE knowledge_templates SET title = ?, event_type = ?, schedule_cron = ?, description = ?, language = ?, ai_tool_id = ?, enabled = ? WHERE id = ?",
+        ).run(title, bound.eventType, bound.scheduleCron, description, language, aiToolId, enabled, existing.id);
         const updated = getTemplate(db, existing.id);
         if (updated === null) {
           return reply.code(500).send({ error: "template missing" });

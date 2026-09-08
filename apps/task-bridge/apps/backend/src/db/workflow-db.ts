@@ -147,6 +147,21 @@ export function deleteWorkflowStagesForProject(projectId: string) {
     .run(projectId);
 }
 
+export function deleteWorkflowStageRow(projectId: string, stageId: string): void {
+  migrateWorkflowTables();
+  const trimmedProject = projectId.trim();
+  const trimmedStage = stageId.trim();
+  if (trimmedProject.length === 0) {
+    throw new Error("projectId required");
+  }
+  if (trimmedStage.length === 0) {
+    throw new Error("stageId required");
+  }
+  getProjectsDb()
+    .prepare("DELETE FROM workflow_stages WHERE project_id = ? AND id = ?")
+    .run(trimmedProject, trimmedStage);
+}
+
 export function insertWorkflowStageRow(row: {
   id: string;
   projectId: string;

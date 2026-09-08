@@ -20,18 +20,8 @@ import {
 } from "@/components/workflow/workflow-utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { TeamPanel } from "@/components/workflow/TeamPanel";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSession } from "@/hooks/useSession";
-import { cn } from "@/lib/utils";
-import {
-  createMember,
-  deleteMember,
-  fetchProjectWorkflow,
-  saveProjectWorkflow,
-  type ProjectMember,
-  type WorkflowStage,
-} from "@/lib/api";
+import { fetchProjectWorkflow, saveProjectWorkflow, type WorkflowStage } from "@/lib/api";
 
 export function WorkflowPage() {
   const params = useParams();
@@ -44,12 +34,10 @@ export function WorkflowPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [stages, setStages] = useState<WorkflowStage[]>([]);
-  const [members, setMembers] = useState<ProjectMember[]>([]);
   const [editorIndex, setEditorIndex] = useState<number | null>(null);
   const [selectedTaskTemplateId, setSelectedTaskTemplateId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPulse, setSidebarPulse] = useState(0);
-  const [activeTab, setActiveTab] = useState("stages");
   const sidebarPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reload = useCallback(async () => {
     if (!session || !projectId) return;
@@ -57,7 +45,6 @@ export function WorkflowPage() {
     try {
       const workflow = await fetchProjectWorkflow(session, projectId);
       setStages(workflow.stages);
-      setMembers(workflow.members);
       setDirty(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load pipeline");
@@ -75,12 +62,6 @@ export function WorkflowPage() {
       if (sidebarPulseTimerRef.current) clearTimeout(sidebarPulseTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (activeTab !== "stages") {
-      setSidebarOpen(false);
-    }
-  }, [activeTab]);
 
   function revealSidebar() {
     if (sidebarPulseTimerRef.current) clearTimeout(sidebarPulseTimerRef.current);
@@ -168,13 +149,6 @@ export function WorkflowPage() {
     setSidebarOpen(false);
   }
 
-  async function handleCreateMember(input: { name: string; role: string }) {
-    if (!session) return;
-    const member = await createMember(session, projectId, input);
-    setMembers((current) => current.concat([member]).sort((a, b) => a.name.localeCompare(b.name)));
-    toast.success("Member added");
-  }
-
   let editingStage: WorkflowStage | null = null;
   if (editorIndex !== null && editorIndex >= 0 && editorIndex < stages.length) {
     const stageAtIndex = stages[editorIndex];
@@ -220,7 +194,7 @@ export function WorkflowPage() {
   function addStageTask(sortedIndex: number) {
     const entry = stageAtSortedIndex(sortedIndex);
     if (!entry) return;
-    const templates = (entry.stage.taskTemplates);
+    const templates = entry.stage.taskTemplates;
     const created = createStageTaskTemplate(entry.stage.title, templates.length);
     const next = stages.map((item, idx) =>
       idx === entry.index
@@ -233,7 +207,7 @@ export function WorkflowPage() {
   function moveTaskTemplate(sortedIndex: number, templateId: string, delta: -1 | 1) {
     const entry = stageAtSortedIndex(sortedIndex);
     if (!entry) return;
-    const templates = (entry.stage.taskTemplates);
+    const templates = entry.stage.taskTemplates;
     const next = stages.map((item, idx) =>
       idx === entry.index
         ? syncStageTemplates(
@@ -249,13 +223,10 @@ export function WorkflowPage() {
   function addSubtask(sortedIndex: number, parentTemplateId: string) {
     const entry = stageAtSortedIndex(sortedIndex);
     if (!entry) return;
-    const templates = (entry.stage.taskTemplates);
+    const templates = entry.stage.taskTemplates;
     const parent = findTemplateInTree(templates, parentTemplateId);
     if (!parent) return;
-    const created = createSubtaskTemplate(
-      parent.template.title,
-      parent.template.children.length,
-    );
+    const created = createSubtaskTemplate(parent.template.title, parent.template.children.length);
     const next = stages.map((item, idx) =>
       idx === entry.index
         ? syncStageTemplates(
@@ -278,7 +249,7 @@ export function WorkflowPage() {
     );
   }
 
-    return (
+  return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <PageHeader
         title="Pipeline"
@@ -297,85 +268,48 @@ export function WorkflowPage() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-white/[0.06] px-5">
-          <TabsList className="h-10 bg-transparent p-0">
-            <TabsTrigger value="stages" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
-              Pipeline
-            </TabsTrigger>
-            <TabsTrigger value="members" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
-              Team
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <div className={cn("flex min-h-0 flex-1", activeTab !== "stages" && "hidden")}>
-          <WorkflowCanvas
-              className="min-h-0 flex-1"
-              stages={stages}
-              selectedStageId={editingStage !== null ? editingStage.id : null}
+      <div className="flex min-h-0 flex-1">
+        <WorkflowCanvas
+          className="min-h-0 flex-1"
+          stages={stages}
+          selectedStageId={editingStage !== null ? editingStage.id : null}
+          selectedTaskTemplateId={selectedTaskTemplateId}
+          onAddStage={addStageAtEnd}
+          onInsertStageAfter={insertStageAfter}
+          onMoveStage={moveStage}
+          onSelectStage={(flowIndex) => selectFromCanvas(flowIndex, null)}
+          onSelectTaskTemplate={(flowIndex, templateId) => selectFromCanvas(flowIndex, templateId)}
+          onAddStageTask={(flowIndex) => addStageTask(flowIndex)}
+          onAddSubtask={(flowIndex, parentId) => addSubtask(flowIndex, parentId)}
+          onMoveTaskTemplate={(flowIndex, templateId, delta) => moveTaskTemplate(flowIndex, templateId, delta)}
+        />
+        <WorkflowInspectorSidebar
+          open={sidebarOpen && (editingStage !== null || selectedTaskTemplateId !== null)}
+          pulseKey={sidebarPulse}
+          onOpenChange={(next) => {
+            if (!next) closeInspector();
+            else if (editingStage) setSidebarOpen(true);
+          }}
+        >
+          {editingStage ? (
+            <StageInspectorPanel
+              stage={editingStage}
+              stageCount={stages.length}
               selectedTaskTemplateId={selectedTaskTemplateId}
-              onAddStage={addStageAtEnd}
-              onInsertStageAfter={insertStageAfter}
-              onMoveStage={moveStage}
-              onSelectStage={(flowIndex) => selectFromCanvas(flowIndex, null)}
-              onSelectTaskTemplate={(flowIndex, templateId) => selectFromCanvas(flowIndex, templateId)}
-              onAddStageTask={(flowIndex) => addStageTask(flowIndex)}
-              onAddSubtask={(flowIndex, parentId) => addSubtask(flowIndex, parentId)}
-              onMoveTaskTemplate={(flowIndex, templateId, delta) =>
-                moveTaskTemplate(flowIndex, templateId, delta)
-              }
+              onChange={(stage) => {
+                if (editorIndex === null) return;
+                updateStageAt(editorIndex, stage);
+              }}
+              onSelectTaskTemplate={setSelectedTaskTemplateId}
+              onDeleteStage={() => {
+                if (editorIndex === null) return;
+                removeStageAt(editorIndex);
+              }}
+              onClose={closeInspector}
             />
-            <WorkflowInspectorSidebar
-              open={sidebarOpen && (editingStage !== null || selectedTaskTemplateId !== null)}
-              pulseKey={sidebarPulse}
-              onOpenChange={(next) => {
-                if (!next) closeInspector();
-                else if (editingStage) setSidebarOpen(true);
-              }}
-            >
-              {editingStage ? (
-                <StageInspectorPanel
-                  stage={editingStage}
-                  stageCount={stages.length}
-                  selectedTaskTemplateId={selectedTaskTemplateId}
-                  onChange={(stage) => {
-                    if (editorIndex === null) return;
-                    updateStageAt(editorIndex, stage);
-                  }}
-                  onSelectTaskTemplate={setSelectedTaskTemplateId}
-                  onDeleteStage={() => {
-                    if (editorIndex === null) return;
-                    removeStageAt(editorIndex);
-                  }}
-                  onClose={closeInspector}
-                />
-              ) : null}
-            </WorkflowInspectorSidebar>
-        </div>
-        <div className={cn("min-h-0 flex-1 overflow-y-auto", activeTab !== "members" && "hidden")}>
-          <TeamPanel
-              members={members}
-              onCreateMember={async (input) => {
-                try {
-                  await handleCreateMember(input);
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "Failed to add member");
-                }
-              }}
-              onDeleteMember={async (id, name) => {
-                if (!session) return;
-                try {
-                  await deleteMember(session, projectId, id);
-                  setMembers((current) => current.filter((item) => item.id !== id));
-                  toast.success(`Deleted "${name}"`);
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "Failed to delete member");
-                }
-              }}
-            />
-        </div>
-      </Tabs>
+          ) : null}
+        </WorkflowInspectorSidebar>
+      </div>
     </div>
   );
 }

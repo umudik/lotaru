@@ -34,6 +34,21 @@ describe("runProjectAgentPrompt", () => {
     assert.equal(capturedKind, "claude");
     assert.equal(capturedMode, "ask");
   });
+
+  it("fail-closes when no connected AI tool is selected", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lotaru-agent-prompt-empty-"));
+    const databasePath = join(dir, "app.sqlite");
+    await assert.rejects(
+      () =>
+        runProjectAgentPrompt({
+          databasePath,
+          projectId: "proj-a",
+          prompt: "write docs",
+          projectCwd: () => dir,
+        }),
+      /Pick a connected AI tool/,
+    );
+  });
 });
 
 describe("replyLanguageInstruction", () => {

@@ -17,6 +17,9 @@ import { registerNotesModule } from "./modules/notes.js";
 import { registerProjectsModule } from "./modules/projects.js";
 import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
+import { registerClockSchedulesModule } from "./modules/clock-schedules.js";
+import { registerMarketplaceModule } from "./modules/marketplace.js";
+import { createWebhookTunnel } from "./webhook-tunnel.js";
 import { registerVoiceModule } from "./modules/voice.js";
 import { registerVoiceRulesModule } from "./modules/voice-rules.js";
 import { lotaruDatabasePath } from "./lotaru-db.js";
@@ -72,7 +75,17 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
 
   await identity.register(app);
   await registerProjectsModule(app, identity);
+  const tunnel = createWebhookTunnel({
+    databasePath: dbPath,
+    dataDir: dataDirectory,
+    localOrigin: `http://127.0.0.1:${String(port)}`,
+  });
   await registerSettingsModule(app, {
+    databasePath: dbPath,
+    identity,
+    tunnel,
+  });
+  await registerClockSchedulesModule(app, {
     databasePath: dbPath,
     identity,
   });
@@ -91,6 +104,10 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
     databasePath: dbPath,
     identity,
   });
+  await registerMarketplaceModule(app, {
+    databasePath: dbPath,
+    identity,
+  });
   await registerKnowledgeModule(app, {
     databasePath: dbPath,
     identity,
@@ -103,6 +120,10 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
     identity,
     dataDir: dataDirectory,
     databasePath: dbPath,
+    tunnelSnapshot: () => {
+      const snap = tunnel.snapshot();
+      return { enabled: snap.enabled, state: snap.state, publicUrl: snap.publicUrl };
+    },
   });
   await registerVoiceModule(app, {
     identity,
@@ -116,6 +137,7 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
 
   // The event bus reuses long-lived SQLite handles; hand them back on shutdown.
   app.addHook("onClose", async () => {
+    await tunnel.stop();
     closeCachedSqlite();
   });
 
@@ -179,6 +201,9 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
   await app.listen({ host, port });
   const url = `http://${host}:${String(port)}`;
   app.log.info(`lotaru ready on ${url}`);
+  void tunnel.boot().catch((err: unknown) => {
+    app.log.error({ err }, "webhook tunnel failed to start");
+  });
   return { url, app };
 }
 

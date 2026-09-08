@@ -18,6 +18,7 @@ import {
   Network,
   ScrollText,
   LayoutTemplate,
+  ShoppingBag,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -27,11 +28,13 @@ import { useSession } from "@/hooks/useSession";
 import { useVoiceListen } from "@/features/voice/VoiceListenContext";
 import { VoiceLevelBars } from "@/features/voice/VoiceWaveform";
 import { toast } from "sonner";
+import { useIngestAlarm } from "@/components/IngestAlarmBanner";
 
 export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) {
   const { pathname } = useLocation();
   const session = useSession();
   const voice = useVoiceListen();
+  const ingest = useIngestAlarm();
 
   const projectMatch = matchPath("/projects/:projectId/*", pathname);
   let activeProjectId: string | null = null;
@@ -116,12 +119,17 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
                 label="Diagram templates"
                 icon={Network}
               />
-            </NavGroup>
-            <NavGroup label="Sources">
               <NavItem to={`/projects/${projectId}/library`} label="Sources" icon={BookOpen} />
             </NavGroup>
+            <NavGroup label="Marketplace">
+              <NavItem
+                to={`/projects/${projectId}/marketplace`}
+                label="Marketplace"
+                icon={ShoppingBag}
+              />
+            </NavGroup>
             <NavGroup label="Log">
-              <NavItem to={`/projects/${projectId}/events`} label="Events" icon={Activity} />
+              <NavItem to={`/projects/${projectId}/logs`} label="Log" icon={Activity} />
             </NavGroup>
           </div>
         ) : fallbackProjectId ? (
@@ -146,7 +154,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             ) : null}
           </div>
         ) : null}
-        <NavItem to="/settings" label="Settings" icon={Settings} />
+        <NavItem to="/settings" label="Settings" icon={Settings} warn={ingest.kind !== "ok"} />
       </div>
     </aside>
   );
@@ -228,22 +236,28 @@ type NavItemProps = {
   badge: number | null;
   end: boolean | null;
   active: boolean | null;
+  warn: boolean | null;
 };
 
 function NavItem(rawProps: Partial<NavItemProps> & Pick<NavItemProps, "to" | "label" | "icon">) {
   const { pathname } = useLocation();
   let badge = 0;
-  if ("badge" in rawProps && typeof rawProps.badge === "number") {
-    badge = rawProps.badge;
+  const givenBadge = rawProps.badge;
+  if (givenBadge !== null && givenBadge !== undefined && givenBadge > 0) {
+    badge = givenBadge;
   }
   let end = false;
   if ("end" in rawProps && rawProps.end === true) {
     end = true;
   }
+  const warn = rawProps.warn === true;
   const { to, label, icon: Icon } = rawProps;
   let on = matchPath({ path: to, end }, pathname) !== null;
-  if ("active" in rawProps && typeof rawProps.active === "boolean") {
-    on = rawProps.active;
+  if ("active" in rawProps && rawProps.active === true) {
+    on = true;
+  }
+  if ("active" in rawProps && rawProps.active === false) {
+    on = false;
   }
 
   return (
@@ -259,15 +273,19 @@ function NavItem(rawProps: Partial<NavItemProps> & Pick<NavItemProps, "to" | "la
     >
       <Icon className="h-4 w-4 shrink-0 opacity-90" />
       <span className="flex-1 truncate">{label}</span>
-      <span
-        className={cn(
-          "flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-medium",
-          badge > 0 ? "bg-primary text-primary-foreground" : "invisible",
-        )}
-        aria-hidden={badge <= 0}
-      >
-        {badge > 0 ? badge : 0}
-      </span>
+      {warn ? (
+        <span className="h-2 w-2 shrink-0 rounded-full bg-warn" aria-label="Needs attention" />
+      ) : (
+        <span
+          className={cn(
+            "flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-medium",
+            badge > 0 ? "bg-primary text-primary-foreground" : "invisible",
+          )}
+          aria-hidden={badge <= 0}
+        >
+          {badge > 0 ? badge : 0}
+        </span>
+      )}
     </Link>
   );
 }

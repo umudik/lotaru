@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
+import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
+import { EventSourceSelect, eventOptionsFromCatalog } from "@/components/EventSourceSelect";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageContent } from "@/components/layout/PageContent";
 import { Button } from "@/components/ui/button";
@@ -13,18 +15,46 @@ import {
   createKnowledgeTemplate,
   deleteKnowledgeArtifact,
   deleteKnowledgeTemplate,
+  fetchAiTools,
   fetchAppSettings,
   fetchKnowledgeArtifact,
   fetchKnowledgeArtifacts,
   fetchKnowledgeTemplates,
+  fetchEventTypes,
   patchKnowledgeArtifact,
+  type AiToolRow,
+  type EventTypeOption,
   type KnowledgeArtifact,
   type KnowledgeKind,
   type KnowledgeTemplate,
   type TargetLanguage,
 } from "@/lib/api";
-import { CATALOG_EVENT_TYPES, catalogEventLabel } from "@/lib/event-catalog";
+import { catalogEventLabel } from "@/lib/event-catalog";
 import { formatMillis } from "@/lib/utils";
+
+function templateAiLabel(template: KnowledgeTemplate, tools: readonly AiToolRow[]): string {
+  if (template.aiToolId.length === 0) {
+    return "No AI selected";
+  }
+  for (const tool of tools) {
+    if (tool.id === template.aiToolId) {
+      return tool.label;
+    }
+  }
+  return template.aiToolId;
+}
+
+function templateWhenLabel(template: KnowledgeTemplate): string {
+  const eventType = template.eventType.trim();
+  if (eventType.length === 0) {
+    return "event";
+  }
+  const label = catalogEventLabel(eventType);
+  if (label.trim().length === 0) {
+    return eventType;
+  }
+  return label;
+}
 
 function knowledgeBase(projectId: string): string {
   return `/projects/${projectId}/knowledge`;
@@ -43,8 +73,11 @@ function TemplatesPage(props: {
   const [eventType, setEventType] = useState("file.changed");
   const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("");
+  const [aiToolId, setAiToolId] = useState("");
+  const [aiTools, setAiTools] = useState<AiToolRow[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
 
   let heading = "Document templates";
   let listPath = `${base}/documentation/list`;
@@ -75,16 +108,38 @@ function TemplatesPage(props: {
     if (session === null) {
       return;
     }
+    void fetchEventTypes(session, props.projectId)
+      .then((data) => {
+        setEventTypes(data.eventTypes);
+      })
+      .catch(() => {
+        setEventTypes([]);
+      });
+  }, [session, props.projectId]);
+
+  useEffect(() => {
+    if (session === null) {
+      return;
+    }
     void fetchAppSettings(session).then((data) => {
       setLanguages(data.languages);
       setLanguage(data.settings.targetLanguage);
     });
+    void fetchAiTools(session)
+      .then((data) => {
+        setAiTools(data.tools);
+      })
+      .catch(() => {
+        setAiTools([]);
+      });
   }, [session]);
 
   function closeCreate(): void {
     setCreateOpen(false);
     setTitle("");
     setDescription("");
+    setAiToolId("");
+    setEventType("file.changed");
     setError("");
   }
 
@@ -99,6 +154,10 @@ function TemplatesPage(props: {
     if (language.trim().length === 0) {
       return;
     }
+    if (aiToolId.trim().length === 0) {
+      setError("Pick a connected AI tool");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -107,8 +166,10 @@ function TemplatesPage(props: {
         kind: props.kind,
         title: trimmed,
         eventType,
+        scheduleCron: "",
         description: description.trim(),
         language,
+        aiToolId,
         enabled: true,
       });
       closeCreate();
@@ -175,8 +236,14 @@ function TemplatesPage(props: {
                 <li key={template.id} className="panel-card flex items-start justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{template.title}</p>
+                    {template.marketplaceId.length > 0 ? (
+                      <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Marketplace
+                      </p>
+                    ) : null}
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {catalogEventLabel(template.eventType)} · {template.language.toUpperCase()}
+                      {templateWhenLabel(template)} · {template.language.toUpperCase()} ·{" "}
+                      {templateAiLabel(template, aiTools)}
                     </p>
                     {template.description.length > 0 ? (
                       <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
@@ -235,19 +302,12 @@ function TemplatesPage(props: {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="template-event">When</Label>
-                <Select
+                <EventSourceSelect
                   id="template-event"
                   value={eventType}
-                  onChange={(event) => {
-                    setEventType(event.target.value);
-                  }}
-                >
-                  {CATALOG_EVENT_TYPES.map((typeName) => (
-                    <option key={typeName} value={typeName}>
-                      {catalogEventLabel(typeName)}
-                    </option>
-                  ))}
-                </Select>
+                  options={eventTypes.length > 0 ? eventTypes : eventOptionsFromCatalog()}
+                  onChange={setEventType}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="template-description">Description</Label>
@@ -277,6 +337,12 @@ function TemplatesPage(props: {
                   ))}
                 </Select>
               </div>
+              <ConnectedAiSelect
+                id="template-ai"
+                value={aiToolId}
+                tools={aiTools}
+                onChange={setAiToolId}
+              />
               {error.length > 0 ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="mt-auto flex gap-2 border-t border-border/60 pt-4">
                 <Button type="button" variant="outline" className="flex-1" onClick={closeCreate}>
@@ -285,7 +351,12 @@ function TemplatesPage(props: {
                 <Button
                   type="submit"
                   className="flex-1"
-                  disabled={saving || title.trim().length === 0 || language.trim().length === 0}
+                  disabled={
+                    saving ||
+                    title.trim().length === 0 ||
+                    language.trim().length === 0 ||
+                    aiToolId.trim().length === 0
+                  }
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Save
@@ -352,7 +423,7 @@ function ArtifactsPage(props: {
               {props.kind === "diagram" ? "No diagrams yet" : "No documents yet"}
             </p>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              Outputs appear here after a matching Events signal. Define a template first, then watch
+              Outputs appear here after a matching event. Define a template first, then watch
               State turn into Knowledge.
             </p>
             <Link

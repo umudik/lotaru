@@ -1,27 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useLocation, Link } from "react-router-dom";
-import { Loader2, Volume2, Languages, Cpu, Pause, Github, Mic } from "lucide-react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
+import { Loader2, Volume2, Languages, Cpu, Pause, Mic } from "lucide-react";
+import { ConnectionsSettings } from "@/components/ConnectionsSettings";
+import { ClockSchedulesSettings } from "@/components/ClockSchedulesSettings";
+import { AiToolsSettings } from "@/components/AiToolsSettings";
+import { WebhookTunnelSettings } from "@/components/WebhookTunnelSettings";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSession } from "@/hooks/useSession";
 import {
   fetchAppSettings,
-  fetchGithubSettings,
-  fetchOllamaModels,
+  fetchConnectors,
+  saveConnectorSecret,
+  fetchAiTools,
   fetchSpeakPreview,
   fetchTtsVoices,
-  fetchAgentSettings,
   saveAppSettings,
   saveGithubSettings,
-  saveAgentSettings,
-  probeAgentSettings,
-  type AgentProfile,
   type AppSettings,
+  type AiToolRow,
+  type ConnectorRow,
   type TargetLanguage,
   type TtsVoiceOption,
 } from "@/lib/api";
@@ -86,35 +90,71 @@ function localeGroups(voices: TtsVoiceOption[]): string[] {
   return locales;
 }
 
+const SETTINGS_TAB_CLASS =
+  "rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none";
+
+function settingsTabFromHash(hash: string): "ai" | "voice" | "connections" | "clock" {
+  let id = hash;
+  if (hash.startsWith("#")) {
+    id = hash.slice(1);
+  }
+  if (id === "voice" || id === "language") {
+    return "voice";
+  }
+  if (id === "clock") {
+    return "clock";
+  }
+  if (id === "ai" || id.length === 0 || id === "ai-tools") {
+    return "ai";
+  }
+  const aiIds = [
+    "ollama",
+    "lmstudio",
+    "llamacpp",
+    "openai",
+    "anthropic",
+    "groq",
+    "openrouter",
+    "mistral",
+    "deepseek",
+    "gemini",
+    "cursor",
+    "claude",
+    "codex",
+  ];
+  for (const listed of aiIds) {
+    if (listed === id) {
+      return "ai";
+    }
+  }
+  return "connections";
+}
+
 export function SettingsPage(): React.JSX.Element {
   const session = useSession();
   const location = useLocation();
+  const navigate = useNavigate();
+  const settingsTab = settingsTabFromHash(location.hash);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [languages, setLanguages] = useState<TargetLanguage[]>([]);
-  const [models, setModels] = useState<string[]>([]);
   const [voices, setVoices] = useState<TtsVoiceOption[]>([]);
-  const [reachable, setReachable] = useState<boolean | null>(null);
-  const [ollamaError, setOllamaError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [probing, setProbing] = useState(false);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [testingVoice, setTestingVoice] = useState(false);
   const [voicePlaying, setVoicePlaying] = useState(false);
   const [githubToken, setGithubToken] = useState("");
-  const [githubConnected, setGithubConnected] = useState(false);
   const [savingGithub, setSavingGithub] = useState(false);
-  const [agent, setAgent] = useState<AgentProfile | null>(null);
-  const [agentReachable, setAgentReachable] = useState<boolean | null>(null);
-  const [agentProbeError, setAgentProbeError] = useState("");
-  const [agentProbeDetail, setAgentProbeDetail] = useState("");
-  const [probingAgent, setProbingAgent] = useState(false);
+  const [connectorSecrets, setConnectorSecrets] = useState<Record<string, string>>({});
+  const [savingConnectorId, setSavingConnectorId] = useState("idle");
+  const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
+  const [aiTools, setAiTools] = useState<AiToolRow[]>([]);
+  const [savingAiToolId, setSavingAiToolId] = useState("idle");
+  const [probingAiToolId, setProbingAiToolId] = useState("idle");
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef<string | null>(null);
   const previewGen = useRef(0);
   const saveGen = useRef(0);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
-  const agentGen = useRef(0);
-  const agentTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
 
   async function loadVoicesFor(engine: "edge" | "qwen", next: AppSettings): Promise<AppSettings> {
     setLoadingVoices(true);
@@ -131,51 +171,6 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
-  async function probeOllama(next: AppSettings): Promise<void> {
-    setProbing(true);
-    try {
-      await saveAppSettings(session, next);
-      const result = await fetchOllamaModels(session);
-      setModels(result.models);
-      setReachable(result.reachable);
-      if (result.reachable) {
-        setOllamaError("");
-      } else if (typeof result.error === "string") {
-        setOllamaError(result.error);
-      } else {
-        setOllamaError("Ollama is not reachable");
-      }
-    } catch (err) {
-      setReachable(false);
-      setOllamaError(err instanceof Error ? err.message : "Ollama is not reachable");
-    } finally {
-      setProbing(false);
-    }
-  }
-
-  async function probeAgent(next: AgentProfile): Promise<void> {
-    setProbingAgent(true);
-    try {
-      await saveAgentSettings(session, next);
-      const result = await probeAgentSettings(session, next);
-      setAgentReachable(result.reachable);
-      setAgentProbeDetail(result.detail);
-      if (result.reachable) {
-        setAgentProbeError("");
-      } else if (result.error.length > 0) {
-        setAgentProbeError(result.error);
-      } else {
-        setAgentProbeError("Agent runtime is not available");
-      }
-    } catch (err) {
-      setAgentReachable(false);
-      setAgentProbeDetail("");
-      setAgentProbeError(err instanceof Error ? err.message : "Agent runtime is not available");
-    } finally {
-      setProbingAgent(false);
-    }
-  }
-
   useEffect(() => {
     void (async () => {
       try {
@@ -183,12 +178,10 @@ export function SettingsPage(): React.JSX.Element {
         const withVoices = await loadVoicesFor(data.settings.ttsEngine, data.settings);
         setSettings(withVoices);
         setLanguages(data.languages);
-        await probeOllama(withVoices);
-        const github = await fetchGithubSettings(session);
-        setGithubConnected(github.connected);
-        const agentData = await fetchAgentSettings(session);
-        setAgent(agentData.profile);
-        await probeAgent(agentData.profile);
+        const connectorData = await fetchConnectors(session);
+        setConnectors(connectorData.connectors);
+        const aiData = await fetchAiTools(session);
+        setAiTools(aiData.tools);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -201,20 +194,19 @@ export function SettingsPage(): React.JSX.Element {
     if (loading || settings === null) {
       return;
     }
-    if (
-      location.hash !== "#github" &&
-      location.hash !== "#ai" &&
-      location.hash !== "#voice" &&
-      location.hash !== "#language"
-    ) {
+    const hashTarget = location.hash.slice(1);
+    if (hashTarget.length === 0) {
       return;
     }
-    const section = document.getElementById(location.hash.slice(1));
+    if (hashTarget === "ai" || hashTarget === "voice" || hashTarget === "connections" || hashTarget === "clock") {
+      return;
+    }
+    const section = document.getElementById(hashTarget);
     if (section === null) {
       return;
     }
     section.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [loading, settings, location.hash]);
+  }, [loading, settings, location.hash, connectors, settingsTab]);
 
   function stopVoicePreview(): void {
     previewGen.current += 1;
@@ -234,9 +226,6 @@ export function SettingsPage(): React.JSX.Element {
     return () => {
       if (persistTimer.current !== 0) {
         clearTimeout(persistTimer.current);
-      }
-      if (agentTimer.current !== 0) {
-        clearTimeout(agentTimer.current);
       }
       if (voiceAudioRef.current !== null) {
         voiceAudioRef.current.pause();
@@ -341,51 +330,13 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
-  async function persistAgent(next: AgentProfile): Promise<void> {
-    const gen = agentGen.current + 1;
-    agentGen.current = gen;
-    try {
-      const saved = await saveAgentSettings(session, next);
-      if (agentGen.current !== gen) {
-        return;
-      }
-      setAgent(saved.profile);
-    } catch (err) {
-      if (agentGen.current === gen) {
-        toast.error(err instanceof Error ? err.message : "Failed to save AI settings");
-      }
-    }
-  }
-
-  function saveAgentNow(next: AgentProfile): void {
-    if (agentTimer.current !== 0) {
-      clearTimeout(agentTimer.current);
-      agentTimer.current = 0;
-    }
-    void persistAgent(next);
-  }
-
-  function saveAgentSoon(next: AgentProfile): void {
-    if (agentTimer.current !== 0) {
-      clearTimeout(agentTimer.current);
-    }
-    agentTimer.current = setTimeout(() => {
-      agentTimer.current = 0;
-      void persistAgent(next);
-    }, 400);
-  }
-
-  function applyAgent(next: AgentProfile): AgentProfile {
-    setAgent(next);
-    return next;
-  }
-
   async function handleSaveGithub(): Promise<void> {
     setSavingGithub(true);
     try {
       const saved = await saveGithubSettings(session, githubToken);
-      setGithubConnected(saved.connected);
       setGithubToken("");
+      const connectorData = await fetchConnectors(session);
+      setConnectors(connectorData.connectors);
       if (saved.connected) {
         toast.success("GitHub token saved");
       } else {
@@ -398,6 +349,39 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
+  async function handleSaveConnector(connectorId: ConnectorRow["id"]): Promise<void> {
+    if (connectorId === "github") {
+      return;
+    }
+    setSavingConnectorId(connectorId);
+    try {
+      const draft = connectorSecrets[connectorId];
+      const secret = draft === undefined ? "" : draft;
+      const saved = await saveConnectorSecret(session, connectorId, secret);
+      setConnectorSecrets(Object.assign({}, connectorSecrets, { [connectorId]: "" }));
+      const connectorData = await fetchConnectors(session);
+      setConnectors(connectorData.connectors);
+      const named = connectors.find((row) => row.id === connectorId);
+      const title = named === undefined ? connectorId : named.label;
+      if (saved.connected) {
+        toast.success(`${title} connected`);
+      } else {
+        toast.success(`${title} disconnected`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save connection");
+    } finally {
+      setSavingConnectorId("idle");
+    }
+  }
+
+  function handleSettingsTab(next: string): void {
+    if (next !== "ai" && next !== "voice" && next !== "connections" && next !== "clock") {
+      return;
+    }
+    navigate({ pathname: "/settings", hash: next }, { replace: true });
+  }
+
   if (loading || settings === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -407,59 +391,63 @@ export function SettingsPage(): React.JSX.Element {
   }
 
   const current = settings;
-  const modelChoices = models.slice();
-  if (current.ollamaModel.length > 0 && !modelChoices.includes(current.ollamaModel)) {
-    modelChoices.push(current.ollamaModel);
-  }
   const grouped = localeGroups(voices);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader title="Settings" />
+      <Tabs
+        value={settingsTab}
+        onValueChange={handleSettingsTab}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="shrink-0 border-b border-white/[0.06] px-5">
+          <TabsList className="h-10 bg-transparent p-0">
+            <TabsTrigger value="ai" className={SETTINGS_TAB_CLASS}>
+              AI
+            </TabsTrigger>
+            <TabsTrigger value="voice" className={SETTINGS_TAB_CLASS}>
+              Voice
+            </TabsTrigger>
+            <TabsTrigger value="clock" className={SETTINGS_TAB_CLASS}>
+              Clock
+            </TabsTrigger>
+            <TabsTrigger value="connections" className={SETTINGS_TAB_CLASS}>
+              Connections
+            </TabsTrigger>
+          </TabsList>
+        </div>
       <PageContent className="overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl space-y-8">
-        <section id="github" className="panel-card space-y-5 p-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Github className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">GitHub</h2>
-              <p className="text-xs text-muted-foreground">
-                Token used to record pull request events from this machine’s project remotes
-              </p>
-            </div>
-            {githubConnected ? (
-              <span className="ml-auto text-xs text-success">Connected</span>
-            ) : (
-              <span className="ml-auto text-xs text-muted-foreground">Not connected</span>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="github-token">Token</Label>
-            <div className="flex gap-2">
-              <Input
-                id="github-token"
-                type="password"
-                value={githubToken}
-                placeholder={githubConnected ? "Paste a new token to replace" : "ghp_…"}
-                onChange={(event) => {
-                  setGithubToken(event.target.value);
-                }}
-              />
-              <Button type="button" variant="outline" disabled={savingGithub} onClick={() => void handleSaveGithub()}>
-                {savingGithub ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Save
-              </Button>
-            </div>
-              <p className="text-xs text-muted-foreground">
-                Token used to record pull request events from this machine’s project remotes.
-              </p>
-          </div>
-        </section>
+        {settingsTab === "clock" ? <ClockSchedulesSettings /> : null}
 
-        {agent !== null ? (
-          <section id="ai" className="panel-card space-y-6 p-6">
+        {settingsTab === "connections" ? (
+        <>
+        <WebhookTunnelSettings />
+        <ConnectionsSettings
+          connectors={connectors}
+          githubToken={githubToken}
+          githubSaving={savingGithub}
+          onGithubToken={setGithubToken}
+          onSaveGithub={() => {
+            void handleSaveGithub();
+          }}
+          secrets={connectorSecrets}
+          savingId={savingConnectorId}
+          onSecret={(id, secret) => {
+            setConnectorSecrets(Object.assign({}, connectorSecrets, { [id]: secret }));
+          }}
+          onSave={(id) => {
+            void handleSaveConnector(id);
+          }}
+          focusId={location.hash.slice(1)}
+        />
+        </>
+        ) : null}
+
+        {settingsTab === "ai" ? (
+          <>
+          <section id="ai" className="panel-card space-y-3 p-6">
             <div className="flex items-center gap-3">
               <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
                 <Cpu className="h-4 w-4" />
@@ -467,178 +455,31 @@ export function SettingsPage(): React.JSX.Element {
               <div>
                 <h2 className="text-base font-semibold">AI</h2>
                 <p className="text-xs text-muted-foreground">
-                  Single runtime for Chat, Event responders, Notes translate/polish/summary, and Knowledge.
-                  Chat always runs in ask mode. Log in to each CLI on this machine.
+                  Connect tools on this machine. Event responders, Notes, and templates each pick
+                  one from Connected. Log in to each CLI locally. Keys stay here; cloud calls leave
+                  from this Lotaru process.
                 </p>
               </div>
             </div>
-            <div className="space-y-5 border-t border-border/60 pt-5">
-              <div className="flex items-center gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Default runtime</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Provider used by Chat, Event responders, Notes jobs, and Knowledge. Chat always runs in
-                    ask mode.
-                  </p>
-                </div>
-                {agentReachable === true ? (
-                  <span className="ml-auto text-xs text-success">Connected</span>
-                ) : agentReachable === false ? (
-                  <span className="ml-auto text-xs text-destructive">Offline</span>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent-kind">Provider</Label>
-                <div className="flex gap-2">
-                  <Select
-                    id="agent-kind"
-                    className="min-w-0 flex-1"
-                    value={agent.kind}
-                    onChange={(event) => {
-                      const kind = event.target.value;
-                      if (
-                        kind === "ollama" ||
-                        kind === "cursor" ||
-                        kind === "claude" ||
-                        kind === "codex"
-                      ) {
-                        const next = applyAgent(Object.assign({}, agent, { kind }));
-                        saveAgentNow(next);
-                        void probeAgent(next);
-                      }
-                    }}
-                  >
-                    <option value="ollama">Local — Ollama</option>
-                    <option value="cursor">Cursor Agent CLI (`agent`)</option>
-                    <option value="claude">Claude Code (`claude`)</option>
-                    <option value="codex">Codex CLI (`codex`)</option>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={probingAgent}
-                    onClick={() => void probeAgent(agent)}
-                  >
-                    {probingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Test
-                  </Button>
-                </div>
-                {agentProbeError.length > 0 ? (
-                  <p className="text-xs text-destructive">{agentProbeError}</p>
-                ) : agentProbeDetail.length > 0 ? (
-                  <p className="text-xs text-muted-foreground">{agentProbeDetail}</p>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent-mode">Default mode</Label>
-                <Select
-                  id="agent-mode"
-                  value={agent.mode}
-                  onChange={(event) => {
-                    const mode = event.target.value;
-                    if (mode === "ask" || mode === "plan" || mode === "execute") {
-                      saveAgentNow(applyAgent(Object.assign({}, agent, { mode })));
-                    }
-                  }}
-                >
-                  <option value="ask">Ask</option>
-                  <option value="plan">Plan</option>
-                  <option value="execute">Execute</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent-command">CLI binary override</Label>
-                <Input
-                  id="agent-command"
-                  value={agent.command}
-                  placeholder="leave empty for agent / claude / codex"
-                  onChange={(event) => {
-                    saveAgentSoon(applyAgent(Object.assign({}, agent, { command: event.target.value })));
-                  }}
-                  onBlur={(event) => {
-                    const next = applyAgent(
-                      Object.assign({}, agent, { command: event.target.value }),
-                    );
-                    saveAgentNow(next);
-                    void probeAgent(next);
-                  }}
-                />
-              </div>
-            </div>
-            <div className="space-y-5 border-t border-border/60 pt-5">
-              <div className="flex items-center gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Local Ollama</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Endpoint for AI when provider is Ollama. Voice intent scanning always
-                    uses this local model. In Docker use http://host.docker.internal:11434 (Ollama
-                    must listen on 0.0.0.0).
-                  </p>
-                </div>
-                {reachable === true ? (
-                  <span className="ml-auto text-xs text-success">Connected</span>
-                ) : reachable === false ? (
-                  <span className="ml-auto text-xs text-destructive">Offline</span>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ollama-host">Host</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="ollama-host"
-                    value={current.ollamaHost}
-                    onChange={(event) => {
-                      const next = applySettings(Object.assign({}, current, { ollamaHost: event.target.value }));
-                      saveSoon(next);
-                    }}
-                    onBlur={() => {
-                      saveNow(current);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={probing}
-                    onClick={() => void probeOllama(current)}
-                  >
-                    {probing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Test
-                  </Button>
-                </div>
-                {ollamaError.length > 0 ? (
-                  <p className="text-xs text-destructive">{ollamaError}</p>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ollama-model">Model</Label>
-                <Select
-                  id="ollama-model"
-                  value={current.ollamaModel}
-                  disabled={modelChoices.length === 0}
-                  onChange={(event) => {
-                    const next = applySettings(Object.assign({}, current, { ollamaModel: event.target.value }));
-                    saveNow(next);
-                  }}
-                >
-                  <option value="">
-                    {probing ? "Loading models…" : "Choose a model"}
-                  </option>
-                  {modelChoices.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </Select>
-                {modelChoices.length === 0 && !probing ? (
-                  <p className="text-xs text-muted-foreground">
-                    Start Ollama, then press Test to load the installed models.
-                  </p>
-                ) : null}
-              </div>
-            </div>
           </section>
+          <AiToolsSettings
+            tools={aiTools}
+            savingId={savingAiToolId}
+            probingId={probingAiToolId}
+            focusId={location.hash.slice(1)}
+            onTools={setAiTools}
+            onSaving={setSavingAiToolId}
+            onProbing={setProbingAiToolId}
+            onOllamaSaved={() => {
+              void fetchAppSettings(session).then((data) => {
+                setSettings(data.settings);
+              });
+            }}
+          />
+        </>
         ) : null}
 
+        {settingsTab === "voice" ? (
         <section id="voice" className="panel-card space-y-6 p-6">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
@@ -648,8 +489,8 @@ export function SettingsPage(): React.JSX.Element {
               <h2 className="text-base font-semibold">Voice AI</h2>
               <p className="text-xs text-muted-foreground">
                 Local only: Whisper sidecar for speech-to-text,{" "}
-                <Link to="/settings#ai" className="underline underline-offset-2">
-                  Local Ollama
+                <Link to="/settings#ollama" className="underline underline-offset-2">
+                  Ollama
                 </Link>{" "}
                 for intent scanning, and read-aloud voices below.
               </p>
@@ -812,8 +653,10 @@ export function SettingsPage(): React.JSX.Element {
           ) : null}
           </div>
         </section>
+        ) : null}
       </div>
       </PageContent>
+      </Tabs>
     </div>
   );
 }

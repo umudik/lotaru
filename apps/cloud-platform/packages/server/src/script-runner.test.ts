@@ -50,6 +50,47 @@ describe("validateCreateScript", () => {
     assert.equal(ok.runtime, "shell");
   });
 
+  it("requires a bus event for event triggers and maps leftover scheduled to event", () => {
+    assert.equal(
+      validateCreateScript({
+        name: "Build",
+        command: "npm test",
+        runtime: "shell",
+        trigger_type: "event",
+        concurrency: "queue",
+      }),
+      "trigger_bus_event required for event trigger",
+    );
+    const mapped = validateCreateScript({
+      name: "Tick",
+      command: "echo hi",
+      runtime: "shell",
+      trigger_type: "scheduled",
+      concurrency: "ignore",
+    });
+    assert.notEqual(typeof mapped, "string");
+    if (typeof mapped === "string") {
+      assert.fail(mapped);
+    }
+    assert.equal(mapped.trigger_type, "event");
+    assert.equal(mapped.trigger_bus_event, "clock.tick");
+    assert.equal(mapped.trigger_cron, "");
+    const named = validateCreateScript({
+      name: "Hourly",
+      command: "echo hi",
+      runtime: "shell",
+      trigger_type: "event",
+      trigger_bus_event: "clock.every_1h",
+      concurrency: "ignore",
+    });
+    assert.notEqual(typeof named, "string");
+    if (typeof named === "string") {
+      assert.fail(named);
+    }
+    assert.equal(named.trigger_type, "event");
+    assert.equal(named.trigger_bus_event, "clock.every_1h");
+  });
+
   it("fail-closes on missing command", () => {
     assert.equal(
       validateCreateScript({

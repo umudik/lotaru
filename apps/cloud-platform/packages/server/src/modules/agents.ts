@@ -6,17 +6,23 @@ import {
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { replyLanguageInstruction, runProjectAgentPrompt, type AgentRunFn } from "../agent-prompt.js";
+import { requireConnectedAiToolId } from "../ai-health.js";
 import { loadAppSettings, openSettingsDb } from "../app-settings.js";
 import { languageLabel } from "../note-language.js";
 import { AGENT_TIMEOUT_MS } from "../agent-runtime.js";
 import {
-  EVENT_AGENT_RAN,
-  EVENT_CLOCK_TICK,
-  EVENT_NOTE_PAGE_CREATED,
-  agentEventType,
-  type LotaruEvent,
-} from "../events.js";
-import { isKnownEventType } from "../event-registry.js";
+  calendarClaimStamp,
+  calendarDueToday,
+  calendarFromParts,
+  calendarToCron,
+  dailyCalendar,
+  parseCalendarCron,
+  type CalendarSchedule,
+} from "../calendar-schedule.js";
+import { EVENT_AGENT_RAN, EVENT_CLOCK_TICK, EVENT_NOTE_PAGE_CREATED, agentEventType, type LotaruEvent } from "../events.js";
+import type { LotaruPublishInput } from "../event-publish.js";
+import { isKnownEventType, subscriberMaySelect } from "../event-registry.js";
+import { connectedKindsAt } from "../connection-store.js";
 import { describeSubscribers, listEventSubscribers } from "../event-subscribers.js";
 import { slugifyName } from "../slug.js";
 import { cachedSqlite } from "../sqlite-cache.js";
@@ -42,9 +48,11 @@ export type LotaruAgent = {
   eventType: string;
   scheduleHour: number;
   scheduleMinute: number;
+  scheduleCron: string;
   includeVoice: boolean;
   action: AgentAction;
   noteBookTitle: string;
+  aiToolId: string;
   enabled: boolean;
   createdAt: string;
   createdBy: string;
@@ -69,15 +77,7 @@ type ModuleOptions = {
   projectAccess?: (projectId: string, userId: string) => boolean;
   projectCwd?: (projectId: string) => string;
   runAgent?: AgentRunFn;
-  emitEvent?: (partial: {
-    type: string;
-    projectId: string;
-    scriptId: string;
-    path: string;
-    detail: string;
-    /** Agents this event already passed through, so a cycle cannot re-enter one. */
-    agentChain?: readonly string[];
-  }) => LotaruEvent;
+  emitEvent?: (input: LotaruPublishInput, agentChain: readonly string[]) => LotaruEvent;
 };
 
 const triggerSchema = z.enum(["event", "schedule"]);
@@ -91,9 +91,11 @@ const createAgentSchema = z.object({
   eventType: z.string().trim().optional(),
   scheduleHour: z.number().int().min(0).max(23).optional(),
   scheduleMinute: z.number().int().min(0).max(59).optional(),
+  scheduleCron: z.string().optional(),
   includeVoice: z.boolean().optional(),
   action: actionSchema.optional(),
   noteBookTitle: z.string().trim().max(200).optional(),
+  aiToolId: z.string().trim().optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -104,9 +106,11 @@ const patchAgentSchema = z.object({
   eventType: z.string().trim().optional(),
   scheduleHour: z.number().int().min(0).max(23).optional(),
   scheduleMinute: z.number().int().min(0).max(59).optional(),
+  scheduleCron: z.string().optional(),
   includeVoice: z.boolean().optional(),
   action: actionSchema.optional(),
   noteBookTitle: z.string().trim().max(200).optional(),
+  aiToolId: z.string().trim().optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -120,9 +124,11 @@ const agentRowSchema = z.object({
   event_type: z.string(),
   schedule_hour: z.number(),
   schedule_minute: z.number(),
+  schedule_cron: z.string(),
   include_voice: z.number(),
   action: z.string(),
   note_book_title: z.string(),
+  ai_tool_id: z.string(),
   enabled: z.number(),
   created_at: z.string(),
   created_by: z.string(),
@@ -133,6 +139,12 @@ function canSeeProject(options: ModuleOptions, projectId: string, userId: string
     return options.projectAccess(projectId, userId);
   }
   return userCanAccessProject(projectId, userId);
+}
+
+function requireOfferedEventType(databasePath: string, eventType: string): void {
+  if (subscriberMaySelect(eventType, connectedKindsAt(databasePath)) !== true) {
+    throw new Error("Unknown event type");
+  }
 }
 
 function requireKnownEventType(eventType: string): void {
@@ -155,9 +167,11 @@ export function openAgentsDb(databasePath: string): Database.Database {
       event_type TEXT NOT NULL DEFAULT '',
       schedule_hour INTEGER NOT NULL DEFAULT 21,
       schedule_minute INTEGER NOT NULL DEFAULT 0,
+      schedule_cron TEXT NOT NULL DEFAULT '',
       include_voice INTEGER NOT NULL DEFAULT 0,
       action TEXT NOT NULL DEFAULT 'none',
       note_book_title TEXT NOT NULL DEFAULT '',
+      ai_tool_id TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       created_by TEXT NOT NULL
@@ -183,6 +197,8 @@ export function openAgentsDb(databasePath: string): Database.Database {
   `);
   migrateAgentAction(db);
   migrateAgentSlug(db);
+  migrateAgentAiTool(db);
+  migrateAgentScheduleCron(db);
   recoverStaleAgentRuns(db);
   });
 }
@@ -230,6 +246,40 @@ function migrateAgentSlug(db: Database.Database): void {
     update.run(uniqueAgentSlug(db, row.project_id, row.title, row.id), row.id);
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_lotaru_agents_slug ON lotaru_agents(project_id, slug)");
+}
+
+function migrateAgentAiTool(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(lotaru_agents)").all();
+  const names: string[] = [];
+  for (const entry of columns) {
+    const parsed = z.object({ name: z.string() }).safeParse(entry);
+    if (parsed.success !== true) {
+      continue;
+    }
+    names.push(parsed.data.name);
+  }
+  if (names.includes("ai_tool_id") === true) {
+    return;
+  }
+  db.exec("ALTER TABLE lotaru_agents ADD COLUMN ai_tool_id TEXT NOT NULL DEFAULT ''");
+}
+
+function migrateAgentScheduleCron(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(lotaru_agents)").all();
+  const names: string[] = [];
+  for (const entry of columns) {
+    const parsed = z.object({ name: z.string() }).safeParse(entry);
+    if (parsed.success !== true) {
+      continue;
+    }
+    names.push(parsed.data.name);
+  }
+  if (names.includes("schedule_cron") !== true) {
+    db.exec("ALTER TABLE lotaru_agents ADD COLUMN schedule_cron TEXT NOT NULL DEFAULT ''");
+  }
+  db.exec(
+    "UPDATE lotaru_agents SET schedule_cron = printf('%d %d * * *', schedule_minute, schedule_hour) WHERE TRIM(schedule_cron) = ''",
+  );
 }
 
 function slugTaken(
@@ -287,6 +337,48 @@ function parseAgentAction(value: string): AgentAction {
     return parsed.data;
   }
   return "none";
+}
+
+function agentCronFromRow(cron: string, hour: number, minute: number): string {
+  const trimmed = cron.trim();
+  if (trimmed.length > 0) {
+    try {
+      return calendarToCron(parseCalendarCron(trimmed));
+    } catch {
+      return calendarToCron(dailyCalendar(hour, minute));
+    }
+  }
+  return calendarToCron(dailyCalendar(hour, minute));
+}
+
+function agentScheduleFromBody(
+  data: {
+    scheduleCron?: string;
+    scheduleHour?: number;
+    scheduleMinute?: number;
+  },
+  existing: LotaruAgent | false,
+): { cron: string; hour: number; minute: number } {
+  if (data.scheduleCron !== undefined && data.scheduleCron.trim().length > 0) {
+    const spec = parseCalendarCron(data.scheduleCron);
+    const encoded = calendarToCron(spec);
+    return { cron: encoded, hour: spec.hour, minute: spec.minute };
+  }
+  let spec = dailyCalendar(21, 0);
+  if (existing !== false) {
+    spec = calendarFromParts(existing.scheduleCron, existing.scheduleHour, existing.scheduleMinute);
+  }
+  if (data.scheduleHour !== undefined) {
+    spec = Object.assign({}, spec, { hour: data.scheduleHour });
+  }
+  if (data.scheduleMinute !== undefined) {
+    spec = Object.assign({}, spec, { minute: data.scheduleMinute });
+  }
+  if (data.scheduleCron !== undefined && data.scheduleCron.trim().length === 0) {
+    spec = dailyCalendar(spec.hour, spec.minute);
+  }
+  const encoded = calendarToCron(spec);
+  return { cron: encoded, hour: spec.hour, minute: spec.minute };
 }
 
 function recoverStaleAgentRuns(db: Database.Database): void {
@@ -379,9 +471,11 @@ function agentFromRow(row: z.infer<typeof agentRowSchema>): LotaruAgent | null {
     eventType: row.event_type,
     scheduleHour: row.schedule_hour,
     scheduleMinute: row.schedule_minute,
+    scheduleCron: agentCronFromRow(row.schedule_cron, row.schedule_hour, row.schedule_minute),
     includeVoice: row.include_voice === 1,
     action: parseAgentAction(row.action),
     noteBookTitle: row.note_book_title,
+    aiToolId: row.ai_tool_id,
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -482,36 +576,17 @@ function buildPrompt(
   if (agent.includeVoice) {
     parts.push("", voice);
   }
-  if (agent.action === "note") {
-    parts.push(
-      "",
-      `Write a clear journal-style note body. The platform saves your full reply as a page in the note book titled "${noteBookFor(agent)}".`,
-      "Return only the note body text, no surrounding commentary.",
-    );
-  } else if (agent.action === "task") {
-    parts.push(
-      "",
-      "Write the task this event calls for. Put a short imperative title on the first line, then the details below it.",
-      "The platform files your reply as a task, so return only the task text.",
-    );
-  } else if (agent.action === "event") {
-    parts.push(
-      "",
-      `The platform publishes your reply on the bus as ${agentOutputEventType(agent)}, and whatever subscribes to that event reads it as the payload.`,
-      "Return only the payload text, no surrounding commentary.",
-    );
-  } else {
-    let mcpUrl = "http://127.0.0.1:18766/mcp";
-    const fromEnv = process.env.LOTARU_MCP_URL;
-    if (fromEnv !== undefined && fromEnv.trim().length > 0) {
-      mcpUrl = fromEnv.trim();
-    }
-    parts.push(
-      "",
-      `Lotaru MCP is available without authentication at ${mcpUrl}.`,
-      "Use MCP tools for voice segments, note books, events, scripts, and responders when the prompt needs platform data.",
-    );
+  let mcpUrl = "http://127.0.0.1:18766/mcp";
+  const fromEnv = process.env.LOTARU_MCP_URL;
+  if (fromEnv !== undefined && fromEnv.trim().length > 0) {
+    mcpUrl = fromEnv.trim();
   }
+  parts.push(
+    "",
+    `Lotaru MCP is available without authentication at ${mcpUrl}.`,
+    "Use MCP tools for voice segments, note books, events, scripts, and responders when the prompt needs platform data.",
+    "Do not wait for the platform to file the reply as a note, task, or event. Call Lotaru MCP when those writes are needed.",
+  );
   parts.push("", replyLanguageInstruction(targetLanguageLabel));
   return parts.join("\n");
 }
@@ -527,13 +602,28 @@ async function runAgentText(input: {
   options: FireOptions;
   prompt: string;
   projectId: string;
+  aiToolId: string;
 }): Promise<string> {
+  const injected = input.options.runAgent;
+  if (injected !== undefined) {
+    return runProjectAgentPrompt({
+      databasePath: input.options.databasePath,
+      projectId: input.projectId,
+      prompt: input.prompt,
+      projectCwd: input.options.projectCwd,
+      runAgent: injected,
+    });
+  }
+  const toolId = await requireConnectedAiToolId(
+    openSettingsDb(input.options.databasePath),
+    input.aiToolId,
+  );
   return runProjectAgentPrompt({
     databasePath: input.options.databasePath,
     projectId: input.projectId,
     prompt: input.prompt,
     projectCwd: input.options.projectCwd,
-    runAgent: input.options.runAgent,
+    aiToolId: toolId,
   });
 }
 
@@ -659,14 +749,15 @@ function applyAgentAction(input: {
       emitBusEvent: false,
     });
     if (input.options.emitEvent !== undefined) {
-      input.options.emitEvent({
-        type: EVENT_NOTE_PAGE_CREATED,
-        projectId: input.agent.projectId,
-        scriptId: "",
-        path: page.bookId,
-        detail: `${page.pageId}:${page.pageTitle}`.slice(0, 500),
-        agentChain: nextChain(input.chain, input.agent.id),
-      });
+      input.options.emitEvent(
+        {
+          type: EVENT_NOTE_PAGE_CREATED,
+          projectId: input.agent.projectId,
+          path: page.bookId,
+          detail: `${page.pageId}:${page.pageTitle}`.slice(0, 500),
+        },
+        nextChain(input.chain, input.agent.id),
+      );
     }
     return "";
   }
@@ -693,14 +784,15 @@ function applyAgentAction(input: {
     if (input.options.emitEvent === undefined) {
       return "No event publisher";
     }
-    input.options.emitEvent({
-      type: agentOutputEventType(input.agent),
-      projectId: input.agent.projectId,
-      scriptId: "",
-      path: input.agent.id,
-      detail: body.slice(0, AGENT_EVENT_DETAIL_MAX),
-      agentChain: nextChain(input.chain, input.agent.id),
-    });
+    input.options.emitEvent(
+      {
+        type: agentOutputEventType(input.agent),
+        projectId: input.agent.projectId,
+        path: input.agent.id,
+        detail: body.slice(0, AGENT_EVENT_DETAIL_MAX),
+      },
+      nextChain(input.chain, input.agent.id),
+    );
     return "";
   }
   return "";
@@ -749,20 +841,22 @@ async function executeAgent(input: {
       options: input.options,
       prompt,
       projectId: input.agent.projectId,
+      aiToolId: input.agent.aiToolId,
     });
     const finishedAt = new Date().toISOString();
     db.prepare(
       "UPDATE lotaru_agent_runs SET status = ?, output = ?, finished_at = ? WHERE id = ?",
     ).run("done", clampRunOutput(text), finishedAt, runId);
     if (input.options.emitEvent !== undefined) {
-      input.options.emitEvent({
-        type: EVENT_AGENT_RAN,
-        projectId: input.agent.projectId,
-        scriptId: "",
-        path: input.agent.id,
-        detail: runId,
-        agentChain: nextChain(input.chain, input.agent.id),
-      });
+      input.options.emitEvent(
+        {
+          type: EVENT_AGENT_RAN,
+          projectId: input.agent.projectId,
+          path: input.agent.id,
+          detail: runId,
+        },
+        nextChain(input.chain, input.agent.id),
+      );
     }
     let actionFailure = "";
     try {
@@ -877,9 +971,6 @@ export async function fireDueScheduledAgents(input: {
   const db = openAgentsDb(input.databasePath);
   pruneOldAgentClaims(db);
   const agents = listAgents(db, input.projectId);
-  const hour = input.now.getHours();
-  const minute = input.now.getMinutes();
-  const keyDay = dayKeyLocal(input.now);
   for (const agent of agents) {
     if (agent.enabled !== true) {
       continue;
@@ -887,13 +978,17 @@ export async function fireDueScheduledAgents(input: {
     if (agent.trigger !== "schedule") {
       continue;
     }
-    if (hour < agent.scheduleHour) {
+    let spec: CalendarSchedule;
+    try {
+      spec = calendarFromParts(agent.scheduleCron, agent.scheduleHour, agent.scheduleMinute);
+    } catch {
       continue;
     }
-    if (hour === agent.scheduleHour && minute < agent.scheduleMinute) {
+    if (calendarDueToday(spec, input.now) !== true) {
       continue;
     }
-    const key = claimKey(agent.id, keyDay);
+    const stamp = calendarClaimStamp(spec, input.now);
+    const key = claimKey(agent.id, stamp);
     if (tryClaim(db, key, agent.id) !== true) {
       continue;
     }
@@ -907,7 +1002,7 @@ export async function fireDueScheduledAgents(input: {
       agent,
       eventType: "schedule.daily",
       path: "",
-      detail: keyDay,
+      detail: stamp,
       eventId: key,
       chain: [],
     });
@@ -915,18 +1010,19 @@ export async function fireDueScheduledAgents(input: {
 }
 
 export function scheduleIsDue(
-  agent: Pick<LotaruAgent, "scheduleHour" | "scheduleMinute">,
+  agent: Pick<LotaruAgent, "scheduleHour" | "scheduleMinute"> & { scheduleCron?: string },
   now: Date,
 ): boolean {
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  if (hour < agent.scheduleHour) {
+  let cron = "";
+  if (agent.scheduleCron !== undefined) {
+    cron = agent.scheduleCron;
+  }
+  try {
+    const spec = calendarFromParts(cron, agent.scheduleHour, agent.scheduleMinute);
+    return calendarDueToday(spec, now);
+  } catch {
     return false;
   }
-  if (hour === agent.scheduleHour && minute < agent.scheduleMinute) {
-    return false;
-  }
-  return true;
 }
 
 async function viewersFrom(request: FastifyRequest, options: ModuleOptions): Promise<Viewer[]> {
@@ -983,19 +1079,20 @@ export async function registerAgentsModule(
       }
       eventType = parsed.data.eventType.trim();
       try {
-        requireKnownEventType(eventType);
+        requireOfferedEventType(options.databasePath, eventType);
       } catch {
         return reply.code(400).send({ error: "Unknown event type" });
       }
     }
-    let scheduleHour = 21;
-    if (parsed.data.scheduleHour !== undefined) {
-      scheduleHour = parsed.data.scheduleHour;
+    let schedule;
+    try {
+      schedule = agentScheduleFromBody(parsed.data, false);
+    } catch {
+      return reply.code(400).send({ error: "Invalid schedule" });
     }
-    let scheduleMinute = 0;
-    if (parsed.data.scheduleMinute !== undefined) {
-      scheduleMinute = parsed.data.scheduleMinute;
-    }
+    const scheduleHour = schedule.hour;
+    const scheduleMinute = schedule.minute;
+    const scheduleCron = schedule.cron;
     let includeVoice = false;
     if (parsed.data.includeVoice === true) {
       includeVoice = true;
@@ -1013,6 +1110,18 @@ export async function registerAgentsModule(
     let enabled = true;
     if (parsed.data.enabled === false) {
       enabled = false;
+    }
+    let aiToolId = "";
+    try {
+      if (parsed.data.aiToolId !== undefined) {
+        aiToolId = await requireConnectedAiToolId(
+          openSettingsDb(options.databasePath),
+          parsed.data.aiToolId,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Invalid AI tool";
+      return reply.code(400).send({ error: message });
     }
     const id = randomUUID();
     let slug = "";
@@ -1032,15 +1141,17 @@ export async function registerAgentsModule(
       eventType,
       scheduleHour,
       scheduleMinute,
+      scheduleCron,
       includeVoice,
       action,
       noteBookTitle,
+      aiToolId,
       enabled,
       createdAt: new Date().toISOString(),
       createdBy: viewers[0].email,
     };
     db.prepare(
-      "INSERT INTO lotaru_agents (id, project_id, title, slug, prompt, trigger_kind, event_type, schedule_hour, schedule_minute, include_voice, action, note_book_title, enabled, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO lotaru_agents (id, project_id, title, slug, prompt, trigger_kind, event_type, schedule_hour, schedule_minute, schedule_cron, include_voice, action, note_book_title, ai_tool_id, enabled, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       agent.id,
       agent.projectId,
@@ -1051,9 +1162,11 @@ export async function registerAgentsModule(
       agent.eventType,
       agent.scheduleHour,
       agent.scheduleMinute,
+      agent.scheduleCron,
       agent.includeVoice ? 1 : 0,
       agent.action,
       agent.noteBookTitle,
+      agent.aiToolId,
       agent.enabled ? 1 : 0,
       agent.createdAt,
       agent.createdBy,
@@ -1102,14 +1215,15 @@ export async function registerAgentsModule(
     } else {
       eventType = "";
     }
-    let scheduleHour = existing.scheduleHour;
-    if (parsed.data.scheduleHour !== undefined) {
-      scheduleHour = parsed.data.scheduleHour;
+    let schedule;
+    try {
+      schedule = agentScheduleFromBody(parsed.data, existing);
+    } catch {
+      return reply.code(400).send({ error: "Invalid schedule" });
     }
-    let scheduleMinute = existing.scheduleMinute;
-    if (parsed.data.scheduleMinute !== undefined) {
-      scheduleMinute = parsed.data.scheduleMinute;
-    }
+    const scheduleHour = schedule.hour;
+    const scheduleMinute = schedule.minute;
+    const scheduleCron = schedule.cron;
     let includeVoice = existing.includeVoice;
     if (parsed.data.includeVoice !== undefined) {
       includeVoice = parsed.data.includeVoice;
@@ -1126,8 +1240,20 @@ export async function registerAgentsModule(
     if (parsed.data.enabled !== undefined) {
       enabled = parsed.data.enabled;
     }
+    let aiToolId = existing.aiToolId;
+    if (parsed.data.aiToolId !== undefined) {
+      try {
+        aiToolId = await requireConnectedAiToolId(
+          openSettingsDb(options.databasePath),
+          parsed.data.aiToolId,
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Invalid AI tool";
+        return reply.code(400).send({ error: message });
+      }
+    }
     db.prepare(
-      "UPDATE lotaru_agents SET title = ?, prompt = ?, trigger_kind = ?, event_type = ?, schedule_hour = ?, schedule_minute = ?, include_voice = ?, action = ?, note_book_title = ?, enabled = ? WHERE id = ?",
+      "UPDATE lotaru_agents SET title = ?, prompt = ?, trigger_kind = ?, event_type = ?, schedule_hour = ?, schedule_minute = ?, schedule_cron = ?, include_voice = ?, action = ?, note_book_title = ?, ai_tool_id = ?, enabled = ? WHERE id = ?",
     ).run(
       title,
       prompt,
@@ -1135,9 +1261,11 @@ export async function registerAgentsModule(
       eventType,
       scheduleHour,
       scheduleMinute,
+      scheduleCron,
       includeVoice ? 1 : 0,
       action,
       noteBookTitle,
+      aiToolId,
       enabled ? 1 : 0,
       existing.id,
     );

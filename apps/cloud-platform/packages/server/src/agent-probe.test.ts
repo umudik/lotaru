@@ -8,7 +8,7 @@ describe("probeAgentRuntime", () => {
     const result = await probeAgentRuntime({
       profile: { kind: "cursor", mode: "execute", command: "" },
       settings: DEFAULT_APP_SETTINGS,
-      locateBinary: async () => ["C:\\Users\\seyit\\AppData\\Local\\cursor-agent\\agent.cmd"],
+      locateBinary: async () => ["C:\\Users\\dev\\AppData\\Local\\cursor-agent\\agent.cmd"],
     });
     assert.equal(result.reachable, true);
     assert.equal(result.command, "agent");

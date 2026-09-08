@@ -14,6 +14,8 @@ import {
   speakVariant,
   type NotePage,
 } from "./modules/notes.js";
+import { clearLotaruEventPublisher, setLotaruEventPublisher } from "./event-bus.js";
+import { storedEnvelopeFromPublish } from "./event-publish.js";
 
 const PROJECT_ID = "proj-notes";
 
@@ -43,6 +45,21 @@ async function startNotes(access = true) {
   const identity = await createIdentity({
     publicUrl: "http://127.0.0.1:4317",
     dataDir: dir,
+  });
+  setLotaruEventPublisher((input) => {
+    const stored = storedEnvelopeFromPublish(input);
+    return {
+      id: "notes-event",
+      type: stored.type,
+      projectId: stored.projectId,
+      scriptId: stored.scriptId,
+      path: stored.path,
+      detail: stored.detail,
+      createdAt: Date.now(),
+    };
+  });
+  app.addHook("onClose", async () => {
+    clearLotaruEventPublisher();
   });
   await registerNotesModule(app, {
     databasePath: join(dir, "app.sqlite"),
@@ -251,7 +268,7 @@ describe("note books", () => {
     const page = createdPage.json();
     assert.equal(page.body, "guzel bir gun");
     assert.equal(page.translationStatus, "error");
-    assert.equal(page.translationError, "Choose an Ollama model in Settings");
+    assert.equal(page.translationError, "Pick a connected AI tool");
     assert.equal(page.polishStatus, "error");
     assert.equal(page.summaryStatus, "error");
     const secondPage = await app.inject({
@@ -270,7 +287,7 @@ describe("note books", () => {
     assert.equal(listed.json().books[0].pageCount, 2);
   });
 
-  it("runs only the switched-on job when Ollama has no model", async (t) => {
+  it("runs only the switched-on job when no AI tool is picked", async (t) => {
     const { app } = await startNotes();
     t.after(async () => {
       await app.close();
@@ -297,7 +314,7 @@ describe("note books", () => {
     });
     const page = createdPage.json();
     assert.equal(page.translationStatus, "error");
-    assert.equal(page.translationError, "Choose an Ollama model in Settings");
+    assert.equal(page.translationError, "Pick a connected AI tool");
     assert.equal(page.polishStatus, "none");
     assert.equal(page.summaryStatus, "none");
     const polish = await app.inject({
@@ -401,20 +418,36 @@ describe("appendNotePageByBookTitle", () => {
   it("does not queue jobs before the notes module binds", () => {
     const dir = mkdtempSync(join(tmpdir(), "lotaru-notes-append-idle-"));
     const databasePath = join(dir, "app.sqlite");
-    const appended = appendNotePageByBookTitle({
-      databasePath,
-      projectId: PROJECT_ID,
-      bookTitle: "Agent Journal",
-      pageTitle: "2026-02-01",
-      body: "Daily summary",
-      createdBy: "agent@lotaru",
+    setLotaruEventPublisher((input) => {
+      const stored = storedEnvelopeFromPublish(input);
+      return {
+        id: "idle-event",
+        type: stored.type,
+        projectId: stored.projectId,
+        scriptId: stored.scriptId,
+        path: stored.path,
+        detail: stored.detail,
+        createdAt: Date.now(),
+      };
     });
-    const notesDb = openNotesDb(databasePath);
-    const row = notesDb
-      .prepare("SELECT translation_status FROM note_pages WHERE id = ?")
-      .get(appended.pageId) as { translation_status: string };
-    notesDb.close();
-    assert.equal(row.translation_status, "none");
+    try {
+      const appended = appendNotePageByBookTitle({
+        databasePath,
+        projectId: PROJECT_ID,
+        bookTitle: "Agent Journal",
+        pageTitle: "2026-02-01",
+        body: "Daily summary",
+        createdBy: "agent@lotaru",
+      });
+      const notesDb = openNotesDb(databasePath);
+      const row = notesDb
+        .prepare("SELECT translation_status FROM note_pages WHERE id = ?")
+        .get(appended.pageId) as { translation_status: string };
+      notesDb.close();
+      assert.equal(row.translation_status, "none");
+    } finally {
+      clearLotaruEventPublisher();
+    }
   });
 
   it("queues note jobs when the notes module is registered", async (t) => {
@@ -436,6 +469,6 @@ describe("appendNotePageByBookTitle", () => {
       .get(appended.pageId) as { translation_status: string; translation_error: string };
     notesDb.close();
     assert.equal(row.translation_status, "error");
-    assert.match(row.translation_error, /model/i);
+    assert.equal(row.translation_error, "Pick a connected AI tool");
   });
 });

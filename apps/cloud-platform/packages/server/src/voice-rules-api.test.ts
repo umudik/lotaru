@@ -11,6 +11,8 @@ import {
   registerAgentsModule,
 } from "./modules/agents.js";
 import { registerVoiceRulesModule } from "./modules/voice-rules.js";
+import { openSettingsDb } from "./app-settings.js";
+import { ensureGithubSchema, saveGithubToken } from "./github-store.js";
 
 const PROJECT = "proj-rules-api";
 
@@ -106,6 +108,37 @@ describe("voice rules API", () => {
     assert.equal(rule?.label, "Hatırlatma");
     const platform = body.eventTypes.find((entry) => entry.type === "task.created");
     assert.equal(platform?.kind, "platform");
+    const namedClock = body.eventTypes.find((entry) => entry.type === "clock.at.monday-15");
+    assert.equal(namedClock?.kind, "platform");
+    assert.equal(namedClock?.label, "Monday at 15:00");
+    const github = body.eventTypes.find((entry) => entry.type === "github.pull_request.opened");
+    assert.equal(github, undefined);
+  });
+
+  it("offers GitHub events as connection events after a token is saved", async (t) => {
+    const { app, databasePath } = await bootstrap();
+    t.after(async () => {
+      await app.close();
+    });
+    const settingsDb = openSettingsDb(databasePath);
+    ensureGithubSchema(settingsDb);
+    saveGithubToken(settingsDb, "ghp_connection_events");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/event-types?projectId=${PROJECT}`,
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as {
+      eventTypes: { type: string; label: string; kind: string; sourceId: string; sourceLabel: string }[];
+    };
+    const opened = body.eventTypes.find((entry) => entry.type === "github.pull_request.opened");
+    assert.equal(opened?.kind, "connection");
+    assert.equal(opened?.label, "Pull request opened");
+    assert.equal(opened?.sourceId, "github");
+    assert.equal(opened?.sourceLabel, "GitHub");
+    const installed = body.eventTypes.find((entry) => entry.type === "github.installation");
+    assert.equal(installed?.label, "App installed");
+    assert.equal(installed?.sourceId, "github");
   });
 
   it("lets an agent subscribe to a rule event", async (t) => {

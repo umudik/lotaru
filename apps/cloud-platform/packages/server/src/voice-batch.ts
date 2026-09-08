@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
-import { publishLotaruEvent } from "./event-bus.js";
+import { publishLotaruEvent, type LotaruPublishInput } from "./event-bus.js";
 import { EVENT_VOICE_BATCH, ruleEventType, type LotaruEvent } from "./events.js";
-import { runProjectAgentPrompt } from "./agent-prompt.js";
+import { runLocalOllamaPrompt } from "./agent-prompt.js";
 import { cachedSqlite } from "./sqlite-cache.js";
 import {
   listEnabledVoiceRules,
@@ -41,13 +41,7 @@ type BatchStateRow = {
   last_segment_id: string;
 };
 
-type EmitFn = (partial: {
-  type: string;
-  projectId: string;
-  scriptId: string;
-  path: string;
-  detail: string;
-}) => LotaruEvent;
+type EmitFn = (partial: LotaruPublishInput) => LotaruEvent;
 
 function openBatchDb(databasePath: string): Database.Database {
   return cachedSqlite("voice-batch", databasePath, (db) => {
@@ -186,7 +180,6 @@ function emitRuleMatch(input: {
   const event = input.emit({
     type: ruleEventType(input.rule.slug),
     projectId: input.projectId,
-    scriptId: "",
     path: title.slice(0, 240),
     detail: input.match.summary.slice(0, 500),
   });
@@ -206,8 +199,16 @@ export async function scanVoiceBatchForProject(input: {
   runScanner?: (payload: { systemPrompt: string; prompt: string }) => Promise<string>;
   emit?: EmitFn;
 }): Promise<VoiceScanResult> {
-  const emit: EmitFn = input.emit ?? ((partial) => publishLotaruEvent(partial, "live"));
-  const now = input.now ?? Date.now();
+  let emit: EmitFn;
+  if (input.emit !== undefined) {
+    emit = input.emit;
+  } else {
+    emit = (partial) => publishLotaruEvent(partial, "live");
+  }
+  let now = Date.now();
+  if (input.now !== undefined) {
+    now = input.now;
+  }
   const force = input.force === true;
   const rules = listEnabledVoiceRules(openVoiceRulesDb(input.databasePath), input.projectId);
   if (rules.length === 0) {
@@ -236,12 +237,10 @@ export async function scanVoiceBatchForProject(input: {
       raw = await input.runScanner({ systemPrompt: VOICE_RULE_SYSTEM, prompt });
     } else {
       // Whichever engine Settings points at: local Ollama, or a CLI agent.
-      raw = await runProjectAgentPrompt({
+      raw = await runLocalOllamaPrompt({
         databasePath: input.databasePath,
-        projectId: input.projectId,
         systemPrompt: VOICE_RULE_SYSTEM,
         prompt,
-        mode: "ask",
       });
     }
   } catch (err: unknown) {
@@ -279,7 +278,6 @@ export async function scanVoiceBatchForProject(input: {
   emit({
     type: EVENT_VOICE_BATCH,
     projectId: input.projectId,
-    scriptId: "",
     path: String(pending.length),
     detail: `${String(matched)} rule match(es) from ${String(pending.length)} transcript line(s)`,
   });

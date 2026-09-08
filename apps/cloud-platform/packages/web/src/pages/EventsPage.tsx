@@ -2,16 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { EventSourceSelect, eventOptionsFromCatalog } from "@/components/EventSourceSelect";
+import { EventTypesTable } from "@/components/EventTypesTable";
 import { PageContent } from "@/components/layout/PageContent";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useSession } from "@/hooks/useSession";
 import {
-  CATALOG_EVENT_TYPES,
   catalogEventLabel,
   eventLabelWithRules,
   isClockCatalogEvent,
@@ -66,6 +66,24 @@ function pathFactLabel(eventType: string): string {
   if (eventType.startsWith("github.")) {
     return "Repository";
   }
+  if (eventType.startsWith("jira.")) {
+    return "Issue";
+  }
+  if (eventType.startsWith("slack.")) {
+    return "Channel";
+  }
+  if (eventType.startsWith("linear.")) {
+    return "Issue";
+  }
+  if (eventType.startsWith("stripe.")) {
+    return "Event";
+  }
+  if (eventType.startsWith("notion.")) {
+    return "Page";
+  }
+  if (eventType === "ingest.alarm") {
+    return "Alarm";
+  }
   if (isVoiceRuleEvent(eventType)) {
     return "Matched";
   }
@@ -73,14 +91,35 @@ function pathFactLabel(eventType: string): string {
 }
 
 function detailFactLabel(eventType: string): string {
-  if (eventType.startsWith("github.")) {
+  if (eventType.startsWith("github.pull_request")) {
     return "Pull request";
+  }
+  if (eventType.startsWith("github.")) {
+    return "Detail";
+  }
+  if (eventType.startsWith("jira.")) {
+    return "Summary";
+  }
+  if (eventType.startsWith("slack.")) {
+    return "Text";
+  }
+  if (eventType.startsWith("linear.")) {
+    return "Title";
+  }
+  if (eventType.startsWith("stripe.")) {
+    return "Type";
+  }
+  if (eventType.startsWith("notion.")) {
+    return "Page";
   }
   if (eventType === "file.changed") {
     return "Change";
   }
   if (eventType === "app.started") {
     return "Reason";
+  }
+  if (eventType === "ingest.alarm") {
+    return "Message";
   }
   if (isVoiceRuleEvent(eventType)) {
     return "What was asked";
@@ -141,7 +180,7 @@ function eventFacts(cluster: EventCluster): EventFact[] {
     facts.push({ label: "Ticks", value: String(cluster.count) });
   }
   if (isClockCatalogEvent(event.type)) {
-    facts.push({ label: "Interval", value: "Every 10 seconds, every project" });
+    facts.push({ label: "Interval", value: catalogEventLabel(event.type) });
   }
   if (path.length > 0) {
     facts.push({ label: pathFactLabel(event.type), value: path });
@@ -156,8 +195,8 @@ function eventFacts(cluster: EventCluster): EventFact[] {
   if (scriptId.length > 0) {
     facts.push({ label: "Target script", value: scriptId });
   }
-  facts.push({ label: "Event id", value: event.id });
-  facts.push({ label: "Event type", value: event.type });
+  facts.push({ label: "Log id", value: event.id });
+  facts.push({ label: "Type", value: event.type });
   return facts;
 }
 
@@ -185,15 +224,7 @@ function eventTypeFilterFromQuery(raw: string | null): string {
   if (raw === null) {
     return "";
   }
-  if (isVoiceRuleEvent(raw)) {
-    return raw;
-  }
-  for (const catalogType of CATALOG_EVENT_TYPES) {
-    if (catalogType === raw) {
-      return catalogType;
-    }
-  }
-  return "";
+  return raw.trim();
 }
 
 const EVENT_PAGE_SIZE = 40;
@@ -340,12 +371,11 @@ export function EventsPage(): React.JSX.Element {
   }
 
     if (projectId.length === 0) {
-    return <p className="p-6 text-sm text-muted-foreground">Open a project to see events.</p>;
+    return <p className="p-6 text-sm text-muted-foreground">Open a project to see the log.</p>;
   }
 
   const clusters = clusterEvents(events);
-  const ruleTypes = eventTypes.filter((entry) => entry.kind === "rule");
-  const agentTypes = eventTypes.filter((entry) => entry.kind === "agent");
+  const pickerOptions = eventTypes.length > 0 ? eventTypes : eventOptionsFromCatalog();
   const mintedLabels: Record<string, string> = {};
   for (const entry of eventTypes) {
     if (entry.kind === "rule" || entry.kind === "agent") {
@@ -356,20 +386,22 @@ export function EventsPage(): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        title="Events"
+        title="Log"
         info="What happened in this project."
         actions={
           <div className="flex items-center gap-2">
             <Label htmlFor="event-type-filter" className="sr-only">
               Type
             </Label>
-            <Select
+            <EventSourceSelect
               id="event-type-filter"
-              className="h-9 w-[14rem]"
+              className="h-11 w-[22rem]"
               value={typeFilter}
-              onChange={(event) => {
+              options={pickerOptions}
+              allowEmpty={true}
+              emptyLabel="All types"
+              onChange={(nextType) => {
                 pagedRef.current = false;
-                const nextType = event.target.value;
                 setSearchParams(
                   (current) => {
                     const next = new URLSearchParams(current);
@@ -383,38 +415,36 @@ export function EventsPage(): React.JSX.Element {
                   { replace: true },
                 );
               }}
-            >
-              <option value="">All types</option>
-              {ruleTypes.length > 0 ? (
-                <optgroup label="Extractors">
-                  {ruleTypes.map((entry) => (
-                    <option key={entry.type} value={entry.type}>
-                      {entry.label.length > 0 ? entry.label : entry.type}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {agentTypes.length > 0 ? (
-                <optgroup label="Responders">
-                  {agentTypes.map((entry) => (
-                    <option key={entry.type} value={entry.type}>
-                      {entry.label.length > 0 ? entry.label : entry.type}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              <optgroup label="Platform">
-                {CATALOG_EVENT_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {catalogEventLabel(type)}
-                  </option>
-                ))}
-              </optgroup>
-            </Select>
+            />
           </div>
         }
       />
       <PageContent className="overflow-y-auto">
+        <div className="mb-6">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Types
+          </p>
+          <EventTypesTable
+            includeKind={true}
+            rows={eventTypes.map((entry) => {
+              let sourceId = "";
+              let sourceLabel = "";
+              if (entry.sourceId.length > 0) {
+                sourceId = entry.sourceId;
+              }
+              if (entry.sourceLabel.length > 0) {
+                sourceLabel = entry.sourceLabel;
+              }
+              return {
+                type: entry.type,
+                label: entry.label.length > 0 ? entry.label : catalogEventLabel(entry.type),
+                kind: entry.kind,
+                sourceId,
+                sourceLabel,
+              };
+            })}
+          />
+        </div>
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         {loading && events.length === 0 ? (
           <div className="space-y-3">
@@ -425,7 +455,7 @@ export function EventsPage(): React.JSX.Element {
         ) : events.length === 0 ? (
           <div className="panel-card px-6 py-16 text-center">
             <p className="text-sm font-medium">
-              {typeFilter.length > 0 ? "No events match this type." : "No events recorded yet."}
+              {typeFilter.length > 0 ? "No logs match this type." : "No logs recorded yet."}
             </p>
           </div>
         ) : (
@@ -484,7 +514,7 @@ export function EventsPage(): React.JSX.Element {
                         <dd
                           className={cn(
                             "mt-0.5 truncate text-sm",
-                            fact.label === "Event type" || fact.label === "Event id"
+                            fact.label === "Type" || fact.label === "Log id"
                               ? "font-mono text-xs"
                               : null,
                           )}

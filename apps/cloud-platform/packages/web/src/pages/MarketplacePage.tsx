@@ -1,692 +1,508 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, Pencil, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { Download, Loader2, ShoppingBag, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useSession } from "@/hooks/useSession";
 import {
-  fetchMarketplaceListings,
-  fetchMarketplacePurchases,
-  fetchMarketplaceSales,
-  fetchMyMarketplaceListings,
-  fetchPublishableTemplates,
-  publishMarketplaceListing,
-  purchaseMarketplaceListing,
-  unlistMarketplaceListing,
-  updateMarketplaceListing,
-  type MarketplaceListingSummary,
-  type WorkflowTemplateSummary,
+  exportMarketplacePack,
+  fetchMarketplaceCatalog,
+  importMarketplacePack,
+  installMarketplaceItem,
+  removeImportedMarketplaceItem,
+  uninstallMarketplaceItem,
+  type MarketplaceCatalogItem,
+  type MarketplaceCategory,
+  type MarketplaceKind,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Tab = "browse" | "mine" | "purchases" | "sales";
+type KindFilter = "all" | MarketplaceKind;
 
-function formatPrice(cents: number) {
-  if (cents <= 0) return "Free";
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function formatDate(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-type PublishFormProps = {
-  templates: WorkflowTemplateSummary[];
-  initialTemplateId: string;
-  initialTitle: string;
-  initialDescription: string;
-  editing: MarketplaceListingSummary | null;
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-};
-
-function PublishForm({
-  templates,
-  initialTemplateId,
-  initialTitle,
-  initialDescription,
-  editing,
-  onClose,
-  onSaved,
-}: PublishFormProps) {
-  const session = useSession();
-  const [publishTemplateId, setPublishTemplateId] = useState(initialTemplateId);
-  const [publishTitle, setPublishTitle] = useState(initialTitle);
-  const [publishDescription, setPublishDescription] = useState(initialDescription);
-  const [publishCategory, setPublishCategory] = useState(editing?.category ?? "general");
-  const [pricingMode, setPricingMode] = useState<"free" | "paid">(
-    editing && editing.priceCents > 0 ? "paid" : "free",
-  );
-  const [publishPrice, setPublishPrice] = useState(
-    editing && editing.priceCents > 0 ? String(editing.priceCents / 100) : "9.99",
-  );
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    if (!session) return;
-    const priceCents =
-      pricingMode === "free" ? 0 : Math.round(Number(publishPrice) * 100);
-    if (!Number.isFinite(priceCents) || priceCents < 0) {
-      toast.error("Invalid price");
-      return;
-    }
-    if (pricingMode === "paid" && priceCents === 0) {
-      toast.error("Paid listings need a price greater than zero, or choose Free");
-      return;
-    }
-    if (!editing && !publishTemplateId) {
-      toast.error("Select a template");
-      return;
-    }
-    setSaving(true);
-    try {
-      if (editing) {
-        await updateMarketplaceListing(session, editing.id, {
-          title: publishTitle.trim(),
-          description: publishDescription.trim(),
-          category: publishCategory.trim() || "general",
-          priceCents,
-        });
-        toast.success("Listing updated");
-      } else {
-        await publishMarketplaceListing(session, {
-          sourceTemplateId: publishTemplateId,
-          title: publishTitle.trim(),
-          description: publishDescription.trim(),
-          category: publishCategory.trim() || "general",
-          priceCents,
-        });
-        toast.success(priceCents > 0 ? "Template listed for sale" : "Template shared for free");
-      }
-      await onSaved();
-      onClose();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
+function matchesQuery(item: MarketplaceCatalogItem, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) {
+    return true;
   }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-lg rounded-xl border border-white/10 bg-[hsl(0,0%,6%)] p-6 shadow-2xl">
-        <h2 className="text-lg font-semibold text-white">
-          {editing ? "Edit listing" : "Share on marketplace"}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {editing
-            ? "Update price and details. Buyers keep the version they purchased."
-            : "Publish a workflow template you own. Set price to free (0) or charge for it."}
-        </p>
-        <div className="mt-6 space-y-4">
-          {!editing ? (
-            <div className="space-y-2">
-              <Label>Your template</Label>
-              {templates.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No owned templates yet. Create one under Workflow templates first.
-                </p>
-              ) : (
-                <select
-                  value={publishTemplateId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setPublishTemplateId(id);
-                    const item = templates.find((t) => t.id === id);
-                    if (item) {
-                      setPublishTitle(item.title);
-                      setPublishDescription(item.description);
-                    }
-                  }}
-                  className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-white"
-                >
-                  {templates.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.title}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          ) : null}
-          <div className="space-y-2">
-            <Label>Listing title</Label>
-            <Input value={publishTitle} onChange={(e) => setPublishTitle(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea
-              value={publishDescription}
-              onChange={(e) => setPublishDescription(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Category</Label>
-            <Input value={publishCategory} onChange={(e) => setPublishCategory(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Pricing</Label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPricingMode("free")}
-                className={cn(
-                  "flex-1 rounded-lg border px-3 py-2 text-sm transition-colors",
-                  pricingMode === "free"
-                    ? "border-primary bg-primary/10 text-white"
-                    : "border-white/10 text-muted-foreground hover:border-white/20",
-                )}
-              >
-                Free
-              </button>
-              <button
-                type="button"
-                onClick={() => setPricingMode("paid")}
-                className={cn(
-                  "flex-1 rounded-lg border px-3 py-2 text-sm transition-colors",
-                  pricingMode === "paid"
-                    ? "border-primary bg-primary/10 text-white"
-                    : "border-white/10 text-muted-foreground hover:border-white/20",
-                )}
-              >
-                Paid
-              </button>
-            </div>
-            {pricingMode === "paid" ? (
-              <div className="pt-1">
-                <Label>Price (USD)</Label>
-                <Input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={publishPrice}
-                  onChange={(e) => setPublishPrice(e.target.value)}
-                  className="mt-2"
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => void handleSave()}
-            disabled={saving || (!editing && (templates.length === 0 || !publishTemplateId))}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? "Save" : "Publish"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
+  const hay = `${item.title} ${item.summary} ${item.source} ${item.categoryLabel}`.toLowerCase();
+  return hay.includes(needle);
 }
 
-function ListingCard({
-  listing,
-  selectForProject,
-  purchasingId,
-  onPurchase,
-  onSelectForProject,
-  onEdit,
-  onUnlist,
-}: {
-  listing: MarketplaceListingSummary;
-  selectForProject: boolean;
-  purchasingId: string | null;
-  onPurchase: (listing: MarketplaceListingSummary) => void;
-  onSelectForProject: (listing: MarketplaceListingSummary) => void;
-  onEdit?: (listing: MarketplaceListingSummary) => void;
-  onUnlist?: (listing: MarketplaceListingSummary) => void;
-}) {
-  return (
-    <article className="flex flex-col rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">{listing.title}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            by {listing.sellerName} · {listing.category}
-          </p>
-        </div>
-        <Badge variant={listing.priceCents > 0 ? "default" : "secondary"}>
-          {formatPrice(listing.priceCents)}
-        </Badge>
-      </div>
-      <p className="mt-3 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-4">
-        {listing.description || "No description"}
-      </p>
-      <p className="mt-3 text-xs text-muted-foreground">
-        {listing.stageCount} stage{listing.stageCount === 1 ? "" : "s"}
-      </p>
-      <div className="mt-4 flex gap-2">
-        {onEdit || onUnlist ? (
-          <>
-            {onEdit ? (
-              <Button size="sm" variant="outline" onClick={() => onEdit(listing)}>
-                <Pencil className="h-4 w-4" />
-                Edit
-              </Button>
-            ) : null}
-            {onUnlist ? (
-              <Button size="sm" variant="outline" onClick={() => onUnlist(listing)}>
-                <Trash2 className="h-4 w-4" />
-                Unlist
-              </Button>
-            ) : null}
-          </>
-        ) : selectForProject ? (
-          <Button
-            className="flex-1"
-            size="sm"
-            onClick={() => onSelectForProject(listing)}
-            disabled={purchasingId === listing.id || listing.isOwnListing}
-          >
-            {purchasingId === listing.id ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : listing.owned ? (
-              "Use for project"
-            ) : listing.priceCents > 0 ? (
-              "Buy & use"
-            ) : (
-              "Get & use"
-            )}
-          </Button>
-        ) : (
-          <Button
-            className="flex-1"
-            size="sm"
-            variant={listing.owned ? "secondary" : "default"}
-            onClick={() => onPurchase(listing)}
-            disabled={purchasingId === listing.id || listing.owned || listing.isOwnListing}
-          >
-            {purchasingId === listing.id ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : listing.isOwnListing ? (
-              "Your listing"
-            ) : listing.owned ? (
-              "Owned"
-            ) : listing.priceCents > 0 ? (
-              <>
-                <ShoppingBag className="h-4 w-4" />
-                Buy
-              </>
-            ) : (
-              "Get free"
-            )}
-          </Button>
-        )}
-      </div>
-    </article>
-  );
+function visibleItems(
+  items: readonly MarketplaceCatalogItem[],
+  kind: KindFilter,
+  category: string,
+  query: string,
+  importedOnly: boolean,
+): MarketplaceCatalogItem[] {
+  const visible: MarketplaceCatalogItem[] = [];
+  for (const item of items) {
+    if (kind !== "all" && item.kind !== kind) {
+      continue;
+    }
+    if (category.length > 0 && item.category !== category) {
+      continue;
+    }
+    if (importedOnly === true && item.imported !== true) {
+      continue;
+    }
+    if (matchesQuery(item, query) !== true) {
+      continue;
+    }
+    visible.push(item);
+  }
+  return visible;
 }
 
-export function MarketplacePage() {
-  const session = useSession();
-  const navigate = useNavigate();
+function kindLabel(kind: MarketplaceKind): string {
+  if (kind === "diagram") {
+    return "Diagram";
+  }
+  if (kind === "script") {
+    return "Script";
+  }
+  if (kind === "task") {
+    return "Task";
+  }
+  return "Document";
+}
+
+function installedLinkLabel(kind: MarketplaceKind): string {
+  if (kind === "script") {
+    return "Open script";
+  }
+  if (kind === "task") {
+    return "Open pipeline";
+  }
+  return "Open template";
+}
+
+function templatePath(projectId: string, kind: MarketplaceKind): string {
+  if (kind === "diagram") {
+    return `/projects/${projectId}/knowledge/diagrams/templates`;
+  }
+  if (kind === "script") {
+    return `/projects/${projectId}/scripts`;
+  }
+  if (kind === "task") {
+    return `/projects/${projectId}/pipeline`;
+  }
+  return `/projects/${projectId}/knowledge/documentation/templates`;
+}
+
+export function MarketplacePage(): React.JSX.Element {
   const { projectId } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectForProject = searchParams.get("selectFor") === "project";
-  const publishTemplateFromUrl = searchParams.get("publish") ?? "";
-
-  const [tab, setTab] = useState<Tab>("browse");
+  const session = useSession();
+  const [items, setItems] = useState<MarketplaceCatalogItem[]>([]);
+  const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
+  const [kind, setKind] = useState<KindFilter>("all");
+  const [category, setCategory] = useState("");
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [listings, setListings] = useState<MarketplaceListingSummary[]>([]);
-  const [myListings, setMyListings] = useState<MarketplaceListingSummary[]>([]);
-  const [purchases, setPurchases] = useState<
-    Array<{
-      id: string;
-      listingTitle: string;
-      sellerName: string;
-      amountCents: number;
-      purchasedTemplateId: string;
-      createdAt: string;
-    }>
-  >([]);
-  const [sales, setSales] = useState<
-    Array<{
-      id: string;
-      listingTitle: string;
-      buyerName: string;
-      amountCents: number;
-      createdAt: string;
-    }>
-  >([]);
-  const [search, setSearch] = useState("");
-  const [purchasingId, setPurchasingId] = useState<string | null>(null);
-  const [showPublish, setShowPublish] = useState(false);
-  const [editingListing, setEditingListing] = useState<MarketplaceListingSummary | null>(null);
-  const [publishableTemplates, setPublishableTemplates] = useState<WorkflowTemplateSummary[]>([]);
-  const [publishSeed, setPublishSeed] = useState({
-    templateId: "",
-    title: "",
-    description: "",
-  });
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  const [importedOnly, setImportedOnly] = useState(false);
+  const [packBusy, setPackBusy] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
-  const reload = useCallback(
-    async (silent = false) => {
-      if (!session) return;
-      if (!silent) setLoading(true);
-      try {
-        const [browse, mine, bought, sold] = await Promise.all([
-          fetchMarketplaceListings(session),
-          fetchMyMarketplaceListings(session),
-          fetchMarketplacePurchases(session),
-          fetchMarketplaceSales(session),
-        ]);
-        setListings(browse);
-        setMyListings(mine);
-        setPurchases(bought);
-        setSales(sold);
-      } catch (error) {
-        if (!silent) {
-          toast.error(error instanceof Error ? error.message : "Failed to load marketplace");
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [session],
-  );
-
-  useAutoRefresh(
-    useCallback(
-      (silent: boolean) => {
-        void reload(silent);
-      },
-      [reload],
-    ),
-    { enabled: Boolean(session) && !showPublish },
-  );
+  const loadCatalog = useCallback(async () => {
+    if (session === null || projectId === undefined) {
+      return;
+    }
+    setError("");
+    try {
+      const catalog = await fetchMarketplaceCatalog(session, projectId);
+      setItems(catalog.items);
+      setCategories(catalog.categories);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load marketplace";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session, projectId]);
 
   useEffect(() => {
-    if (!publishTemplateFromUrl || !session) return;
-    void fetchPublishableTemplates(session)
-      .then((items) => {
-        setPublishableTemplates(items);
-        const match = items.find((t) => t.id === publishTemplateFromUrl);
-        if (match) {
-          setPublishSeed({
-            templateId: match.id,
-            title: match.title,
-            description: match.description,
-          });
-          setShowPublish(true);
-          setTab("mine");
-        } else {
-          toast.error("Template not found or you do not own it");
-        }
-        setSearchParams((params) => {
-          params.delete("publish");
-          return params;
-        });
-      })
-      .catch(() => undefined);
-  }, [publishTemplateFromUrl, session, setSearchParams]);
+    void loadCatalog();
+  }, [loadCatalog]);
 
-  const filteredBrowse = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return listings;
-    return listings.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.category.toLowerCase().includes(q) ||
-        item.sellerName.toLowerCase().includes(q),
-    );
-  }, [listings, search]);
-
-  async function openPublish() {
-    if (!session) return;
-    setEditingListing(null);
-    try {
-      const items = await fetchPublishableTemplates(session);
-      setPublishableTemplates(items);
-      const first = items[0];
-      setPublishSeed({
-        templateId: first?.id ?? "",
-        title: first?.title ?? "",
-        description: first?.description ?? "",
-      });
-      setShowPublish(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load templates");
-    }
-  }
-
-  async function handlePurchase(listing: MarketplaceListingSummary) {
-    if (!session) return;
-    if (listing.owned && listing.purchasedTemplateId) {
-      if (selectForProject) {
-        navigate(`/projects/${projectId}/pipeline`);
-      }
+  async function install(item: MarketplaceCatalogItem): Promise<void> {
+    if (session === null || projectId === undefined) {
       return;
     }
-    setPurchasingId(listing.id);
+    setBusyId(item.id);
     try {
-      await purchaseMarketplaceListing(session, listing.id);
-      toast.success(
-        listing.priceCents > 0 ? "Template purchased" : "Template added to your library",
-      );
-      await reload();
-      if (selectForProject) {
-        navigate(`/projects/${projectId}/pipeline`);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Purchase failed");
+      await installMarketplaceItem(session, { projectId, catalogId: item.id });
+      toast.success(`Installed ${item.title}`);
+      await loadCatalog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Install failed";
+      toast.error(message);
     } finally {
-      setPurchasingId(null);
+      setBusyId("");
     }
   }
 
-  async function handleUnlist(listing: MarketplaceListingSummary) {
-    if (!session) return;
+  async function uninstall(item: MarketplaceCatalogItem): Promise<void> {
+    if (session === null || projectId === undefined) {
+      return;
+    }
+    setBusyId(item.id);
     try {
-      await unlistMarketplaceListing(session, listing.id);
-      toast.success("Listing removed from marketplace");
-      await reload();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unlist failed");
+      await uninstallMarketplaceItem(session, projectId, item.id);
+      toast.success(`Removed ${item.title}`);
+      await loadCatalog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Uninstall failed";
+      toast.error(message);
+    } finally {
+      setBusyId("");
     }
   }
 
-  function handleEdit(listing: MarketplaceListingSummary) {
-    setEditingListing(listing);
-    setPublishSeed({
-      templateId: listing.sourceTemplateId,
-      title: listing.title,
-      description: listing.description,
-    });
-    setShowPublish(true);
+  async function exportPack(): Promise<void> {
+    if (session === null || projectId === undefined) {
+      return;
+    }
+    setPackBusy(true);
+    try {
+      await exportMarketplacePack(session, projectId);
+      toast.success("Downloaded marketplace JSON");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast.error(message);
+    } finally {
+      setPackBusy(false);
+    }
+  }
+
+  async function importFile(file: File): Promise<void> {
+    if (session === null || projectId === undefined) {
+      return;
+    }
+    setPackBusy(true);
+    try {
+      const text = await file.text();
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        toast.error("Invalid JSON");
+        return;
+      }
+      const result = await importMarketplacePack(session, projectId, raw);
+      toast.success(
+        `Imported ${result.added} new · ${result.updated} updated · ${result.skippedBuiltin} built-in skipped`,
+      );
+      await loadCatalog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Import failed";
+      toast.error(message);
+    } finally {
+      setPackBusy(false);
+    }
+  }
+
+  async function removeImported(item: MarketplaceCatalogItem): Promise<void> {
+    if (session === null || projectId === undefined) {
+      return;
+    }
+    setBusyId(item.id);
+    try {
+      await removeImportedMarketplaceItem(session, projectId, item.id);
+      toast.success(`Removed ${item.title} from catalog`);
+      await loadCatalog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Remove failed";
+      toast.error(message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  if (projectId === undefined) {
+    return (
+      <PageContent>
+        <p className="text-sm text-muted-foreground">Open a project to use the marketplace.</p>
+      </PageContent>
+    );
+  }
+
+  const shown = visibleItems(items, kind, category, query, importedOnly);
+  let documentCount = 0;
+  let diagramCount = 0;
+  let scriptCount = 0;
+  let taskCount = 0;
+  let installedCount = 0;
+  let importedCount = 0;
+  for (const item of items) {
+    if (item.kind === "document") {
+      documentCount += 1;
+    }
+    if (item.kind === "diagram") {
+      diagramCount += 1;
+    }
+    if (item.kind === "script") {
+      scriptCount += 1;
+    }
+    if (item.kind === "task") {
+      taskCount += 1;
+    }
+    if (item.installed) {
+      installedCount += 1;
+    }
+    if (item.imported) {
+      importedCount += 1;
+    }
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <>
       <PageHeader
         title="Marketplace"
-        subtitle="Community-published workflow templates only"
+        subtitle="Install proven documents, diagrams, scripts, and pipeline stages. Scripts stay off until you enable them."
         actions={
-          <Button size="sm" onClick={() => void openPublish()}>
-            <Plus className="h-4 w-4" />
-            Share template
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(event) => {
+                const files = event.target.files;
+                if (files === null) {
+                  return;
+                }
+                const chosen = files.item(0);
+                if (chosen === null) {
+                  return;
+                }
+                event.target.value = "";
+                void importFile(chosen);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={packBusy}
+              onClick={() => {
+                void exportPack();
+              }}
+            >
+              {packBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Export JSON
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={packBusy}
+              onClick={() => {
+                const picker = importInputRef.current;
+                if (picker === null) {
+                  return;
+                }
+                picker.click();
+              }}
+            >
+              {packBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              Import JSON
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {documentCount} docs · {diagramCount} diagrams · {scriptCount} scripts · {taskCount} tasks · {importedCount} imported · {installedCount} installed
+            </p>
+          </div>
         }
       />
-
-      <div className="border-b border-white/[0.07] px-6">
-        <div className="flex gap-1">
-          {(
-            [
-              ["browse", "Browse"],
-              ["mine", "My listings"],
-              ["purchases", "Purchases"],
-              ["sales", "Sales"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                "border-b-2 px-4 py-3 text-sm transition-colors",
-                tab === id
-                  ? "border-primary text-white"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-6 p-6">
-        {tab === "browse" ? (
+      <PageContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="sticky top-0 z-10 space-y-3 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur">
           <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search templates, categories, authors…"
-            className="max-w-md"
+            value={query}
+            placeholder="Search templates, sources, categories"
+            onChange={(event) => {
+              setQuery(event.target.value);
+            }}
           />
-        ) : null}
-
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+          <div className="flex flex-wrap gap-1.5">
+            <FilterChip
+              active={kind === "all"}
+              label="All"
+              onClick={() => {
+                setKind("all");
+              }}
+            />
+            <FilterChip
+              active={kind === "document"}
+              label="Documents"
+              onClick={() => {
+                setKind("document");
+              }}
+            />
+            <FilterChip
+              active={kind === "diagram"}
+              label="Diagrams"
+              onClick={() => {
+                setKind("diagram");
+              }}
+            />
+            <FilterChip
+              active={kind === "script"}
+              label="Scripts"
+              onClick={() => {
+                setKind("script");
+              }}
+            />
+            <FilterChip
+              active={kind === "task"}
+              label="Tasks"
+              onClick={() => {
+                setKind("task");
+              }}
+            />
+            <FilterChip
+              active={importedOnly}
+              label="Imported"
+              onClick={() => {
+                setImportedOnly(importedOnly !== true);
+              }}
+            />
           </div>
-        ) : tab === "browse" ? (
-          filteredBrowse.length === 0 ? (
-            <EmptyState message="No community templates yet. Create a workflow template and share it here." actionLabel="Share template" onAction={() => void openPublish()} />
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredBrowse.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  selectForProject={selectForProject}
-                  purchasingId={purchasingId}
-                  onPurchase={handlePurchase}
-                  onSelectForProject={handlePurchase}
-                />
-              ))}
-            </div>
-          )
-        ) : tab === "mine" ? (
-          myListings.length === 0 ? (
-            <EmptyState message="You have not shared any templates yet." actionLabel="Share template" onAction={() => void openPublish()} />
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {myListings.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  selectForProject={false}
-                  purchasingId={null}
-                  onPurchase={handlePurchase}
-                  onSelectForProject={handlePurchase}
-                  onEdit={handleEdit}
-                  onUnlist={handleUnlist}
-                />
-              ))}
-            </div>
-          )
-        ) : tab === "purchases" ? (
-          purchases.length === 0 ? (
-            <EmptyState message="No purchases yet. Browse the marketplace to get started." />
-          ) : (
-            <div className="space-y-2">
-              {purchases.map((purchase) => (
-                <div
-                  key={purchase.id}
-                  className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">{purchase.listingTitle}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatPrice(purchase.amountCents)} · by {purchase.sellerName} ·{" "}
-                      {formatDate(purchase.createdAt)}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      navigate(`/projects/${projectId}/pipeline`)
-                    }
-                  >
-                    Use in project
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )
-        ) : sales.length === 0 ? (
-          <EmptyState message="No sales yet. Share a paid or free template to get started." actionLabel="Share template" onAction={() => void openPublish()} />
-        ) : (
-          <div className="space-y-2">
-            {sales.map((sale) => (
-              <div
-                key={sale.id}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium text-white">{sale.listingTitle}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatPrice(sale.amountCents)} · sold to {sale.buyerName} ·{" "}
-                    {formatDate(sale.createdAt)}
-                  </p>
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-1.5">
+            <FilterChip
+              active={category.length === 0}
+              label="Every category"
+              onClick={() => {
+                setCategory("");
+              }}
+            />
+            {categories.map((entry) => (
+              <FilterChip
+                key={entry.id}
+                active={category === entry.id}
+                label={entry.label}
+                onClick={() => {
+                  setCategory(entry.id);
+                }}
+              />
             ))}
           </div>
-        )}
-      </div>
-
-      {showPublish ? (
-        <PublishForm
-          templates={publishableTemplates}
-          initialTemplateId={publishSeed.templateId}
-          initialTitle={publishSeed.title}
-          initialDescription={publishSeed.description}
-          editing={editingListing}
-          onClose={() => {
-            setShowPublish(false);
-            setEditingListing(null);
-          }}
-          onSaved={() => reload(true)}
-        />
-      ) : null}
-    </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading catalog
+            </div>
+          ) : null}
+          {error.length > 0 ? <p className="text-sm text-destructive">{error}</p> : null}
+          {loading !== true && error.length === 0 && shown.length === 0 ? (
+            <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
+              <ShoppingBag className="h-8 w-8 text-muted-foreground" />
+              <p className="mt-3 text-sm font-semibold">No templates in this filter</p>
+              <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                Clear search or pick another category.
+              </p>
+            </div>
+          ) : null}
+          {shown.length > 0 ? (
+            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {shown.map((item) => (
+                <li key={item.id} className="panel-card flex flex-col gap-3 p-4">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="muted">{kindLabel(item.kind)}</Badge>
+                    <Badge variant="outline">{item.categoryLabel}</Badge>
+                    {item.imported ? <Badge variant="outline">Imported</Badge> : null}
+                    {item.installed ? <Badge variant="success">Installed</Badge> : null}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-snug">{item.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.summary}</p>
+                    <p className="mt-2 text-[11px] text-muted-foreground">{item.source}</p>
+                  </div>
+                  <div className="mt-auto flex items-center justify-between gap-2">
+                    {item.installed ? (
+                      <Link
+                        className="text-xs underline underline-offset-2"
+                        to={templatePath(projectId, item.kind)}
+                      >
+                        {installedLinkLabel(item.kind)}
+                      </Link>
+                    ) : (
+                      <span />
+                    )}
+                    <div className="flex items-center gap-1">
+                      {item.imported ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={busyId === item.id}
+                          onClick={() => {
+                            void removeImported(item);
+                          }}
+                        >
+                          {busyId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove pack"}
+                        </Button>
+                      ) : null}
+                      {item.installed ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={busyId === item.id}
+                          onClick={() => {
+                            void uninstall(item);
+                          }}
+                        >
+                          {busyId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Uninstall"}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={busyId === item.id}
+                          onClick={() => {
+                            void install(item);
+                          }}
+                        >
+                          {busyId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Install"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </PageContent>
+    </>
   );
 }
 
-function EmptyState({
-  message,
-  actionLabel,
-  onAction,
-}: {
-  message: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
+function FilterChip(props: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}): React.JSX.Element {
   return (
-    <div className="rounded-xl border border-dashed border-white/10 p-10 text-center">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      {actionLabel && onAction ? (
-        <Button className="mt-4" size="sm" onClick={onAction}>
-          {actionLabel}
-        </Button>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      aria-pressed={props.active}
+      onClick={props.onClick}
+      className={cn(
+        "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+        props.active
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-background text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {props.label}
+    </button>
   );
 }

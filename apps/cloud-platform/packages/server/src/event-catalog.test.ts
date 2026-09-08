@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { BUS_EVENT_TYPES, canonicalBusEventType, isBusEventType } from "./events.js";
+import { BUS_EVENT_TYPES, canonicalBusEventType, isBusEventType, EVENT_GITHUB_PR_OPENED } from "./events.js";
 import {
   isKnownEventType,
   PLATFORM_EVENT_TYPES,
@@ -28,11 +28,11 @@ function webCatalogTypes(): string[] {
 
 describe("event catalogue", () => {
   it("offers the same platform events to every subscriber", () => {
-    assert.deepEqual([...PLATFORM_EVENT_TYPES].sort(), [...BUS_EVENT_TYPES].sort());
+    assert.deepEqual([...PLATFORM_EVENT_TYPES].sort(), webCatalogTypes().sort());
   });
 
   it("keeps the web catalogue in step with the server", () => {
-    assert.deepEqual(webCatalogTypes().sort(), [...BUS_EVENT_TYPES].sort());
+    assert.deepEqual(webCatalogTypes().sort(), [...PLATFORM_EVENT_TYPES].sort());
   });
 
   it("never offers the same event twice under different names", () => {
@@ -56,5 +56,7 @@ describe("event catalogue", () => {
     assert.equal(isBusEventType("voice.rule.hatirlatma"), true);
     assert.equal(isKnownEventType("voice.rule."), false);
     assert.equal(isKnownEventType("made.up.event"), false);
+    assert.equal(isKnownEventType(EVENT_GITHUB_PR_OPENED), true);
+    assert.equal(selectableEventTypes().includes(EVENT_GITHUB_PR_OPENED), false);
   });
 });

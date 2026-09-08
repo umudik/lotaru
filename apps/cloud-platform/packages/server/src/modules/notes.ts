@@ -7,11 +7,11 @@ import { z } from "zod";
 import { userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { loadAppSettings, openSettingsDb, type AppSettings } from "../app-settings.js";
 import { runProjectAgentPrompt } from "../agent-prompt.js";
+import { requireConnectedAiToolId, PICK_CONNECTED_AI_ERROR } from "../ai-health.js";
 import { titleFromBody, languageLabel } from "../note-language.js";
 import { emitNoteBookCreated, emitNotePageCreated } from "../project-events.js";
 import {
   nextRetryDelayMs,
-  OLLAMA_MODEL_REQUIRED,
   ollamaJobRetryKey,
   polishSystemPrompt,
   shouldRetryOllama,
@@ -33,6 +33,7 @@ type NoteBook = {
   translateOn: boolean;
   polishOn: boolean;
   summarizeOn: boolean;
+  aiToolId: string;
 };
 
 export type NotePage = {
@@ -62,6 +63,7 @@ type BookRow = {
   translate_on: number;
   polish_on: number;
   summarize_on: number;
+  ai_tool_id: string;
 };
 
 type PageRow = {
@@ -102,6 +104,7 @@ const patchBookSchema = z.object({
   translateOn: z.boolean().optional(),
   polishOn: z.boolean().optional(),
   summarizeOn: z.boolean().optional(),
+  aiToolId: z.string().trim().optional(),
 });
 
 const createPageSchema = z.object({
@@ -246,7 +249,8 @@ export function openNotesDb(databasePath: string): Database.Database {
       created_by TEXT NOT NULL,
       translate_on INTEGER NOT NULL DEFAULT 1,
       polish_on INTEGER NOT NULL DEFAULT 1,
-      summarize_on INTEGER NOT NULL DEFAULT 1
+      summarize_on INTEGER NOT NULL DEFAULT 1,
+      ai_tool_id TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_note_books_project ON note_books(project_id);
     CREATE TABLE IF NOT EXISTS note_pages (
@@ -272,6 +276,9 @@ export function openNotesDb(databasePath: string): Database.Database {
   migrateLegacyNotes(db);
   migrateJobSwitchesDefaultOn(db);
   migrateJobErrorColumns(db);
+  if (tableHasColumn(db, "note_books", "ai_tool_id") !== true) {
+    db.exec("ALTER TABLE note_books ADD COLUMN ai_tool_id TEXT NOT NULL DEFAULT ''");
+  }
   return db;
 }
 
@@ -411,6 +418,7 @@ function rowToBook(row: BookRow): NoteBook {
     translateOn: row.translate_on === 1,
     polishOn: row.polish_on === 1,
     summarizeOn: row.summarize_on === 1,
+    aiToolId: row.ai_tool_id,
   };
 }
 
@@ -587,6 +595,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
       return;
     }
     try {
+      const toolId = await requireConnectedAiToolId(settingsDb, book.aiToolId);
       if (kind === "translate") {
         const label = languageLabel(settings.targetLanguage);
         const translated = await runProjectAgentPrompt({
@@ -595,6 +604,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
           prompt: page.body,
           systemPrompt: translationSystemPrompt(label),
           mode: "ask",
+          aiToolId: toolId,
         });
         db.prepare(
           "UPDATE note_pages SET translated_body = ?, translation_status = 'ready', translation_error = '' WHERE id = ?",
@@ -609,6 +619,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
           prompt: page.body,
           systemPrompt: polishSystemPrompt(),
           mode: "ask",
+          aiToolId: toolId,
         });
         db.prepare(
           "UPDATE note_pages SET polished_body = ?, polish_status = 'ready', polish_error = '' WHERE id = ?",
@@ -622,6 +633,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
         prompt: page.body,
         systemPrompt: summarySystemPrompt(),
         mode: "ask",
+        aiToolId: toolId,
       });
       db.prepare(
         "UPDATE note_pages SET summary_body = ?, summary_status = 'ready', summary_error = '' WHERE id = ?",
@@ -678,29 +690,28 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
   }
 
   function queuePageJobs(page: NotePage, book: NoteBook, force: ProcessKind | false): void {
-    const settings = loadAppSettings(settingsDb);
     const wantTranslate =
       force === "translate" || (force === false && book.translateOn && needsJob(page.translationStatus));
     const wantPolish =
       force === "polish" || (force === false && book.polishOn && needsJob(page.polishStatus));
     const wantSummary =
       force === "summary" || (force === false && book.summarizeOn && needsJob(page.summaryStatus));
-    if (settings.ollamaModel.trim().length === 0) {
+    if (book.aiToolId.trim().length === 0) {
       if (wantTranslate) {
         db.prepare("UPDATE note_pages SET translation_status = 'error', translation_error = ? WHERE id = ?").run(
-          OLLAMA_MODEL_REQUIRED,
+          PICK_CONNECTED_AI_ERROR,
           page.id,
         );
       }
       if (wantPolish) {
         db.prepare("UPDATE note_pages SET polish_status = 'error', polish_error = ? WHERE id = ?").run(
-          OLLAMA_MODEL_REQUIRED,
+          PICK_CONNECTED_AI_ERROR,
           page.id,
         );
       }
       if (wantSummary) {
         db.prepare("UPDATE note_pages SET summary_status = 'error', summary_error = ? WHERE id = ?").run(
-          OLLAMA_MODEL_REQUIRED,
+          PICK_CONNECTED_AI_ERROR,
           page.id,
         );
       }
@@ -778,6 +789,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
       translateOn: true,
       polishOn: true,
       summarizeOn: true,
+      aiToolId: "",
     };
     db.prepare(
       "INSERT INTO note_books (id, project_id, title, created_at, created_by, translate_on, polish_on, summarize_on) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
@@ -837,9 +849,23 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     if (parsed.data.summarizeOn !== undefined) {
       summarizeOn = parsed.data.summarizeOn;
     }
+    let aiToolId = book.aiToolId;
+    if (parsed.data.aiToolId !== undefined) {
+      const trimmed = parsed.data.aiToolId.trim();
+      if (trimmed.length === 0) {
+        aiToolId = "";
+      } else {
+        try {
+          aiToolId = await requireConnectedAiToolId(settingsDb, trimmed);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Invalid AI tool";
+          return reply.code(400).send({ error: message });
+        }
+      }
+    }
     db.prepare(
-      "UPDATE note_books SET title = ?, translate_on = ?, polish_on = ?, summarize_on = ? WHERE id = ?",
-    ).run(title, translateOn ? 1 : 0, polishOn ? 1 : 0, summarizeOn ? 1 : 0, book.id);
+      "UPDATE note_books SET title = ?, translate_on = ?, polish_on = ?, summarize_on = ?, ai_tool_id = ? WHERE id = ?",
+    ).run(title, translateOn ? 1 : 0, polishOn ? 1 : 0, summarizeOn ? 1 : 0, aiToolId, book.id);
     const next = getBook(db, book.id);
     if (next === null) {
       return reply.code(404).send({ error: "not found" });

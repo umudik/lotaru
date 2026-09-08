@@ -16,6 +16,7 @@ import { LibraryPage } from "@/pages/LibraryPage";
 import { EventsPage } from "@/pages/EventsPage";
 import { VoicePage } from "@/pages/VoicePage";
 import { WorkflowPage } from "@/pages/WorkflowPage";
+import { MarketplacePage } from "@/pages/MarketplacePage";
 import { loadSession } from "@/lib/session";
 
 export function App() {
@@ -37,11 +38,13 @@ export function App() {
             <Route path="terminal" element={<ProjectTerminalRoute />} />
             <Route path="tasks/:taskId" element={<TaskPage />} />
             <Route path="library" element={<LibraryPage />} />
-            <Route path="events" element={<EventsPage />} />
+            <Route path="logs" element={<EventsPage />} />
+            <Route path="events" element={<LegacyLogsRedirect />} />
             <Route path="voice" element={<ProjectVoiceRoute />} />
             <Route path="scripts/*" element={<ProjectScriptsRoute />} />
             <Route path="notes/*" element={<ProjectNotesRoute />} />
             <Route path="knowledge/*" element={<ProjectKnowledgeRoute />} />
+            <Route path="marketplace" element={<MarketplacePage />} />
           </Route>
         </Route>
         <Route path="/setup" element={<Navigate to="/projects" replace />} />
@@ -52,6 +55,14 @@ export function App() {
       </VoiceListenProvider>
     </div>
   );
+}
+
+function LegacyLogsRedirect(): React.JSX.Element {
+  const { projectId } = useParams();
+  if (projectId === undefined) {
+    return <Navigate to="/projects" replace />;
+  }
+  return <Navigate to={`/projects/${projectId}/logs`} replace />;
 }
 
 function LegacyPipelineRedirect(): React.JSX.Element {

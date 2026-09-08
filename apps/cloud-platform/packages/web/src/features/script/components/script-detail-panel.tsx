@@ -20,7 +20,7 @@ import { ConfirmDuplicateDialog } from '@script/components/confirm-duplicate-dia
 import { ScriptHistory } from '@script/components/script-history';
 import { LogPanel } from '@script/components/log-panel';
 import type { InspectTarget } from '@script/components/run-dots';
-import { CATALOG_EVENT_TYPES, catalogEventLabel } from '@/lib/event-catalog';
+import { EventSourceSelect, eventOptionsFromCatalog } from '@/components/EventSourceSelect';
 import { fetchEventTypes, type EventTypeOption } from '@/lib/api';
 import { useSession } from '@/hooks/useSession';
 import { cn } from '@/lib/utils';
@@ -32,8 +32,7 @@ const triggerOptions: readonly { value: TriggerKind; label: string }[] = [
   { value: 'manual', label: 'Manual' },
   { value: 'save', label: 'On save' },
   { value: 'startup', label: 'Startup' },
-  { value: 'scheduled', label: 'Clock (10s)' },
-  { value: 'event', label: 'Bus event' },
+  { value: 'event', label: 'Event' },
 ];
 const concurrencyOptions: readonly { value: ConcurrencyKind; label: string }[] = [
   { value: 'restart', label: 'Restart' },
@@ -41,6 +40,35 @@ const concurrencyOptions: readonly { value: ConcurrencyKind; label: string }[] =
   { value: 'ignore', label: 'Ignore' },
   { value: 'parallel', label: 'Parallel' },
 ];
+
+function defaultBusEvent(current: string, options: readonly EventTypeOption[]): string {
+  const trimmed = current.trim();
+  if (trimmed.length > 0) {
+    return trimmed;
+  }
+  for (const option of options) {
+    if (option.type === 'clock.tick') {
+      return option.type;
+    }
+  }
+  return 'clock.tick';
+}
+
+function triggerSelectValue(kind: string): TriggerKind {
+  if (kind === 'scheduled') {
+    return 'event';
+  }
+  if (kind === 'save') {
+    return 'save';
+  }
+  if (kind === 'startup') {
+    return 'startup';
+  }
+  if (kind === 'event') {
+    return 'event';
+  }
+  return 'manual';
+}
 
 function enabledLabel(enabled: boolean): string {
   if (enabled) {
@@ -168,46 +196,24 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
     );
   }
 
-  let clockHint: React.JSX.Element | null = null;
-  if (t.trigger_type === 'scheduled') {
-    clockHint = (
-      <p className="text-xs text-muted-foreground">Listens to clock.tick every 10 seconds.</p>
-    );
-  }
-
   let busEventOptions: EventTypeOption[] = eventTypes;
   if (busEventOptions.length === 0) {
-    busEventOptions = CATALOG_EVENT_TYPES.map((eventType) => ({
-      type: eventType,
-      label: '',
-      kind: 'platform' as const,
-    }));
+    busEventOptions = eventOptionsFromCatalog();
   }
 
   let busEventInput: React.JSX.Element | null = null;
-  if (t.trigger_type === 'event') {
+  if (t.trigger_type === 'event' || t.trigger_type === 'scheduled') {
     busEventInput = (
       <div className="flex flex-col gap-1.5 min-w-0">
-        <Label className="text-xs text-muted-foreground">Bus event</Label>
-        <Select
-          value={t.trigger_bus_event.length > 0 ? t.trigger_bus_event : CATALOG_EVENT_TYPES[0]}
-          onValueChange={(v) => {
-            void saveField({ trigger_bus_event: v });
+        <Label className="text-xs text-muted-foreground">Event</Label>
+        <EventSourceSelect
+          id={`script-event-${t.id}`}
+          value={defaultBusEvent(t.trigger_bus_event, busEventOptions)}
+          options={busEventOptions}
+          onChange={(next) => {
+            void saveField({ trigger_type: 'event', trigger_bus_event: next, trigger_cron: '' });
           }}
-        >
-          <SelectTrigger className="h-9 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {busEventOptions.map((entry) => (
-              <SelectItem key={entry.type} value={entry.type}>
-                {entry.kind === 'rule' && entry.label.length > 0
-                  ? `Extractor: ${entry.label}`
-                  : catalogEventLabel(entry.type)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        />
       </div>
     );
   }
@@ -343,10 +349,15 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
               <div className="flex flex-col gap-1.5 min-w-0">
                 <Label className="text-xs text-muted-foreground">Trigger</Label>
                 <Select
-                  value={t.trigger_type}
+                  value={triggerSelectValue(t.trigger_type)}
                   onValueChange={(v) => {
-                    const kind = v as TriggerKind;
-                    void saveField({ trigger_type: kind });
+                    const kind = triggerSelectValue(v);
+                    if (kind === 'event') {
+                      const bus = defaultBusEvent(t.trigger_bus_event, busEventOptions);
+                      void saveField({ trigger_type: 'event', trigger_bus_event: bus, trigger_cron: '' });
+                      return;
+                    }
+                    void saveField({ trigger_type: kind, trigger_bus_event: '', trigger_cron: '' });
                   }}
                 >
                   <SelectTrigger className="h-9 text-xs w-full">
@@ -384,7 +395,6 @@ export function ScriptDetailPanel(props: Props): React.JSX.Element {
             </div>
             {globInput}
             {busEventInput}
-            {clockHint}
           </div>
 
           <ScriptHistory scriptId={t.id} selectedId={props.inspectId} onInspect={props.onInspect} />

@@ -16,11 +16,43 @@ import { loadAgentProfile, openAgentDb, parseAgentProfileInput, saveAgentProfile
 import { probeAgentRuntime } from "../agent-probe.js";
 import { requestGithubPoll } from "../github-poll.js";
 import { ensureGithubSchema, loadGithubToken, saveGithubToken } from "../github-store.js";
+import {
+  connectedConnectorIds,
+  ensureConnectionSchema,
+  loadConnectionSecret,
+  saveConnectionSecret,
+} from "../connection-store.js";
+import { connectorKindSchema, listConnectors, type ConnectorKind } from "../connector-catalog.js";
+import { aiToolIdSchema, requireAiTool } from "../ai-catalog.js";
+import {
+  connectionWithCliHealth,
+  ensureAiToolSchema,
+  saveAiToolConnection,
+} from "../ai-store.js";
+import {
+  disconnectCliIfUnreachable,
+  presentAiToolConnections,
+  probeAiTool,
+  probeCliTool,
+} from "../ai-health.js";
 import type { Identity } from "./identity.js";
+import type { WebhookTunnel } from "../webhook-tunnel.js";
+import { ensurePollSchema, hookTokenFor, listHookSync, listPollCursors, loadHookSync } from "../poll-store.js";
+import { ingestAlarmFrom } from "../ingest-alarm.js";
+import { NOTION_VERIFICATION_SCOPE } from "../hook-ingest.js";
+
+const tunnelPutSchema = z
+  .object({
+    enabled: z.boolean(),
+    provider: z.enum(["cloudflare", "ngrok"]),
+    ngrokToken: z.string(),
+  })
+  .strict();
 
 type SettingsOptions = {
   databasePath: string;
   identity: Identity;
+  tunnel: WebhookTunnel;
 };
 
 export async function registerSettingsModule(
@@ -30,6 +62,9 @@ export async function registerSettingsModule(
   const db = openSettingsDb(options.databasePath);
   const agentDb = openAgentDb(options.databasePath);
   ensureGithubSchema(db);
+  ensureConnectionSchema(db);
+  ensurePollSchema(db);
+  ensureAiToolSchema(db);
 
   app.get("/api/settings", async (request, reply) => {
     const user = await options.identity.userFrom(request);
@@ -136,6 +171,141 @@ export async function registerSettingsModule(
     return { connected: token.length > 0 };
   });
 
+  app.get("/api/connectors", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const connected = connectedConnectorIds(db);
+    const connectors: {
+      id: ConnectorKind;
+      label: string;
+      intake: string;
+      connected: boolean;
+      events: { type: string; label: string }[];
+    }[] = [];
+    for (const connector of listConnectors()) {
+      let isConnected = false;
+      for (const id of connected) {
+        if (id === connector.id) {
+          isConnected = true;
+        }
+      }
+      const events: { type: string; label: string }[] = [];
+      for (const listed of connector.events) {
+        events.push({ type: listed.type, label: listed.label });
+      }
+      connectors.push({
+        id: connector.id,
+        label: connector.label,
+        intake: connector.intake,
+        connected: isConnected,
+        events,
+      });
+    }
+    return { connectors };
+  });
+
+  app.put<{ Params: { connectorId: string } }>("/api/connectors/:connectorId", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const idParsed = connectorKindSchema.safeParse(request.params.connectorId);
+    if (idParsed.success !== true) {
+      return reply.code(404).send({ error: "unknown connector" });
+    }
+    const parsed = z.object({ secret: z.string() }).safeParse(request.body);
+    if (parsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid secret" });
+    }
+    if (idParsed.data === "github") {
+      saveGithubToken(db, parsed.data.secret);
+      const token = loadGithubToken(db);
+      if (token.length > 0) {
+        requestGithubPoll();
+      }
+      return { connected: token.length > 0 };
+    }
+    saveConnectionSecret(db, idParsed.data, parsed.data.secret);
+    return { connected: loadConnectionSecret(db, idParsed.data).length > 0 };
+  });
+
+  app.get("/api/ai-tools", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    return { tools: await presentAiToolConnections(db) };
+  });
+
+  app.put<{ Params: { toolId: string } }>("/api/ai-tools/:toolId", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const idParsed = aiToolIdSchema.safeParse(request.params.toolId);
+    if (idParsed.success !== true) {
+      return reply.code(404).send({ error: "unknown AI tool" });
+    }
+    const parsed = z
+      .object({
+        secret: z.string(),
+        baseUrl: z.string(),
+        model: z.string(),
+        disconnect: z.boolean().optional(),
+      })
+      .safeParse(request.body);
+    if (parsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid AI tool" });
+    }
+    try {
+      const disconnect = parsed.data.disconnect === true;
+      if (disconnect !== true) {
+        const listed = requireAiTool(idParsed.data);
+        if (listed.lane === "cli") {
+          const health = await probeCliTool(idParsed.data);
+          if (health.reachable !== true) {
+            saveAiToolConnection(db, idParsed.data, {
+              secret: "",
+              baseUrl: "",
+              model: "",
+              disconnect: true,
+            });
+            return reply.code(400).send({ error: health.error });
+          }
+        }
+      }
+      const tool = saveAiToolConnection(db, idParsed.data, {
+        secret: parsed.data.secret,
+        baseUrl: parsed.data.baseUrl,
+        model: parsed.data.model,
+        disconnect,
+      });
+      if (tool.lane === "cli") {
+        return { tool: connectionWithCliHealth(tool, true) };
+      }
+      return { tool };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Invalid AI tool";
+      return reply.code(400).send({ error: message });
+    }
+  });
+
+  app.post<{ Params: { toolId: string } }>("/api/ai-tools/:toolId/health", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const idParsed = aiToolIdSchema.safeParse(request.params.toolId);
+    if (idParsed.success !== true) {
+      return reply.code(404).send({ error: "unknown AI tool" });
+    }
+    const health = await probeAiTool(db, idParsed.data);
+    const tool = disconnectCliIfUnreachable(db, idParsed.data, health.reachable);
+    return { health, tool };
+  });
+
   app.get("/api/settings/agent", async (request, reply) => {
     const user = await options.identity.userFrom(request);
     if (user === null) {
@@ -175,6 +345,82 @@ export async function registerSettingsModule(
     const settings = loadAppSettings(db);
     const probe = await probeAgentRuntime({ profile, settings });
     return probe;
+  });
+
+  app.get("/api/settings/tunnel", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    return { tunnel: options.tunnel.snapshot() };
+  });
+
+  app.put("/api/settings/tunnel", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const parsed = tunnelPutSchema.safeParse(request.body);
+    if (parsed.success !== true) {
+      return reply.code(400).send({ error: "Invalid tunnel settings" });
+    }
+    const tunnel = await options.tunnel.apply(parsed.data);
+    return { tunnel };
+  });
+
+  app.post("/api/settings/tunnel/restart", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const tunnel = await options.tunnel.restart();
+    return { tunnel };
+  });
+
+  app.get("/api/settings/ingest", async (request, reply) => {
+    const user = await options.identity.userFrom(request);
+    if (user === null) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const polls = listPollCursors(db);
+    const connected = connectedConnectorIds(db);
+    const hooks: { connectorId: ConnectorKind; token: string }[] = [];
+    for (const id of connected) {
+      hooks.push({ connectorId: id, token: hookTokenFor(db, id) });
+    }
+    const snap = options.tunnel.snapshot();
+    const alarmPolls: { connector: string; lastError: string; lagged: boolean }[] = [];
+    for (const row of polls) {
+      alarmPolls.push({
+        connector: row.connector,
+        lastError: row.lastError,
+        lagged: row.lagged,
+      });
+    }
+    const hookSyncListed = listHookSync(db);
+    const hookSync: { connector: string; repo: string; url: string; lastError: string }[] = [];
+    for (const row of hookSyncListed) {
+      hookSync.push({
+        connector: row.connector,
+        repo: row.repo,
+        url: row.url,
+        lastError: row.lastError,
+      });
+      if (row.lastError.length > 0) {
+        alarmPolls.push({
+          connector: row.connector,
+          lastError: row.lastError,
+          lagged: false,
+        });
+      }
+    }
+    const alarm = ingestAlarmFrom({
+      polls: alarmPolls,
+      tunnelEnabled: snap.enabled,
+      tunnelState: snap.state,
+    });
+    const notionHandshake = loadHookSync(db, "notion", NOTION_VERIFICATION_SCOPE);
+    return { polls, hooks, alarm, hookSync, notionVerificationToken: notionHandshake.url };
   });
 
   app.addHook("onClose", async () => {

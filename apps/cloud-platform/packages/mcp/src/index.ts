@@ -383,6 +383,7 @@ function createLotaruMcpServer(): McpServer {
       eventType: z.string().optional(),
       scheduleHour: z.number().int().min(0).max(23).optional(),
       scheduleMinute: z.number().int().min(0).max(59).optional(),
+      scheduleCron: z.string().optional(),
       includeVoice: z.boolean().optional(),
       action: z.enum(["none", "note", "task", "event"]).optional(),
       noteBookTitle: z.string().optional(),
@@ -403,6 +404,9 @@ function createLotaruMcpServer(): McpServer {
       }
       if (args.scheduleMinute !== undefined) {
         body.scheduleMinute = args.scheduleMinute;
+      }
+      if (args.scheduleCron !== undefined) {
+        body.scheduleCron = args.scheduleCron;
       }
       if (args.includeVoice !== undefined) {
         body.includeVoice = args.includeVoice;
@@ -439,6 +443,7 @@ function createLotaruMcpServer(): McpServer {
       eventType: z.string().optional(),
       scheduleHour: z.number().int().min(0).max(23).optional(),
       scheduleMinute: z.number().int().min(0).max(59).optional(),
+      scheduleCron: z.string().optional(),
       includeVoice: z.boolean().optional(),
       action: z.enum(["none", "note", "task", "event"]).optional(),
       noteBookTitle: z.string().optional(),
@@ -463,6 +468,9 @@ function createLotaruMcpServer(): McpServer {
       }
       if (args.scheduleMinute !== undefined) {
         body.scheduleMinute = args.scheduleMinute;
+      }
+      if (args.scheduleCron !== undefined) {
+        body.scheduleCron = args.scheduleCron;
       }
       if (args.includeVoice !== undefined) {
         body.includeVoice = args.includeVoice;

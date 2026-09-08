@@ -157,6 +157,118 @@ export function githubReposFromRemoteListing(stdout: string): string[] {
   return ordered;
 }
 
+export type IssueSnapshot = {
+  number: number;
+  updatedAt: string;
+  createdAt: string;
+  title: string;
+};
+
+const issueWireSchema = z.object({
+  number: z.number().int().positive(),
+  updated_at: z.string().min(1),
+  created_at: z.string().min(1),
+  title: z.string(),
+  pull_request: z.unknown().optional(),
+});
+
+export function parseGithubIssues(body: unknown): IssueSnapshot[] {
+  const parsed = z.array(issueWireSchema).safeParse(body);
+  if (parsed.success !== true) {
+    return [];
+  }
+  const issues: IssueSnapshot[] = [];
+  for (const row of parsed.data) {
+    if ("pull_request" in row) {
+      continue;
+    }
+    issues.push({
+      number: row.number,
+      updatedAt: row.updated_at,
+      createdAt: row.created_at,
+      title: row.title,
+    });
+  }
+  return issues;
+}
+
+export type NotificationSnapshot = {
+  id: string;
+  updatedAt: string;
+  repo: string;
+  subjectType: string;
+  title: string;
+};
+
+const notificationWireSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  updated_at: z.string().min(1),
+  repository: z.object({ full_name: z.string().min(1) }),
+  subject: z.object({
+    type: z.string().min(1),
+    title: z.string(),
+  }),
+});
+
+export function parseGithubNotifications(body: unknown): NotificationSnapshot[] {
+  const parsed = z.array(notificationWireSchema).safeParse(body);
+  if (parsed.success !== true) {
+    return [];
+  }
+  const notes: NotificationSnapshot[] = [];
+  for (const row of parsed.data) {
+    notes.push({
+      id: String(row.id),
+      updatedAt: row.updated_at,
+      repo: row.repository.full_name,
+      subjectType: row.subject.type,
+      title: row.subject.title,
+    });
+  }
+  return notes;
+}
+
+export function mapGithubNotificationType(subjectType: string): string {
+  if (subjectType === "CheckSuite") {
+    return "github.check_suite";
+  }
+  if (subjectType === "CheckRun") {
+    return "github.check_run";
+  }
+  if (subjectType === "Release") {
+    return "github.release";
+  }
+  if (subjectType === "RepositoryVulnerabilityAlert") {
+    return "github.repository_vulnerability_alert";
+  }
+  if (subjectType === "RepositoryInvitation") {
+    return "github.repository";
+  }
+  if (subjectType === "Discussion") {
+    return "";
+  }
+  if (subjectType === "PullRequest") {
+    return "";
+  }
+  if (subjectType === "Issue") {
+    return "";
+  }
+  if (subjectType === "Commit") {
+    return "";
+  }
+  return "";
+}
+
+export function classifyIssueChange(alreadyKnown: boolean, primed: boolean): string {
+  if (primed !== true) {
+    return "";
+  }
+  if (alreadyKnown) {
+    return "github.issues";
+  }
+  return "github.issues";
+}
+
 export function classifyPullChange(previous: PullSnapshot | false, next: PullSnapshot, primed: boolean): string {
   if (previous === false) {
     if (primed !== true) {

@@ -1,11 +1,10 @@
 import {
   EVENT_AGENT_RAN,
+  EVENT_INGEST_ALARM,
   EVENT_APP_STARTED,
+  CLOCK_INTERVAL_TYPES,
   EVENT_CLOCK_TICK,
   EVENT_FILE_CHANGED,
-  EVENT_GITHUB_PR_MERGED,
-  EVENT_GITHUB_PR_OPENED,
-  EVENT_GITHUB_PR_UPDATED,
   EVENT_NOTE_BOOK_CREATED,
   EVENT_NOTE_PAGE_CREATED,
   EVENT_NOTE_PAGE_WRITTEN,
@@ -16,17 +15,21 @@ import {
   canonicalBusEventType,
   isMintedEventType,
   scriptListensToEvent,
+  EVENT_CLOCK_EVERY_1M,
   type EventListenerScript,
   type LotaruEvent,
 } from "./events.js";
+import { calendarHitsNow, parseCalendarCron } from "./calendar-schedule.js";
+import {
+  connectorEventTypes,
+  connectorOwnsEvent,
+  type ConnectorKind,
+} from "./connector-catalog.js";
 
 /** Fixed events the platform itself publishes. Rules mint more at runtime. */
 export const PLATFORM_EVENT_TYPES = [
-  EVENT_GITHUB_PR_OPENED,
-  EVENT_GITHUB_PR_UPDATED,
-  EVENT_GITHUB_PR_MERGED,
+  ...CLOCK_INTERVAL_TYPES,
   EVENT_FILE_CHANGED,
-  EVENT_CLOCK_TICK,
   EVENT_APP_STARTED,
   EVENT_VOICE_SEGMENT,
   EVENT_VOICE_BATCH,
@@ -36,6 +39,7 @@ export const PLATFORM_EVENT_TYPES = [
   EVENT_TASK_CREATED,
   EVENT_SCRIPT_RAN,
   EVENT_AGENT_RAN,
+  EVENT_INGEST_ALARM,
 ];
 
 /**
@@ -52,7 +56,28 @@ export function isKnownEventType(eventType: string): boolean {
       return true;
     }
   }
+  for (const known of connectorEventTypes()) {
+    if (known === eventType) {
+      return true;
+    }
+  }
   return false;
+}
+
+export function subscriberMaySelect(
+  eventType: string,
+  connectedIds: readonly ConnectorKind[],
+): boolean {
+  const canonical = canonicalBusEventType(eventType);
+  if (isMintedEventType(canonical)) {
+    return true;
+  }
+  for (const known of PLATFORM_EVENT_TYPES) {
+    if (known === canonical) {
+      return true;
+    }
+  }
+  return connectorOwnsEvent(canonical, connectedIds);
 }
 
 /**
@@ -92,6 +117,7 @@ export type NamedEventTemplate = {
   id: string;
   title: string;
   eventType: string;
+  scheduleCron: string;
   enabled: boolean;
 };
 
@@ -114,6 +140,18 @@ export function templateListensToEvent(
 ): boolean {
   if (template.enabled !== true) {
     return false;
+  }
+  const cron = template.scheduleCron.trim();
+  if (cron.length > 0) {
+    if (canonicalBusEventType(event.type) !== EVENT_CLOCK_EVERY_1M) {
+      return false;
+    }
+    try {
+      const spec = parseCalendarCron(cron);
+      return calendarHitsNow(spec, new Date(event.createdAt));
+    } catch {
+      return false;
+    }
   }
   return canonicalBusEventType(template.eventType) === canonicalBusEventType(event.type);
 }

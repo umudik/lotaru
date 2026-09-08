@@ -4,14 +4,17 @@ import { z } from "zod";
 import {
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { activeAgentKind, runProjectAgentPrompt } from "../agent-prompt.js";
-import { ruleEventType } from "../events.js";
+import { runLocalOllamaPrompt } from "../agent-prompt.js";
+import { clockAtEventType, isClockEventType, ruleEventType } from "../events.js";
+import { listEnabledClockSchedules } from "../clock-schedule.js";
 import {
   countSubscribersByEvent,
   describeSubscribers,
   listEventSubscribers,
 } from "../event-subscribers.js";
 import { selectableEventTypes } from "../event-registry.js";
+import { connectionEventsFor } from "../connector-catalog.js";
+import { connectedKindsAt } from "../connection-store.js";
 import { listAgentEventSources } from "../agent-events.js";
 import { scanVoiceBatchForProject } from "../voice-batch.js";
 import {
@@ -117,7 +120,7 @@ export async function registerVoiceRulesModule(
       rules,
       hits: listRuleHits(db, projectId, HIT_HISTORY_LIMIT),
       // Matching runs on whatever Settings → AI points at.
-      runtime: activeAgentKind(options.databasePath),
+      runtime: "ollama",
     };
   });
 
@@ -163,15 +166,47 @@ export async function registerVoiceRulesModule(
     if (canSeeProject(options, projectId, viewers[0].sub) !== true) {
       return reply.code(404).send({ error: "not found" });
     }
-    const eventTypes: { type: string; label: string; kind: "platform" | "rule" | "agent" }[] = [];
+    const eventTypes: {
+      type: string;
+      label: string;
+      kind: "platform" | "rule" | "agent" | "connection";
+      sourceId: string;
+      sourceLabel: string;
+    }[] = [];
     for (const type of selectableEventTypes()) {
-      eventTypes.push({ type, label: "", kind: "platform" });
+      let sourceId = "lotaru";
+      let sourceLabel = "Lotaru";
+      if (isClockEventType(type)) {
+        sourceId = "clock";
+        sourceLabel = "Clock";
+      }
+      eventTypes.push({ type, label: "", kind: "platform", sourceId, sourceLabel });
+    }
+    for (const listed of connectionEventsFor(connectedKindsAt(options.databasePath))) {
+      eventTypes.push({
+        type: listed.type,
+        label: listed.label,
+        kind: "connection",
+        sourceId: listed.sourceId,
+        sourceLabel: listed.sourceLabel,
+      });
+    }
+    for (const schedule of listEnabledClockSchedules(options.databasePath)) {
+      eventTypes.push({
+        type: clockAtEventType(schedule.slug),
+        label: schedule.title,
+        kind: "platform",
+        sourceId: "clock",
+        sourceLabel: "Clock",
+      });
     }
     for (const rule of listVoiceRules(db, projectId)) {
       eventTypes.push({
         type: ruleEventType(rule.slug),
         label: rule.name,
         kind: "rule",
+        sourceId: "extractor",
+        sourceLabel: "Extractors",
       });
     }
     for (const source of listAgentEventSources(options.databasePath, projectId)) {
@@ -179,6 +214,8 @@ export async function registerVoiceRulesModule(
         type: source.eventType,
         label: source.title,
         kind: "agent",
+        sourceId: "responder",
+        sourceLabel: "Responders",
       });
     }
     return { eventTypes };
@@ -348,12 +385,10 @@ export async function registerVoiceRulesModule(
     }
     let raw = "";
     try {
-      raw = await runProjectAgentPrompt({
+      raw = await runLocalOllamaPrompt({
         databasePath: options.databasePath,
-        projectId: parsed.data.projectId,
         systemPrompt: VOICE_RULE_SYSTEM,
         prompt: voiceRulePrompt({ transcript: parsed.data.transcript, rules }),
-        mode: "ask",
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Scanner unavailable";

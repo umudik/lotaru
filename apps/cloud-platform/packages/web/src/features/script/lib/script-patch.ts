@@ -11,9 +11,16 @@ export function buildScriptPatchBody(script: Script, partial: Partial<Script>): 
   if (merged.trigger_type === 'save') {
     glob = merged.trigger_glob;
   }
+  let triggerType = merged.trigger_type;
+  if (triggerType === 'scheduled') {
+    triggerType = 'event';
+  }
   let busEvent = '';
-  if (merged.trigger_type === 'event') {
-    busEvent = merged.trigger_bus_event;
+  if (triggerType === 'event') {
+    busEvent = merged.trigger_bus_event.trim();
+    if (busEvent.length === 0) {
+      busEvent = 'clock.tick';
+    }
   }
   return {
     name: merged.name,
@@ -21,10 +28,10 @@ export function buildScriptPatchBody(script: Script, partial: Partial<Script>): 
     runtime: 'shell',
     docker_image: '',
     docker_platform: '',
-    trigger_type: merged.trigger_type,
+    trigger_type: triggerType,
     trigger_glob: glob,
     trigger_bus_event: busEvent,
-    trigger_cron: merged.trigger_cron,
+    trigger_cron: '',
     concurrency: merged.concurrency,
     enabled: merged.enabled,
   };

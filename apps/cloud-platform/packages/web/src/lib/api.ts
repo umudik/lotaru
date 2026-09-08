@@ -77,6 +77,150 @@ export async function saveGithubSettings(session: Session, token: string) {
   });
 }
 
+export type TunnelProvider = "cloudflare" | "ngrok";
+export type TunnelState = "off" | "starting" | "up" | "missing_binary" | "error";
+
+export type TunnelSnapshot = {
+  enabled: boolean;
+  provider: TunnelProvider;
+  ngrokConfigured: boolean;
+  state: TunnelState;
+  publicUrl: string;
+  detail: string;
+};
+
+export async function fetchTunnelSettings(session: Session) {
+  return request<{ tunnel: TunnelSnapshot }>(session, "/api/settings/tunnel");
+}
+
+export async function saveTunnelSettings(
+  session: Session,
+  input: { enabled: boolean; provider: TunnelProvider; ngrokToken: string },
+) {
+  return request<{ tunnel: TunnelSnapshot }>(session, "/api/settings/tunnel", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function restartTunnelSettings(session: Session) {
+  return request<{ tunnel: TunnelSnapshot }>(session, "/api/settings/tunnel/restart", {
+    method: "POST",
+  });
+}
+
+export type IngestPollRow = {
+  connector: string;
+  scope: string;
+  cursor: string;
+  primed: boolean;
+  lastSuccessAt: number;
+  lastError: string;
+  lagged: boolean;
+};
+
+export type IngestHookRow = {
+  connectorId: string;
+  token: string;
+};
+
+export type IngestHookSyncRow = {
+  connector: string;
+  repo: string;
+  url: string;
+  lastError: string;
+};
+
+export type IngestAlarmKind = "ok" | "behind" | "poll_error" | "tunnel_down";
+
+export type IngestAlarm = {
+  kind: IngestAlarmKind;
+  title: string;
+  detail: string;
+  connectors: string[];
+};
+
+export async function fetchIngestSettings(session: Session) {
+  return request<{
+    polls: IngestPollRow[];
+    hooks: IngestHookRow[];
+    alarm: IngestAlarm;
+    hookSync: IngestHookSyncRow[];
+    notionVerificationToken: string;
+  }>(session, "/api/settings/ingest");
+}
+
+export type ConnectorRow = {
+  id: string;
+  label: string;
+  intake: string;
+  connected: boolean;
+  events: { type: string; label: string }[];
+};
+
+export async function fetchConnectors(session: Session) {
+  return request<{ connectors: ConnectorRow[] }>(session, "/api/connectors");
+}
+
+export async function saveConnectorSecret(
+  session: Session,
+  connectorId: ConnectorRow["id"],
+  secret: string,
+) {
+  return request<{ connected: boolean }>(session, `/api/connectors/${connectorId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret }),
+  });
+}
+
+export type AiToolLane = "local" | "cloud" | "cli";
+
+export type AiToolRow = {
+  id: string;
+  label: string;
+  lane: AiToolLane;
+  protocol: string;
+  connected: boolean;
+  baseUrl: string;
+  model: string;
+  defaultBase: string;
+  defaultModel: string;
+};
+
+export type AiToolHealth = {
+  id: string;
+  reachable: boolean;
+  models: string[];
+  detail: string;
+  error: string;
+};
+
+export async function fetchAiTools(session: Session) {
+  return request<{ tools: AiToolRow[] }>(session, "/api/ai-tools");
+}
+
+export async function saveAiTool(
+  session: Session,
+  toolId: string,
+  input: { secret: string; baseUrl: string; model: string; disconnect: boolean },
+) {
+  return request<{ tool: AiToolRow }>(session, `/api/ai-tools/${encodeURIComponent(toolId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function probeAiTool(session: Session, toolId: string) {
+  return request<{ health: AiToolHealth; tool: AiToolRow }>(
+    session,
+    `/api/ai-tools/${encodeURIComponent(toolId)}/health`,
+    { method: "POST" },
+  );
+}
+
 export async function fetchProjectEvents(
   session: Session,
   projectId: string,
@@ -123,9 +267,12 @@ export type KnowledgeTemplate = {
   kind: KnowledgeKind;
   title: string;
   eventType: string;
+  scheduleCron: string;
   description: string;
   language: string;
+  aiToolId: string;
   enabled: boolean;
+  marketplaceId: string;
   createdAt: string;
   createdBy: string;
 };
@@ -180,9 +327,11 @@ export type LotaruAgent = {
   outputEventType: string;
   scheduleHour: number;
   scheduleMinute: number;
+  scheduleCron: string;
   includeVoice: boolean;
   action: AgentAction;
   noteBookTitle: string;
+  aiToolId: string;
   enabled: boolean;
   createdAt: string;
   createdBy: string;
@@ -214,9 +363,11 @@ export async function createAgent(
     eventType?: string;
     scheduleHour?: number;
     scheduleMinute?: number;
+    scheduleCron?: string;
     includeVoice?: boolean;
     action?: AgentAction;
     noteBookTitle?: string;
+    aiToolId?: string;
     enabled?: boolean;
   },
 ) {
@@ -237,9 +388,11 @@ export async function patchAgent(
     eventType?: string;
     scheduleHour?: number;
     scheduleMinute?: number;
+    scheduleCron?: string;
     includeVoice?: boolean;
     action?: AgentAction;
     noteBookTitle?: string;
+    aiToolId?: string;
     enabled?: boolean;
   },
 ) {
@@ -305,7 +458,9 @@ export type VoiceRuleMatch = {
 export type EventTypeOption = {
   type: string;
   label: string;
-  kind: "platform" | "rule" | "agent";
+  kind: "platform" | "rule" | "agent" | "connection";
+  sourceId: string;
+  sourceLabel: string;
 };
 
 export async function fetchEventTypes(session: Session, projectId: string) {
@@ -409,6 +564,135 @@ export async function fetchKnowledgeTemplates(
   );
 }
 
+export type MarketplaceKind = "document" | "diagram" | "script" | "task";
+
+export type MarketplaceCategory = {
+  id: string;
+  label: string;
+};
+
+export type MarketplaceCatalogItem = {
+  id: string;
+  kind: MarketplaceKind;
+  category: string;
+  categoryLabel: string;
+  title: string;
+  summary: string;
+  source: string;
+  installed: boolean;
+  imported: boolean;
+};
+
+export type MarketplaceCatalog = {
+  categories: MarketplaceCategory[];
+  items: MarketplaceCatalogItem[];
+};
+
+export type MarketplaceInstall = {
+  id: string;
+  projectId: string;
+  kind: MarketplaceKind;
+  title: string;
+  marketplaceId: string;
+  enabled: boolean;
+};
+
+export async function fetchMarketplaceCatalog(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<MarketplaceCatalog>(
+    session,
+    `/api/marketplace/catalog?${query.toString()}`,
+  );
+}
+
+export async function installMarketplaceItem(
+  session: Session,
+  input: { projectId: string; catalogId: string },
+) {
+  return request<MarketplaceInstall>(session, "/api/marketplace/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function uninstallMarketplaceItem(
+  session: Session,
+  projectId: string,
+  catalogId: string,
+) {
+  const query = new URLSearchParams({ projectId });
+  const path = `/api/marketplace/installs/${encodeURIComponent(catalogId)}?${query.toString()}`;
+  await request<void>(session, path, {
+    method: "DELETE",
+  });
+}
+
+export type MarketplacePack = {
+  format: string;
+  version: number;
+  items: unknown[];
+};
+
+export type MarketplaceImportResult = {
+  added: number;
+  updated: number;
+  skippedBuiltin: number;
+};
+
+function downloadMarketplaceJson(pack: MarketplacePack, fileName: string): void {
+  const json = JSON.stringify(pack, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
+}
+
+export async function exportMarketplacePack(session: Session, projectId: string): Promise<void> {
+  const query = new URLSearchParams({ projectId });
+  const pack = await request<MarketplacePack>(
+    session,
+    `/api/marketplace/export?${query.toString()}`,
+  );
+  downloadMarketplaceJson(pack, "lotaru-marketplace.json");
+}
+
+export async function importMarketplacePack(
+  session: Session,
+  projectId: string,
+  pack: unknown,
+): Promise<MarketplaceImportResult> {
+  let body = "";
+  try {
+    body = JSON.stringify(Object.assign({ projectId }, pack));
+  } catch {
+    throw new Error("Invalid marketplace pack");
+  }
+  if (body.length === 0) {
+    throw new Error("Invalid marketplace pack");
+  }
+  return request<MarketplaceImportResult>(session, "/api/marketplace/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+}
+
+export async function removeImportedMarketplaceItem(
+  session: Session,
+  projectId: string,
+  catalogId: string,
+): Promise<void> {
+  const query = new URLSearchParams({ projectId });
+  const path = `/api/marketplace/imported/${encodeURIComponent(catalogId)}?${query.toString()}`;
+  await request<void>(session, path, {
+    method: "DELETE",
+  });
+}
+
 export async function createKnowledgeTemplate(
   session: Session,
   input: {
@@ -416,8 +700,10 @@ export async function createKnowledgeTemplate(
     kind: KnowledgeKind;
     title: string;
     eventType: string;
+    scheduleCron?: string;
     description: string;
     language: string;
+    aiToolId?: string;
     enabled?: boolean;
   },
 ) {
@@ -646,6 +932,54 @@ export async function proposeKnowledgeOutput(
 
 export async function fetchAppSettings(session: Session) {
   return request<{ settings: AppSettings; languages: TargetLanguage[] }>(session, "/api/settings");
+}
+
+export type ClockSchedule = {
+  id: string;
+  slug: string;
+  title: string;
+  cron: string;
+  eventType: string;
+  builtin: boolean;
+  enabled: boolean;
+  createdAt: number;
+};
+
+export async function fetchClockSchedules(session: Session) {
+  return request<{ schedules: ClockSchedule[] }>(session, "/api/clock-schedules");
+}
+
+export async function createClockSchedule(
+  session: Session,
+  input: { title: string; cron: string },
+) {
+  return request<ClockSchedule>(session, "/api/clock-schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function patchClockSchedule(
+  session: Session,
+  scheduleId: string,
+  input: { title?: string; cron?: string; enabled?: boolean },
+) {
+  return request<ClockSchedule>(
+    session,
+    `/api/clock-schedules/${encodeURIComponent(scheduleId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export async function deleteClockSchedule(session: Session, scheduleId: string) {
+  return request<null>(session, `/api/clock-schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function saveAppSettings(session: Session, settings: AppSettings) {

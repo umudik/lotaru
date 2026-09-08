@@ -14,19 +14,23 @@ import { parseHostRuntime } from "../script-runtime.js";
 import {
   CLOCK_TICK_MS,
   EVENT_APP_STARTED,
+  EVENT_CLOCK_EVERY_1M,
   EVENT_CLOCK_TICK,
   EVENT_FILE_CHANGED,
   EVENT_SCRIPT_RAN,
   canonicalBusEventType,
+  clockAtEventType,
+  clockTypesDue,
   eventRunReason,
   isBusEventType,
   relativeWatchPath,
-  replayPayloadsFromStored,
   scriptListensToEvent,
   type EventListenerScript,
   type LotaruEvent,
 } from "../events.js";
+import { dueClockAtEvents } from "../clock-schedule.js";
 import { ensureEventLogSchema, eventsById, listProjectEvents, recordEvent } from "../event-log.js";
+import { parseLotaruPublish, replayPayloadsFromStored, storedEnvelopeFromPublish, type LotaruPublishInput } from "../event-publish.js";
 import { createFileWatchers } from "../file-watch.js";
 import { mergeGithubWatches, pollGithubOnce, startGithubPoller, type GithubWatch } from "../github-poll.js";
 import { listGithubReposAt } from "../github-remote.js";
@@ -35,8 +39,22 @@ import {
   listProjectEventTemplates,
 } from "./knowledge-templates.js";
 import { fireAgentsForEvent, listAgents, openAgentsDb } from "./agents.js";
-import { setLotaruEventPublisher, tryPublishLotaruEvent } from "../event-bus.js";
-import { ensureGithubSchema, loadGithubToken } from "../github-store.js";
+import { setLotaruEventPublisher, publishLotaruEvent } from "../event-bus.js";
+import { ensureGithubSchema } from "../github-store.js";
+import { ensureConnectionSchema } from "../connection-store.js";
+import {
+  connectorIdForHookToken,
+  ensurePollSchema,
+  rememberPollFingerprint,
+  saveHookSync,
+} from "../poll-store.js";
+import {
+  hookIngestReply,
+  NOTION_VERIFICATION_SCOPE,
+  notionVerificationToken,
+  parseHookPublish,
+  slackUrlChallenge,
+} from "../hook-ingest.js";
 import {
   eventListenerRefs,
   isKnownEventType,
@@ -120,6 +138,7 @@ export type ScriptRunnerOptions = {
   identity: Identity;
   dataDir: string;
   databasePath: string;
+  tunnelSnapshot?: () => { enabled: boolean; state: string; publicUrl: string };
 };
 
 const SCHEMA = `
@@ -152,9 +171,10 @@ CREATE TABLE IF NOT EXISTS script_scripts (
   trigger_glob TEXT NOT NULL DEFAULT '',
   trigger_bus_event TEXT NOT NULL DEFAULT '',
   trigger_cron TEXT NOT NULL DEFAULT '',
-  concurrency TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+        concurrency TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        marketplace_id TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_script_scripts_project ON script_scripts(project_id, owner_id);
 CREATE TABLE IF NOT EXISTS script_executions (
@@ -236,15 +256,22 @@ export function validateCreateScript(body: unknown): CreateScriptBody | string {
   if (triggerGlob === "invalid") {
     return "trigger_glob must be a string";
   }
-  const triggerCron = optionalString(b["trigger_cron"]);
-  if (triggerCron === "invalid") {
+  const triggerCronRaw = optionalString(b["trigger_cron"]);
+  if (triggerCronRaw === "invalid") {
     return "trigger_cron must be a string";
   }
-  const triggerBusEvent = optionalString(b["trigger_bus_event"]);
+  let triggerBusEvent = optionalString(b["trigger_bus_event"]);
   if (triggerBusEvent === "invalid") {
     return "trigger_bus_event must be a string";
   }
-  if (b["trigger_type"] === "event") {
+  let triggerType: TriggerKind = b["trigger_type"];
+  if (triggerType === "scheduled") {
+    triggerType = "event";
+    if (triggerBusEvent.length === 0) {
+      triggerBusEvent = EVENT_CLOCK_TICK;
+    }
+  }
+  if (triggerType === "event") {
     if (triggerBusEvent.length === 0) {
       return "trigger_bus_event required for event trigger";
     }
@@ -265,10 +292,10 @@ export function validateCreateScript(body: unknown): CreateScriptBody | string {
     runtime: "shell",
     docker_image: dockerImage,
     docker_platform: dockerPlatform,
-    trigger_type: b["trigger_type"],
+    trigger_type: triggerType,
     trigger_glob: triggerGlob,
     trigger_bus_event: triggerBusEvent,
-    trigger_cron: triggerCron,
+    trigger_cron: "",
     concurrency: b["concurrency"],
     enabled,
   };
@@ -308,6 +335,8 @@ export async function registerScriptRunnerModule(
   db.exec(SCHEMA);
   ensureEventLogSchema(db);
   ensureGithubSchema(db);
+  ensureConnectionSchema(db);
+  ensurePollSchema(db);
   const scriptColumns = db.prepare("PRAGMA table_info(script_scripts)").all() as { name: string }[];
   let hasTriggerBusEvent = false;
   for (const column of scriptColumns) {
@@ -318,6 +347,18 @@ export async function registerScriptRunnerModule(
   if (hasTriggerBusEvent !== true) {
     db.exec("ALTER TABLE script_scripts ADD COLUMN trigger_bus_event TEXT NOT NULL DEFAULT ''");
   }
+  let hasMarketplaceId = false;
+  for (const column of scriptColumns) {
+    if (column.name === "marketplace_id") {
+      hasMarketplaceId = true;
+    }
+  }
+  if (hasMarketplaceId !== true) {
+    db.exec("ALTER TABLE script_scripts ADD COLUMN marketplace_id TEXT NOT NULL DEFAULT ''");
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_script_scripts_market ON script_scripts(project_id, marketplace_id) WHERE marketplace_id != ''",
+  );
   db.prepare("UPDATE script_scripts SET runtime = 'shell' WHERE runtime != 'shell'").run();
 
   const startedAtBoot = Date.now();
@@ -388,6 +429,20 @@ export async function registerScriptRunnerModule(
   }
 
   function toScript(row: ScriptRow): Script {
+    let triggerType: TriggerKind = "manual";
+    if (isTrigger(row.trigger_type)) {
+      triggerType = row.trigger_type;
+    }
+    let busEvent = "";
+    if (row.trigger_bus_event.length > 0) {
+      busEvent = row.trigger_bus_event;
+    }
+    if (triggerType === "scheduled") {
+      triggerType = "event";
+      if (busEvent.length === 0) {
+        busEvent = EVENT_CLOCK_TICK;
+      }
+    }
     return {
       id: row.id,
       project_id: row.project_id,
@@ -396,9 +451,9 @@ export async function registerScriptRunnerModule(
       runtime: isRuntime(row.runtime) ? row.runtime : "shell",
       docker_image: row.docker_image,
       docker_platform: row.docker_platform,
-      trigger_type: isTrigger(row.trigger_type) ? row.trigger_type : "manual",
+      trigger_type: triggerType,
       trigger_glob: row.trigger_glob,
-      trigger_bus_event: row.trigger_bus_event.length > 0 ? row.trigger_bus_event : "",
+      trigger_bus_event: busEvent,
       trigger_cron: row.trigger_cron,
       concurrency: isConcurrency(row.concurrency) ? row.concurrency : "ignore",
       enabled: row.enabled === 1,
@@ -578,7 +633,7 @@ export async function registerScriptRunnerModule(
     });
     const script = getScript(exec.script_id);
     if (script !== null) {
-      tryPublishLotaruEvent(
+      publishLotaruEvent(
         {
           type: EVENT_SCRIPT_RAN,
           projectId: script.project_id,
@@ -775,39 +830,34 @@ export async function registerScriptRunnerModule(
   }
 
   function listenerScript(script: Script): EventListenerScript {
+    let triggerType = script.trigger_type;
+    if (script.trigger_cron.trim().length > 0) {
+      triggerType = "scheduled";
+    }
     return {
       id: script.id,
       projectId: script.project_id,
-      triggerType: script.trigger_type,
+      triggerType,
       triggerGlob: script.trigger_glob,
       triggerBusEvent: script.trigger_bus_event,
+      triggerCron: script.trigger_cron,
       enabled: script.enabled,
     };
   }
 
   function emitLotaruEvent(
-    partial: {
-      type: string;
-      projectId: string;
-      scriptId: string;
-      path: string;
-      detail: string;
-      /**
-       * Set when an agent published this event. Agents subscribe to each other
-       * like anything else, so the chain — not a blanket skip — is what keeps a
-       * cycle from running forever.
-       */
-      agentChain?: readonly string[];
-    },
+    input: LotaruPublishInput,
     emitKind: "live" | "replay",
+    agentChain: readonly string[],
   ): LotaruEvent {
+    const stored = storedEnvelopeFromPublish(input);
     const event: LotaruEvent = {
       id: nanoid(12),
-      type: partial.type,
-      projectId: partial.projectId,
-      scriptId: partial.scriptId,
-      path: partial.path,
-      detail: partial.detail,
+      type: stored.type,
+      projectId: stored.projectId,
+      scriptId: stored.scriptId,
+      path: stored.path,
+      detail: stored.detail,
       createdAt: Date.now(),
     };
     recordEvent(db, event);
@@ -819,6 +869,7 @@ export async function registerScriptRunnerModule(
       eventType: event.type,
       path: event.path,
       detail: event.detail,
+      createdAt: event.createdAt,
       onAgentError: (failure) => {
         app.log.warn(failure, "knowledge template agent failed");
       },
@@ -832,8 +883,8 @@ export async function registerScriptRunnerModule(
       eventType: event.type,
       path: event.path,
       detail: event.detail,
-      agentChain: partial.agentChain,
-      emitEvent: (nested) => emitLotaruEvent(nested, "live"),
+      agentChain,
+      emitEvent: (nested, chain) => emitLotaruEvent(nested, "live", chain),
     }).catch((err) => {
       app.log.error({ err, type: event.type }, "agent fire failed");
     });
@@ -863,13 +914,16 @@ export async function registerScriptRunnerModule(
   }
 
   function emitGithubPoll(payload: { type: string; projectId: string; path: string; detail: string }): void {
-    emitLotaruEvent({
-      type: payload.type,
-      projectId: payload.projectId,
-      scriptId: "",
-      path: payload.path,
-      detail: payload.detail,
-    }, "live");
+    emitLotaruEvent(
+      parseLotaruPublish({
+        type: payload.type,
+        projectId: payload.projectId,
+        path: payload.path,
+        detail: payload.detail,
+      }),
+      "live",
+      [],
+    );
   }
 
   const fileWatchers = createFileWatchers((watched) => {
@@ -878,13 +932,22 @@ export async function registerScriptRunnerModule(
       return;
     }
     const rel = relativeWatchPath(project.repoPath, watched.path);
-    emitLotaruEvent({
-      type: EVENT_FILE_CHANGED,
-      projectId: watched.projectId,
-      scriptId: "",
-      path: rel,
-      detail: watched.kind,
-    }, "live");
+    if (rel.length === 0) {
+      return;
+    }
+    if (watched.kind.length === 0) {
+      return;
+    }
+    emitLotaruEvent(
+      {
+        type: EVENT_FILE_CHANGED,
+        projectId: watched.projectId,
+        path: rel,
+        detail: watched.kind,
+      },
+      "live",
+      [],
+    );
   });
 
   function refreshFileWatches(): void {
@@ -907,18 +970,50 @@ export async function registerScriptRunnerModule(
     fileWatchers.sync(targets);
   }
 
+  let lastClockMs = 0;
   function tickClock(): void {
+    const nowMs = Date.now();
+    const due = clockTypesDue(nowMs, lastClockMs);
+    lastClockMs = nowMs;
     const projects = refreshProjectRegistry();
     const projectIds: string[] = [];
+    let scanVoice = false;
+    let namedHits: readonly { slug: string; title: string }[] = [];
+    for (const clockType of due) {
+      if (clockType === EVENT_CLOCK_TICK) {
+        scanVoice = true;
+      }
+      if (clockType === EVENT_CLOCK_EVERY_1M) {
+        namedHits = dueClockAtEvents(options.databasePath, new Date(nowMs));
+      }
+    }
     for (const project of projects) {
       projectIds.push(project.id);
-      emitLotaruEvent({
-        type: EVENT_CLOCK_TICK,
-        projectId: project.id,
-        scriptId: "",
-        path: "",
-        detail: "",
-      }, "live");
+      for (const clockType of due) {
+        emitLotaruEvent(
+          {
+            type: clockType,
+            projectId: project.id,
+          },
+          "live",
+          [],
+        );
+      }
+      for (const hit of namedHits) {
+        emitLotaruEvent(
+          {
+            type: clockAtEventType(hit.slug),
+            projectId: project.id,
+            path: hit.slug,
+            detail: hit.title,
+          },
+          "live",
+          [],
+        );
+      }
+    }
+    if (scanVoice !== true) {
+      return;
     }
     void tickVoiceBatchScans({
       databasePath: options.databasePath,
@@ -936,13 +1031,15 @@ export async function registerScriptRunnerModule(
     clockTimer = setInterval(tickClock, CLOCK_TICK_MS);
     const projects = refreshProjectRegistry();
     for (const project of projects) {
-      emitLotaruEvent({
-        type: EVENT_APP_STARTED,
-        projectId: project.id,
-        scriptId: "",
-        path: "",
-        detail: "boot",
-      }, "live");
+      emitLotaruEvent(
+        {
+          type: EVENT_APP_STARTED,
+          projectId: project.id,
+          detail: "boot",
+        },
+        "live",
+        [],
+      );
     }
     refreshFileWatches();
   }
@@ -1096,6 +1193,7 @@ export async function registerScriptRunnerModule(
           triggerType: listen.triggerType,
           triggerGlob: listen.triggerGlob,
           triggerBusEvent: listen.triggerBusEvent,
+          triggerCron: listen.triggerCron,
           enabled: listen.enabled,
           name: script.name,
         });
@@ -1152,7 +1250,7 @@ export async function registerScriptRunnerModule(
       for (const storedEvent of stored) {
         const payloads = replayPayloadsFromStored(storedEvent);
         for (const payload of payloads) {
-          emitLotaruEvent(payload, "replay");
+          emitLotaruEvent(payload, "replay", []);
           replayed += 1;
         }
       }
@@ -1622,7 +1720,78 @@ export async function registerScriptRunnerModule(
   });
 
 
-  const stopGithubPoller = startGithubPoller(db, loadGithubWatches, emitGithubPoll);
+  const stopGithubPoller = startGithubPoller(
+    db,
+    loadGithubWatches,
+    emitGithubPoll,
+    () => {
+      const ids: string[] = [];
+      for (const project of refreshProjectRegistry()) {
+        ids.push(project.id);
+      }
+      return ids;
+    },
+    () => {
+      if (options.tunnelSnapshot !== undefined) {
+        return options.tunnelSnapshot();
+      }
+      return { enabled: false, state: "off", publicUrl: "" };
+    },
+  );
+
+  app.post<{ Params: { token: string } }>("/api/ingest/hooks/:token", async (request, reply) => {
+    const connectorId = connectorIdForHookToken(db, request.params.token);
+    if (connectorId.length === 0) {
+      return reply.code(404).send({ error: "unknown hook" });
+    }
+    const headerBag: Record<string, unknown> = {};
+    for (const key of Object.keys(request.headers)) {
+      headerBag[key] = request.headers[key];
+    }
+    if (connectorId === "slack") {
+      const challenge = slackUrlChallenge(request.body);
+      if (challenge.length > 0) {
+        return { challenge };
+      }
+    }
+    if (connectorId === "notion") {
+      const verification = notionVerificationToken(request.body);
+      if (verification.length > 0) {
+        saveHookSync(db, {
+          connector: "notion",
+          repo: NOTION_VERIFICATION_SCOPE,
+          url: verification,
+          lastError: "",
+          lastAttemptAt: Date.now(),
+        });
+        return { accepted: 0 };
+      }
+    }
+    const watches = await loadGithubWatches();
+    const projectIds: string[] = [];
+    for (const project of refreshProjectRegistry()) {
+      projectIds.push(project.id);
+    }
+    const published = parseHookPublish(connectorId, headerBag, request.body, (repo) => {
+      for (const watch of watches) {
+        if (watch.repo === repo) {
+          return watch.projectId;
+        }
+      }
+      return "";
+    }, projectIds);
+    const ingest = hookIngestReply(connectorId, headerBag, published.length, request.body);
+    if (ingest.status !== 200) {
+      return reply.code(400).send({ error: "unrecognized hook payload" });
+    }
+    for (const payload of published) {
+      emitGithubPoll(payload);
+      if (connectorId === "stripe" && payload.path.length > 0) {
+        rememberPollFingerprint(db, "stripe", "account", `evt:${payload.path}`);
+      }
+    }
+    return { accepted: ingest.accepted };
+  });
 
   app.addHook("onClose", async () => {
     if (clockTimer !== undefined) {

@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { cachedSqlite } from "./sqlite-cache.js";
-import { canonicalBusEventType, eventTypeForTrigger } from "./events.js";
+import { canonicalBusEventType, isBusEventType, subscriptionBusTypes } from "./events.js";
 
 export type SubscriberKind = "agent" | "script" | "knowledge";
 
@@ -33,37 +33,26 @@ const SOURCES: {
    * a trigger kind rather than an event name — "scheduled" is clock.tick — so
    * those names resolve here instead of being treated as a separate mechanism.
    */
-  resolve(row: SubscriberRow): string;
+  resolve(row: SubscriberRow): readonly string[];
 }[] = [
   {
     kind: "agent",
     table: "lotaru_agents",
     columns: "id AS id, title AS label, enabled AS enabled, event_type, trigger_kind",
-    resolve: (row) => {
-      if (row.trigger_kind === "event") {
-        return row.event_type;
-      }
-      // A daily agent wakes on the clock like a scheduled script does.
-      return eventTypeForTrigger("scheduled");
-    },
+    resolve: (row) => subscriptionBusTypes(row.trigger_kind, row.event_type),
   },
   {
     kind: "script",
     table: "script_scripts",
     columns:
       "id AS id, name AS label, enabled AS enabled, trigger_bus_event AS event_type, trigger_type AS trigger_kind",
-    resolve: (row) => {
-      if (row.trigger_kind === "event") {
-        return row.event_type;
-      }
-      return eventTypeForTrigger(row.trigger_kind);
-    },
+    resolve: (row) => subscriptionBusTypes(row.trigger_kind, row.event_type),
   },
   {
     kind: "knowledge",
     table: "knowledge_templates",
     columns: "id AS id, title AS label, enabled AS enabled, event_type, '' AS trigger_kind",
-    resolve: (row) => row.event_type,
+    resolve: (row) => subscriptionBusTypes("event", row.event_type),
   },
 ];
 
@@ -92,21 +81,23 @@ function readSubscribers(databasePath: string, projectId: string): EventSubscrib
       .prepare(`SELECT ${source.columns} FROM ${source.table} WHERE project_id = ?`)
       .all(projectId) as SubscriberRow[];
     for (const row of rows) {
-      const eventType = canonicalBusEventType(source.resolve(row));
-      if (eventType.length === 0) {
-        continue;
-      }
+      const eventTypes = source.resolve(row);
       let label = String(row.label).trim();
       if (label.length === 0) {
         label = source.kind;
       }
-      subscribers.push({
-        kind: source.kind,
-        id: String(row.id),
-        label,
-        enabled: row.enabled === 1,
-        eventType,
-      });
+      for (const eventType of eventTypes) {
+        if (isBusEventType(eventType) !== true) {
+          continue;
+        }
+        subscribers.push({
+          kind: source.kind,
+          id: String(row.id),
+          label,
+          enabled: row.enabled === 1,
+          eventType,
+        });
+      }
     }
   }
   return subscribers;

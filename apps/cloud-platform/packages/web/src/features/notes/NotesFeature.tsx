@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Loader2, Pause, Play, Plus, RotateCcw, Trash2, Volume2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
+import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
 import { VoiceSettingsLink } from "@/components/VoiceSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getAccessToken } from "@/lib/auth";
-import { fetchAppSettings } from "@/lib/api";
+import { fetchAiTools, fetchAppSettings, type AiToolRow } from "@/lib/api";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ type NoteBookListItem = {
   translateOn: boolean;
   polishOn: boolean;
   summarizeOn: boolean;
+  aiToolId: string;
 };
 
 type NotePage = {
@@ -131,6 +133,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [aiTools, setAiTools] = useState<AiToolRow[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const syncedPageId = useRef("");
@@ -157,6 +160,19 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
 
   useEffect(() => {
     void fetchAppSettings(session).catch(() => undefined);
+  }, [session]);
+
+  useEffect(() => {
+    if (session === null) {
+      return;
+    }
+    void fetchAiTools(session)
+      .then((data) => {
+        setAiTools(data.tools);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "load failed");
+      });
   }, [session]);
 
   useEffect(() => {
@@ -275,6 +291,22 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       await loadBooks();
     } catch (err) {
       setError(err instanceof Error ? err.message : "switch failed");
+    }
+  }
+
+  async function setAiTool(next: string): Promise<void> {
+    if (book === null) {
+      return;
+    }
+    try {
+      const updated = await api<NoteBook>(`/api/note-books/${book.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ aiToolId: next }),
+      });
+      setBook(updated);
+      await loadBooks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI tool failed");
     }
   }
 
@@ -441,7 +473,8 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              Translate, polish, and summary use AI. Read-aloud uses Voice settings.
+              Translate, polish, and summary use the AI you pick on each book. Read-aloud uses
+              Voice settings.
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
               <AiSettingsLink />
@@ -502,6 +535,16 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           <>
             <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-6 py-3">
               <h2 className="mr-auto text-base font-semibold">{book.title}</h2>
+              <div className="w-[min(100%,16rem)]">
+                <ConnectedAiSelect
+                  id="note-book-ai"
+                  value={book.aiToolId}
+                  tools={aiTools}
+                  onChange={(next) => {
+                    void setAiTool(next);
+                  }}
+                />
+              </div>
               <JobSwitch
                 id="note-job-translate"
                 label="Translate"

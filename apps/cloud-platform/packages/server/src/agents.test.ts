@@ -28,6 +28,21 @@ describe("scheduleIsDue", () => {
     const now = new Date(2026, 7, 21, 22, 15, 0);
     assert.equal(scheduleIsDue({ scheduleHour: 21, scheduleMinute: 0 }, now), true);
   });
+
+  it("is false on the wrong weekday even after the clock time", () => {
+    const now = new Date(2026, 8, 8, 18, 0, 0);
+    assert.equal(now.getDay(), 2);
+    assert.equal(
+      scheduleIsDue({ scheduleHour: 9, scheduleMinute: 0, scheduleCron: "0 9 * * 1" }, now),
+      false,
+    );
+    const monday = new Date(2026, 8, 7, 18, 0, 0);
+    assert.equal(monday.getDay(), 1);
+    assert.equal(
+      scheduleIsDue({ scheduleHour: 9, scheduleMinute: 0, scheduleCron: "0 9 * * 1" }, monday),
+      true,
+    );
+  });
 });
 
 describe("recoverStaleAgentRuns", () => {

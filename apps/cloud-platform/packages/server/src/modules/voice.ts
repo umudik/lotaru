@@ -444,7 +444,6 @@ export async function registerVoiceModule(
         {
           type: EVENT_VOICE_SEGMENT,
           projectId: listenProjectId,
-          scriptId: "",
           path: id,
           detail: message.text.slice(0, 500),
         },

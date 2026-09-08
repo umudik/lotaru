@@ -12,13 +12,16 @@ import {
   createAgent,
   deleteAgent,
   fetchAgents,
+  fetchAiTools,
   fetchEventTypes,
   patchAgent,
   runAgentNow,
+  type AiToolRow,
   type EventTypeOption,
   type LotaruAgent,
 } from "@/lib/api";
 import { eventLabelWithRules } from "@/lib/event-catalog";
+import { formatCalendarCron } from "@/lib/calendar-schedule";
 import { cn } from "@/lib/utils";
 import {
   AgentDetailPanel,
@@ -40,6 +43,7 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
   const session = useSession();
   const [agents, setAgents] = useState<LotaruAgent[]>([]);
   const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
+  const [aiTools, setAiTools] = useState<AiToolRow[]>([]);
   const [panelMode, setPanelMode] = useState<PanelMode>("closed");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CreateDraft>(emptyAgentDraft());
@@ -59,12 +63,14 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     if (session === null) {
       return;
     }
-    const [agentData, eventTypeData] = await Promise.all([
+    const [agentData, eventTypeData, aiData] = await Promise.all([
       fetchAgents(session, props.projectId),
       fetchEventTypes(session, props.projectId),
+      fetchAiTools(session),
     ]);
     setAgents(agentData.agents);
     setEventTypes(eventTypeData.eventTypes);
+    setAiTools(aiData.tools);
   }, [session, props.projectId]);
 
   useEffect(() => {
@@ -153,6 +159,10 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
       setError("Title and prompt are required");
       return;
     }
+    if (draft.aiToolId.trim().length === 0) {
+      setError("Pick a connected AI tool");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -160,13 +170,11 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
         projectId: props.projectId,
         title: trimmedTitle,
         prompt: trimmedPrompt,
-        trigger: draft.trigger,
-        eventType: draft.trigger === "event" ? draft.eventType : undefined,
-        scheduleHour: draft.trigger === "schedule" ? draft.scheduleHour : undefined,
-        scheduleMinute: draft.trigger === "schedule" ? draft.scheduleMinute : undefined,
+        trigger: "event",
+        eventType: draft.eventType,
         includeVoice: draft.includeVoice,
-        action: draft.action,
-        noteBookTitle: draft.noteBookTitle.trim(),
+        action: "none",
+        aiToolId: draft.aiToolId,
         enabled: draft.enabled,
       });
       await load();
@@ -190,19 +198,21 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
       setError("Title and prompt are required");
       return;
     }
+    if (draft.aiToolId.trim().length === 0) {
+      setError("Pick a connected AI tool");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       const saved = await patchAgent(session, selectedId, {
         title: trimmedTitle,
         prompt: trimmedPrompt,
-        trigger: draft.trigger,
-        eventType: draft.trigger === "event" ? draft.eventType : "",
-        scheduleHour: draft.scheduleHour,
-        scheduleMinute: draft.scheduleMinute,
+        trigger: "event",
+        eventType: draft.eventType,
         includeVoice: draft.includeVoice,
-        action: draft.action,
-        noteBookTitle: draft.noteBookTitle.trim(),
+        action: "none",
+        aiToolId: draft.aiToolId,
         enabled: draft.enabled,
       });
       await load();
@@ -250,7 +260,7 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Event responders"
-        info="A responder runs one prompt when an event fires or at a set time each day, then turns the reply into a note, a task, an event on the bus, or nothing."
+        info="A responder runs one prompt when an event fires. The reply is kept on the run; use Lotaru MCP when it should write notes, tasks, or events."
         actions={
           <div className="flex items-center gap-2">
             <AiSettingsLink />
@@ -275,7 +285,7 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
           ) : agents.length === 0 ? (
             <EmptyStatePanel
               title="No responders yet"
-              description="Pick when it runs, write the prompt, choose what happens to the reply."
+              description="Pick when it runs and write the prompt. Use Lotaru MCP when the agent should write notes, tasks, or events."
               action={
                 <Button type="button" size="sm" onClick={openCreate}>
                   <Plus className="h-4 w-4" />
@@ -301,11 +311,8 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
                   <p className="text-sm font-semibold">{agent.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {agent.trigger === "schedule"
-                      ? `Daily at ${String(agent.scheduleHour).padStart(2, "0")}:${String(agent.scheduleMinute).padStart(2, "0")}`
+                      ? formatCalendarCron(agent.scheduleCron, agent.scheduleHour, agent.scheduleMinute)
                       : eventLabelWithRules(agent.eventType, mintedLabels)}
-                    {agent.action === "note" ? " → note" : ""}
-                    {agent.action === "task" ? " → task" : ""}
-                    {agent.action === "event" ? ` → ${agent.outputEventType}` : ""}
                     {agent.includeVoice ? " · voice" : ""}
                     {agent.enabled !== true ? " · off" : ""}
                   </p>
@@ -334,6 +341,7 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
             agent={selectedAgent}
             draft={draft}
             eventTypes={eventTypes}
+            aiTools={aiTools}
             saving={saving}
             running={runningId.length > 0}
             error={error}

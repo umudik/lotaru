@@ -6,9 +6,13 @@ import {
   EVENT_GITHUB_PR_UPDATED,
 } from "./events.js";
 import {
+  classifyIssueChange,
   classifyPullChange,
   githubRepoFromRemoteUrl,
   githubReposFromRemoteListing,
+  mapGithubNotificationType,
+  parseGithubIssues,
+  parseGithubNotifications,
   parseGithubPulls,
   splitGithubRepo,
 } from "./github-pulls.js";
@@ -54,6 +58,42 @@ describe("classifyPullChange", () => {
       classifyPullChange(next, Object.assign({}, next, { mergedAt: "2026-01-03T00:00:00Z" }), true),
       EVENT_GITHUB_PR_MERGED,
     );
+  });
+});
+
+describe("github issues and notifications", () => {
+  it("drops pull requests from the issues list and maps notification subjects", () => {
+    const issues = parseGithubIssues([
+      {
+        number: 3,
+        updated_at: "2026-01-01T00:00:00Z",
+        created_at: "2026-01-01T00:00:00Z",
+        title: "Bug",
+      },
+      {
+        number: 4,
+        updated_at: "2026-01-01T00:00:00Z",
+        created_at: "2026-01-01T00:00:00Z",
+        title: "PR",
+        pull_request: { url: "https://api.github.com/repos/a/b/pulls/4" },
+      },
+    ]);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.number, 3);
+    assert.equal(classifyIssueChange(false, true), "github.issues");
+    assert.equal(classifyIssueChange(false, false), "");
+    assert.equal(mapGithubNotificationType("CheckSuite"), "github.check_suite");
+    assert.equal(mapGithubNotificationType("PullRequest"), "");
+    const notes = parseGithubNotifications([
+      {
+        id: 99,
+        updated_at: "2026-01-01T00:00:00Z",
+        repository: { full_name: "umudik/lotaru" },
+        subject: { type: "Release", title: "v1" },
+      },
+    ]);
+    assert.equal(notes[0]?.id, "99");
+    assert.equal(notes[0]?.subjectType, "Release");
   });
 });
 

@@ -1,42 +1,40 @@
 import type { LotaruEvent } from "./events.js";
+import { parseLotaruPublish, type LotaruPublishInput, type StoredEventFields } from "./event-publish.js";
 
-export type LotaruEventPartial = {
-  type: string;
-  projectId: string;
-  scriptId: string;
-  path: string;
-  detail: string;
-};
+export type LotaruEventPartial = StoredEventFields;
 
 export type LotaruEmitKind = "live" | "replay";
 
 export type LotaruEventPublisher = (
-  partial: LotaruEventPartial,
+  input: LotaruPublishInput,
   emitKind: LotaruEmitKind,
+  agentChain: readonly string[],
 ) => LotaruEvent;
 
-let activePublisher: LotaruEventPublisher | false = false;
+type PublisherSlot = {
+  publisher: LotaruEventPublisher;
+};
+
+let publisherSlots: PublisherSlot[] = [];
 
 export function setLotaruEventPublisher(publisher: LotaruEventPublisher): void {
-  activePublisher = publisher;
+  publisherSlots = [{ publisher }];
+}
+
+export function clearLotaruEventPublisher(): void {
+  publisherSlots = [];
 }
 
 export function publishLotaruEvent(
-  partial: LotaruEventPartial,
+  input: LotaruPublishInput,
   emitKind: LotaruEmitKind,
 ): LotaruEvent {
-  if (activePublisher === false) {
-    throw new Error("Lotaru event publisher is not registered");
+  const parsed = parseLotaruPublish(input);
+  const agentChain: readonly string[] = [];
+  for (const slot of publisherSlots) {
+    return slot.publisher(parsed, emitKind, agentChain);
   }
-  return activePublisher(partial, emitKind);
+  throw new Error("Lotaru event publisher is not registered");
 }
 
-export function tryPublishLotaruEvent(
-  partial: LotaruEventPartial,
-  emitKind: LotaruEmitKind,
-): LotaruEvent | false {
-  if (activePublisher === false) {
-    return false;
-  }
-  return activePublisher(partial, emitKind);
-}
+export type { LotaruPublishInput, StoredEventFields };

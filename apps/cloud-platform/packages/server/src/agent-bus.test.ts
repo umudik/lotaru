@@ -8,19 +8,13 @@ import { createIdentity } from "./modules/identity.js";
 import { fireAgentsForEvent, registerAgentsModule } from "./modules/agents.js";
 import { registerVoiceRulesModule } from "./modules/voice-rules.js";
 import type { LotaruEvent } from "./events.js";
+import { parseLotaruPublish, storedEnvelopeFromPublish, type LotaruPublishInput } from "./event-publish.js";
 
 const PROJECT = "proj-agent-bus";
 
 type Bus = {
   events: LotaruEvent[];
-  emit: (partial: {
-    type: string;
-    projectId: string;
-    scriptId: string;
-    path: string;
-    detail: string;
-    agentChain?: readonly string[];
-  }) => LotaruEvent;
+  emit: (input: LotaruPublishInput, agentChain: readonly string[]) => LotaruEvent;
   settle: () => Promise<void>;
 };
 
@@ -56,15 +50,16 @@ async function bootstrap(replies: Record<string, string> = {}): Promise<Harness>
     return "ok";
   };
 
-  const emit: Bus["emit"] = (partial) => {
+  const emit: Bus["emit"] = (input, agentChain) => {
     counter += 1;
+    const stored = storedEnvelopeFromPublish(input);
     const event: LotaruEvent = {
       id: `evt-${String(counter)}`,
-      type: partial.type,
-      projectId: partial.projectId,
-      scriptId: partial.scriptId,
-      path: partial.path,
-      detail: partial.detail,
+      type: stored.type,
+      projectId: stored.projectId,
+      scriptId: stored.scriptId,
+      path: stored.path,
+      detail: stored.detail,
       createdAt: counter,
     };
     events.push(event);
@@ -76,7 +71,7 @@ async function bootstrap(replies: Record<string, string> = {}): Promise<Harness>
         eventType: event.type,
         path: event.path,
         detail: event.detail,
-        agentChain: partial.agentChain,
+        agentChain,
         projectCwd: () => dir,
         runAgent,
         emitEvent: emit,
@@ -103,7 +98,15 @@ async function bootstrap(replies: Record<string, string> = {}): Promise<Harness>
   });
 
   const fire = async (eventType: string, detail: string): Promise<void> => {
-    emit({ type: eventType, projectId: PROJECT, scriptId: "", path: "", detail });
+    emit(
+      parseLotaruPublish({
+        type: eventType,
+        projectId: PROJECT,
+        path: "kick",
+        detail,
+      }),
+      [],
+    );
     await settle();
   };
 

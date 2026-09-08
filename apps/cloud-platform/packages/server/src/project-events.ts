@@ -1,4 +1,4 @@
-import { tryPublishLotaruEvent } from "./event-bus.js";
+import { publishLotaruEvent } from "./event-bus.js";
 import {
   EVENT_NOTE_BOOK_CREATED,
   EVENT_NOTE_PAGE_CREATED,
@@ -10,11 +10,10 @@ export function emitTaskCreated(input: {
   taskId: number;
   title: string;
 }): void {
-  tryPublishLotaruEvent(
+  publishLotaruEvent(
     {
       type: EVENT_TASK_CREATED,
       projectId: input.projectId,
-      scriptId: "",
       path: String(input.taskId),
       detail: input.title.slice(0, 500),
     },
@@ -27,11 +26,10 @@ export function emitNoteBookCreated(input: {
   bookId: string;
   title: string;
 }): void {
-  tryPublishLotaruEvent(
+  publishLotaruEvent(
     {
       type: EVENT_NOTE_BOOK_CREATED,
       projectId: input.projectId,
-      scriptId: "",
       path: input.bookId,
       detail: input.title.slice(0, 500),
     },
@@ -46,11 +44,10 @@ export function emitNotePageCreated(input: {
   pageTitle: string;
 }): void {
   const detail = `${input.pageId}:${input.pageTitle}`.slice(0, 500);
-  tryPublishLotaruEvent(
+  publishLotaruEvent(
     {
       type: EVENT_NOTE_PAGE_CREATED,
       projectId: input.projectId,
-      scriptId: "",
       path: input.bookId,
       detail,
     },

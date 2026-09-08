@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { LotaruEvent } from "./events.js";
+import { storedEnvelopeFromPublish, type LotaruPublishInput } from "./event-publish.js";
 import { openVoiceDb } from "./modules/voice.js";
 import { openVoiceRulesDb } from "./voice-rule-store.js";
 import { scanVoiceBatchForProject, VOICE_BATCH_INTERVAL_MS } from "./voice-batch.js";
@@ -14,13 +15,7 @@ const PROJECT = "proj-rules";
 type Harness = {
   databasePath: string;
   emitted: LotaruEvent[];
-  emit: (partial: {
-    type: string;
-    projectId: string;
-    scriptId: string;
-    path: string;
-    detail: string;
-  }) => LotaruEvent;
+  emit: (partial: LotaruPublishInput) => LotaruEvent;
   addSegment: (text: string, createdAt: number) => void;
 };
 
@@ -41,13 +36,14 @@ function harness(rules: { slug: string; name: string; instruction: string }[]): 
     databasePath,
     emitted,
     emit: (partial) => {
+      const stored = storedEnvelopeFromPublish(partial);
       const event: LotaruEvent = {
         id: `evt-${String(emitted.length + 1)}`,
-        type: partial.type,
-        projectId: partial.projectId,
-        scriptId: partial.scriptId,
-        path: partial.path,
-        detail: partial.detail,
+        type: stored.type,
+        projectId: stored.projectId,
+        scriptId: stored.scriptId,
+        path: stored.path,
+        detail: stored.detail,
         createdAt: Date.now(),
       };
       emitted.push(event);

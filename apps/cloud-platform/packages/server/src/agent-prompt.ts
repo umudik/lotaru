@@ -5,6 +5,7 @@ import { loadAppSettings, openSettingsDb } from "./app-settings.js";
 import {
   AGENT_TIMEOUT_MS,
   agentCliSpec,
+  parseAgentKind,
   spawnAgentCli,
   type AgentKind,
   type AgentMode,
@@ -12,6 +13,10 @@ import {
 import { loadAgentProfile, openAgentDb } from "./agent-store.js";
 import { requireExistingDirectory } from "./folder-path.js";
 import { runOllamaChat } from "./ollama.js";
+import { aiToolIdSchema, requireAiTool } from "./ai-catalog.js";
+import { PICK_CONNECTED_AI_ERROR } from "./ai-health.js";
+import { ensureAiToolSchema } from "./ai-store.js";
+import { runAiToolChat } from "./ai-run.js";
 
 export type AgentRunFn = (input: {
   kind: AgentKind;
@@ -43,6 +48,7 @@ export type RunProjectAgentOptions = {
   systemPrompt?: string;
   projectCwd?: (projectId: string) => string;
   runAgent?: AgentRunFn;
+  aiToolId?: string;
 };
 
 export type RunLocalOllamaOptions = {
@@ -81,26 +87,14 @@ function projectWorkingDirectory(
 }
 
 export async function runProjectAgentPrompt(input: RunProjectAgentOptions): Promise<string> {
-  const profile = loadAgentProfile(openAgentDb(input.databasePath));
-  let mode = profile.mode;
-  if (input.mode !== undefined) {
-    mode = input.mode;
-  }
   const systemPrompt = agentSystemPrompt(input);
-  // Only the CLI agents need somewhere to run; Ollama talks over HTTP and works
-  // fine on a project that has no folder set yet.
-  if (profile.kind === "ollama" && input.runAgent === undefined) {
-    const settingsDb = openSettingsDb(input.databasePath);
-    const settings = loadAppSettings(settingsDb);
-    return runOllamaChat(
-      settings.ollamaHost,
-      settings.ollamaModel,
-      systemPrompt,
-      input.prompt,
-    );
-  }
-  const cwd = projectWorkingDirectory(input.projectId, input.projectCwd);
   if (input.runAgent !== undefined) {
+    const profile = loadAgentProfile(openAgentDb(input.databasePath));
+    let mode = profile.mode;
+    if (input.mode !== undefined) {
+      mode = input.mode;
+    }
+    const cwd = projectWorkingDirectory(input.projectId, input.projectCwd);
     return input.runAgent({
       kind: profile.kind,
       mode,
@@ -108,10 +102,32 @@ export async function runProjectAgentPrompt(input: RunProjectAgentOptions): Prom
       cwd,
     });
   }
+  let toolId = "";
+  if (input.aiToolId !== undefined) {
+    toolId = input.aiToolId.trim();
+  }
+  if (toolId.length === 0) {
+    throw new Error(PICK_CONNECTED_AI_ERROR);
+  }
+  const parsed = aiToolIdSchema.safeParse(toolId);
+  if (parsed.success !== true) {
+    throw new Error("Unknown AI tool");
+  }
+  const tool = requireAiTool(parsed.data);
+  if (tool.protocol !== "cli") {
+    const settingsDb = openSettingsDb(input.databasePath);
+    ensureAiToolSchema(settingsDb);
+    return await runAiToolChat(settingsDb, parsed.data, systemPrompt, input.prompt);
+  }
+  let mode: AgentMode = "ask";
+  if (input.mode !== undefined) {
+    mode = input.mode;
+  }
+  const cwd = projectWorkingDirectory(input.projectId, input.projectCwd);
   const spec = agentCliSpec({
-    kind: profile.kind,
+    kind: parseAgentKind(parsed.data),
     mode,
-    command: profile.command,
+    command: "",
     prompt: cliPrompt(systemPrompt, input.prompt),
   });
   return spawnAgentCli(spec, cwd, AGENT_TIMEOUT_MS);

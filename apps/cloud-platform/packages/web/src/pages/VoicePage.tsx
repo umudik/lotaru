@@ -388,9 +388,9 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
               </Link>
               <Link
                 className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/events`}
+                to={`/projects/${props.projectId}/logs`}
               >
-                Events
+                Log
               </Link>
             </div>
           </div>
@@ -422,9 +422,9 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
                   ) : null}
                   <Link
                     className="mt-2 inline-block text-[11px] text-muted-foreground underline underline-offset-2"
-                    to={`/projects/${props.projectId}/events?type=voice.rule.${hit.slug}`}
+                    to={`/projects/${props.projectId}/logs?type=voice.rule.${hit.slug}`}
                   >
-                    Event
+                    Log
                   </Link>
                 </li>
               ))}

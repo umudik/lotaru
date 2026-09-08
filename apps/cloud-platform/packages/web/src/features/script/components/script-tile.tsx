@@ -11,6 +11,7 @@ import { api } from '@script/api/client';
 import { actions } from '@script/state/store';
 import { findRunningExecutionId, scriptHasLiveRunning } from '@script/lib/script-running';
 import { useStore, selectExecutionsOf, selectLiveLogsOf } from '@script/state/store';
+import { catalogEventLabel } from '@/lib/event-catalog';
 import type { Execution, Script, ExecutionStatus } from '@script/types';
 
 function lastStatus(
@@ -35,14 +36,11 @@ function triggerSummary(t: Script): string {
   if (t.trigger_type === 'startup') {
     return 'startup';
   }
-  if (t.trigger_type === 'scheduled') {
-    return 'every 10s';
-  }
-  if (t.trigger_type === 'event') {
+  if (t.trigger_type === 'event' || t.trigger_type === 'scheduled') {
     if (t.trigger_bus_event.length > 0) {
-      return t.trigger_bus_event;
+      return catalogEventLabel(t.trigger_bus_event).toLowerCase();
     }
-    return 'bus event';
+    return catalogEventLabel('clock.tick').toLowerCase();
   }
   return 'run';
 }
