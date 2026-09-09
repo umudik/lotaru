@@ -11,6 +11,8 @@ import { AgentsFeature } from "@/features/agents/AgentsFeature";
 import { RulesFeature } from "@/features/rules/RulesFeature";
 import { TerminalFeature } from "@/features/terminal/TerminalFeature";
 import { VoiceListenProvider } from "@/features/voice/VoiceListenContext";
+import { SpeakPlayerProvider } from "@/features/speak/SpeakPlayerContext";
+import { SpeakPage } from "@/pages/SpeakPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { EventsPage } from "@/pages/EventsPage";
@@ -23,6 +25,7 @@ export function App() {
   return (
     <div className="h-full">
       <VoiceListenProvider>
+        <SpeakPlayerProvider>
         <Routes>
         <Route element={<AppLayout />}>
           <Route path="/settings" element={<SettingsPage />} />
@@ -41,6 +44,7 @@ export function App() {
             <Route path="logs" element={<EventsPage />} />
             <Route path="events" element={<LegacyLogsRedirect />} />
             <Route path="voice" element={<ProjectVoiceRoute />} />
+            <Route path="speak" element={<ProjectSpeakRoute />} />
             <Route path="scripts/*" element={<ProjectScriptsRoute />} />
             <Route path="notes/*" element={<ProjectNotesRoute />} />
             <Route path="knowledge/*" element={<ProjectKnowledgeRoute />} />
@@ -52,6 +56,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
+        </SpeakPlayerProvider>
       </VoiceListenProvider>
     </div>
   );
@@ -148,4 +153,12 @@ function ProjectVoiceRoute(): React.JSX.Element {
     return <Navigate to="/projects" replace />;
   }
   return <VoicePage projectId={projectId} />;
+}
+
+function ProjectSpeakRoute(): React.JSX.Element {
+  const { projectId } = useParams();
+  if (projectId === undefined) {
+    return <Navigate to="/projects" replace />;
+  }
+  return <SpeakPage projectId={projectId} />;
 }

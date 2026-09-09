@@ -19,6 +19,7 @@ import {
   ScrollText,
   LayoutTemplate,
   ShoppingBag,
+  Volume2,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/useSession";
 import { useVoiceListen } from "@/features/voice/VoiceListenContext";
+import { useSpeakPlayer } from "@/features/speak/SpeakPlayerContext";
 import { VoiceLevelBars } from "@/features/voice/VoiceWaveform";
 import { toast } from "sonner";
 import { useIngestAlarm } from "@/components/IngestAlarmBanner";
@@ -34,6 +36,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
   const { pathname } = useLocation();
   const session = useSession();
   const voice = useVoiceListen();
+  const speak = useSpeakPlayer();
   const ingest = useIngestAlarm();
 
   const projectMatch = matchPath("/projects/:projectId/*", pathname);
@@ -80,8 +83,9 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             <p className="truncate px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {projectName}
             </p>
-            <NavGroup label="Listen">
+            <NavGroup label="Voice">
               <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
+              <NavItem to={`/projects/${projectId}/speak`} label="Speak" icon={Volume2} />
               <NavItem to={`/projects/${projectId}/rules`} label="Event extractors" icon={Wand2} />
             </NavGroup>
             <NavGroup label="Automation">
@@ -149,8 +153,12 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
         {projectId !== null ? (
           <div className="space-y-1">
             <SidebarListenButton projectId={projectId} voice={voice} />
+            <SidebarSpeakButton projectId={projectId} speak={speak} />
             {voice.error.length > 0 ? (
               <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
+            ) : null}
+            {speak.error.length > 0 ? (
+              <p className="px-3 text-[10px] leading-snug text-destructive">{speak.error}</p>
             ) : null}
           </div>
         ) : null}
@@ -225,6 +233,40 @@ function SidebarListenButton(props: {
           <VoiceLevelBars level={props.voice.level} active={true} size="wide" className="shrink-0" />
         </span>
       ) : null}
+    </button>
+  );
+}
+
+function SidebarSpeakButton(props: {
+  projectId: string;
+  speak: ReturnType<typeof useSpeakPlayer>;
+}): React.JSX.Element {
+  const speakActive = props.speak.armed && props.speak.projectId === props.projectId;
+  let speakLabel = "Speak";
+  if (speakActive && props.speak.speaking) {
+    speakLabel = "Speaking";
+  } else if (speakActive) {
+    speakLabel = "Speak on";
+  }
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors",
+        speakActive
+          ? "bg-success/15 text-success hover:bg-success/20"
+          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+      )}
+      onClick={() => {
+        if (speakActive) {
+          props.speak.disarm();
+          return;
+        }
+        props.speak.arm();
+      }}
+    >
+      <Volume2 className="h-4 w-4 shrink-0 opacity-90" />
+      <span className="min-w-0 flex-1 truncate text-left">{speakLabel}</span>
     </button>
   );
 }

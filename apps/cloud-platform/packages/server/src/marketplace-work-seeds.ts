@@ -204,6 +204,48 @@ export const SCRIPT_SEEDS: readonly CatalogSeed[] = [
     command: "git log -20 --pretty=format:%h %ad %s --date=short",
     sections: ["Last 20 commits", "Hash and subject", "No pretty invention", "Fail closed if git missing"],
   }),
+  scriptSeed({
+    id: "script-semgrep",
+    category: "security",
+    title: "Semgrep",
+    summary: "SAST on this working tree. Fails if findings exist or the binary is missing.",
+    source: "Semgrep CE `semgrep scan` CLI",
+    command: "semgrep scan --error --metrics off",
+    sections: [
+      "Scan the current directory",
+      "Fail closed if semgrep is not on PATH",
+      "Exit non-zero on findings",
+      "No token, no upload",
+    ],
+  }),
+  scriptSeed({
+    id: "script-trivy",
+    category: "security",
+    title: "Trivy",
+    summary: "Filesystem scan for vulns and secrets in this repo.",
+    source: "Trivy `trivy fs` CLI",
+    command: "trivy fs --scanners vuln,secret --exit-code 1 .",
+    sections: [
+      "Scan the working tree",
+      "Fail closed if trivy is not on PATH",
+      "Exit non-zero on findings",
+      "No image build, no registry login",
+    ],
+  }),
+  scriptSeed({
+    id: "script-sonar-scanner",
+    category: "quality",
+    title: "SonarScanner",
+    summary: "sonar-scanner on this tree. Uses SONAR_TOKEN from the host env if present.",
+    source: "SonarScanner CLI (docs.sonarsource.com)",
+    command: "sonar-scanner",
+    sections: [
+      "Run sonar-scanner from the project root",
+      "Fail closed if sonar-scanner is not on PATH",
+      "Do not pass a token on the command line",
+      "Host may set SONAR_TOKEN; Lotaru does not invent one",
+    ],
+  }),
 ];
 
 export const TASK_SEEDS: readonly CatalogSeed[] = [

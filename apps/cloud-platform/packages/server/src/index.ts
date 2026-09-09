@@ -14,6 +14,7 @@ import { registerTerminalModule } from "./modules/terminal.js";
 import { registerKnowledgeModule } from "./modules/knowledge.js";
 import { registerKnowledgeTemplatesModule } from "./modules/knowledge-templates.js";
 import { registerNotesModule } from "./modules/notes.js";
+import { registerSpeakModule } from "./modules/speak.js";
 import { registerProjectsModule } from "./modules/projects.js";
 import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
@@ -90,6 +91,10 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
     identity,
   });
   await registerNotesModule(app, {
+    databasePath: dbPath,
+    identity,
+  });
+  await registerSpeakModule(app, {
     databasePath: dbPath,
     identity,
   });

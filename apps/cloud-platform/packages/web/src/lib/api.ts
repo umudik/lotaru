@@ -1005,6 +1005,86 @@ export async function fetchTtsVoices(session: Session, engine: "edge" | "qwen") 
   );
 }
 
+export type SpeakSource = "ui" | "mcp" | "note";
+export type SpeakStatus = "queued" | "ready" | "played" | "failed";
+
+export type SpeakUtterance = {
+  id: string;
+  projectId: string;
+  text: string;
+  source: SpeakSource;
+  status: SpeakStatus;
+  error: string;
+  createdAt: number;
+  createdBy: string;
+};
+
+export async function createSpeakUtterance(
+  session: Session,
+  projectId: string,
+  text: string,
+  source: SpeakSource,
+): Promise<SpeakUtterance> {
+  return request<SpeakUtterance>(session, "/api/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, text, source }),
+  });
+}
+
+export async function fetchSpeakUtterance(session: Session, utteranceId: string) {
+  const id = utteranceId.trim();
+  if (id.length === 0) {
+    throw new ApiError("not found", 404);
+  }
+  return request<SpeakUtterance>(
+    session,
+    `/api/speak/${encodeURIComponent(id)}`,
+  );
+}
+
+export async function fetchSpeakUtterances(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId });
+  return request<{ utterances: SpeakUtterance[] }>(
+    session,
+    `/api/speak?${query.toString()}`,
+  );
+}
+
+export async function fetchSpeakPlayable(session: Session, projectId: string) {
+  const query = new URLSearchParams({ projectId, playable: "1" });
+  return request<{ utterances: SpeakUtterance[] }>(
+    session,
+    `/api/speak?${query.toString()}`,
+  );
+}
+
+export async function markSpeakPlayed(session: Session, utteranceId: string) {
+  return request<SpeakUtterance>(
+    session,
+    `/api/speak/${encodeURIComponent(utteranceId)}/played`,
+    { method: "POST" },
+  );
+}
+
+export async function fetchSpeakAudio(session: Session, utteranceId: string): Promise<Blob> {
+  const res = await fetch(`/api/speak/${encodeURIComponent(utteranceId)}/audio`, {
+    headers: {
+      Authorization: `Bearer ${session.token}`,
+      Accept: "audio/mpeg, application/json",
+    },
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    let message = "Speech failed";
+    if (typeof payload.error === "string" && payload.error.length > 0) {
+      message = payload.error;
+    }
+    throw new ApiError(message, res.status);
+  }
+  return res.blob();
+}
+
 export async function fetchSpeakPreview(session: Session, settings: AppSettings): Promise<Blob> {
   const res = await fetch("/api/settings/speak-preview", {
     method: "POST",

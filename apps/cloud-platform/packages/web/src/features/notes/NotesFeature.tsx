@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getAccessToken } from "@/lib/auth";
 import { fetchAiTools, fetchAppSettings, type AiToolRow } from "@/lib/api";
+import { useSpeakPlayer } from "@/features/speak/SpeakPlayerContext";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ type NotePage = {
   summaryBody: string;
   summaryStatus: JobStatus;
   summaryError: string;
+  speakId?: string;
 };
 
 type NoteBook = NoteBookListItem & {
@@ -122,6 +124,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const pageId = params["pageId"];
   const navigate = useNavigate();
   const session = useSession();
+  const speakPlayer = useSpeakPlayer();
   const base = notesBase(props.projectId);
   const [books, setBooks] = useState<NoteBookListItem[]>([]);
   const [book, setBook] = useState<NoteBook | null>(null);
@@ -268,6 +271,13 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       await loadBook(book.id);
       await loadBooks();
       navigate(`${base}/${book.id}/${page.id}`);
+      let queuedId = "";
+      if (page.speakId !== undefined && page.speakId.length > 0) {
+        queuedId = page.speakId;
+      }
+      if (queuedId.length > 0) {
+        await speakPlayer.playUtterance(queuedId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "page failed");
     } finally {
@@ -413,10 +423,22 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
     if (selected === undefined) {
       return;
     }
+    let persistOriginal = false;
     if (variant === "original") {
+      persistOriginal = true;
+    }
+    await speakPage(selected.id, variant, persistOriginal);
+  }
+
+  async function speakPage(
+    pageId: string,
+    variant: SpeakVariant,
+    persistOriginal: boolean,
+  ): Promise<void> {
+    if (persistOriginal === true) {
       savePageNow(pageTitle, pageBody);
     }
-    const key = `${selected.id}:${variant}`;
+    const key = `${pageId}:${variant}`;
     if (audioRef.current !== null && paused && speakingKey === key) {
       await audioRef.current.play();
       setPaused(false);
@@ -431,7 +453,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
-      const res = await fetch(`/api/note-pages/${selected.id}/speak`, {
+      const res = await fetch(`/api/note-pages/${pageId}/speak`, {
         method: "POST",
         headers,
         body: JSON.stringify({ variant }),

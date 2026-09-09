@@ -63,6 +63,9 @@ describe("marketplace catalog", () => {
     assert.equal(marketplaceItemById("doc-adr-madr") !== null, true);
     assert.equal(marketplaceItemById("diag-c4-context") !== null, true);
     assert.equal(marketplaceItemById("script-npm-test") !== null, true);
+    assert.equal(marketplaceItemById("script-semgrep") !== null, true);
+    assert.equal(marketplaceItemById("script-trivy") !== null, true);
+    assert.equal(marketplaceItemById("script-sonar-scanner") !== null, true);
     assert.equal(marketplaceItemById("task-feature") !== null, true);
     assert.equal(marketplaceItemById("task-requirements") !== null, true);
     assert.equal(marketplaceItemById("task-code-review") !== null, true);

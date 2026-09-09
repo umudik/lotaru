@@ -267,6 +267,8 @@ describe("note books", () => {
     assert.equal(createdPage.statusCode, 201);
     const page = createdPage.json();
     assert.equal(page.body, "guzel bir gun");
+    assert.equal(typeof page.speakId, "string");
+    assert.equal(page.speakId.length > 0, true);
     assert.equal(page.translationStatus, "error");
     assert.equal(page.translationError, "Pick a connected AI tool");
     assert.equal(page.polishStatus, "error");

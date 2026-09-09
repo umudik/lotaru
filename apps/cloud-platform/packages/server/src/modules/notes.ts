@@ -18,6 +18,7 @@ import {
   summarySystemPrompt,
   translationSystemPrompt,
 } from "../ollama.js";
+import { enqueueSpeakUtterance } from "../speak-store.js";
 import { synthesizeSpeech } from "../tts.js";
 import type { Identity } from "./identity.js";
 
@@ -162,6 +163,29 @@ export function releaseNoteJobEnqueue(): void {
   noteJobEnqueueSlot.handler = false;
 }
 
+function enqueueNoteSpeak(input: {
+  databasePath: string;
+  projectId: string;
+  text: string;
+  createdBy: string;
+}): string {
+  const body = input.text.trim();
+  if (body.length === 0) {
+    return "";
+  }
+  try {
+    const utterance = enqueueSpeakUtterance(input.databasePath, {
+      projectId: input.projectId,
+      text: body,
+      source: "note",
+      createdBy: input.createdBy,
+    });
+    return utterance.id;
+  } catch {
+    return "";
+  }
+}
+
 function notifyNotePageAdded(pageId: string): void {
   if (noteJobEnqueueSlot.handler === false) {
     return;
@@ -227,6 +251,12 @@ export function appendNotePageByBookTitle(input: {
       pageTitle,
     });
   }
+  enqueueNoteSpeak({
+    databasePath: input.databasePath,
+    projectId: input.projectId,
+    text: input.body,
+    createdBy: input.createdBy,
+  });
   return {
     bookId,
     bookTitle: bookTitleFinal,
@@ -944,7 +974,13 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     if (stored === null) {
       return reply.code(500).send({ error: "page missing" });
     }
-    return reply.code(201).send(stored);
+    const speakId = enqueueNoteSpeak({
+      databasePath: options.databasePath,
+      projectId: book.projectId,
+      text: stored.body,
+      createdBy: viewer.sub,
+    });
+    return reply.code(201).send(Object.assign({}, stored, { speakId }));
   });
 
   app.patch<{ Params: { pageId: string } }>("/api/note-pages/:pageId", async (request, reply) => {
