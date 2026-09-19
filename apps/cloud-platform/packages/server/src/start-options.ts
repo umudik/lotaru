@@ -9,7 +9,7 @@ export type StartOptions = {
 
 type EnvMap = Record<string, string | undefined>;
 
-const DEFAULT_PORT = 4317;
+const DEFAULT_PORT = 2222;
 const DEFAULT_HOST = "127.0.0.1";
 
 function parsePort(raw: string | null): number | null {

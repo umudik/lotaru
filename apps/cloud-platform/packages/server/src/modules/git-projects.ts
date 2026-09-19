@@ -1,10 +1,19 @@
-import Database from "better-sqlite3";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
+import {
+  getProjectGitLink,
+  insertProjectGitLink,
+  type GitProvider,
+} from "../git-repo-store.js";
+import {
+  authedGitCloneUrl,
+  githubUserToken,
+  publicGitCloneUrl,
+} from "../git-providers.js";
 import type { GithubAuth } from "./github-auth.js";
 import type { Identity, IdentityUser } from "./identity.js";
 import { projectDir, type ProjectPathsOptions } from "./project-paths.js";
@@ -14,52 +23,103 @@ const execFileAsync = promisify(execFile);
 export type GitProjectsOptions = ProjectPathsOptions & {
   identity: Identity;
   github: GithubAuth;
-};
-
-type RepoRow = {
-  project_id: string;
-  owner_id: string;
-  github_owner: string;
-  github_repo: string;
-  default_branch: string;
-  linked_at: number;
+  dataDir: string;
+  databasePath: string;
 };
 
 function repoUrl(owner: string, repo: string): string {
-  return `https://github.com/${owner}/${repo}.git`;
+  return publicGitCloneUrl("github", owner, repo);
 }
 
 function authedRepoUrl(token: string, owner: string, repo: string): string {
-  return `https://${token}@github.com/${owner}/${repo}.git`;
+  return authedGitCloneUrl("github", token, owner, repo);
 }
 
 async function runGit(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 * 32 });
 }
 
+export async function attachExistingGitRepo(input: {
+  paths: ProjectPathsOptions;
+  dataDir: string;
+  github: GithubAuth;
+  cloneToken: string;
+  projectId: string;
+  ownerId: string;
+  provider: GitProvider;
+  owner: string;
+  repo: string;
+  branch: string;
+}): Promise<{ repoPath: string; error: string | null }> {
+  if (getProjectGitLink(input.dataDir, input.projectId) !== null) {
+    return { repoPath: "", error: "a repo is already linked to this project" };
+  }
+  const saved = insertProjectGitLink(input.dataDir, {
+    projectId: input.projectId,
+    ownerId: input.ownerId,
+    provider: input.provider,
+    owner: input.owner,
+    repo: input.repo,
+    branch: input.branch,
+    linkedAt: Date.now(),
+  });
+  if (saved !== true) {
+    return { repoPath: "", error: "that repository is already linked to a project" };
+  }
+  let token = input.cloneToken;
+  if (token.length === 0 && input.provider === "github") {
+    const oauth = input.github.getAccessToken(input.ownerId);
+    if (oauth !== null) {
+      token = oauth;
+    }
+  }
+  if (token.length === 0) {
+    return { repoPath: "", error: null };
+  }
+  const authedUrl = authedGitCloneUrl(input.provider, token, input.owner, input.repo);
+  const originUrl = publicGitCloneUrl(input.provider, input.owner, input.repo);
+  if (authedUrl.length === 0 || originUrl.length === 0) {
+    return { repoPath: "", error: null };
+  }
+  const dir = projectDir(input.paths, input.projectId);
+  const cloneError = await cloneRemoteCheckout(dir, authedUrl, originUrl, input.branch);
+  if (cloneError !== null) {
+    return { repoPath: "", error: null };
+  }
+  return { repoPath: dir, error: null };
+}
+
+async function cloneRemoteCheckout(
+  dir: string,
+  authedUrl: string,
+  originUrl: string,
+  branch: string,
+): Promise<string | null> {
+  mkdirSync(dir, { recursive: true });
+  if (readdirSync(dir).length > 0) {
+    return "project folder is not empty";
+  }
+  try {
+    await runGit(process.cwd(), [
+      "clone",
+      "--branch",
+      branch,
+      "--single-branch",
+      authedUrl,
+      dir,
+    ]);
+    await runGit(dir, ["remote", "set-url", "origin", originUrl]);
+  } catch (err) {
+    return `clone failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return null;
+}
+
 export async function registerGitProjectsModule(
   app: FastifyInstance,
   options: GitProjectsOptions,
 ): Promise<void> {
-  const db = new Database(join(options.dataDir, "git.db"));
-  db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS project_repos (
-      project_id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL,
-      github_owner TEXT NOT NULL,
-      github_repo TEXT NOT NULL,
-      default_branch TEXT NOT NULL,
-      linked_at INTEGER NOT NULL
-    );
-  `);
-
-  function getRepo(projectId: string): RepoRow | null {
-    const row = db.prepare("SELECT * FROM project_repos WHERE project_id = ?").get(projectId) as
-      | RepoRow
-      | undefined;
-    return row === undefined ? null : row;
-  }
+  const dataDir = options.dataDir;
 
   async function requireProjectAccess(
     request: FastifyRequest,
@@ -82,7 +142,7 @@ export async function registerGitProjectsModule(
       if (user === null) {
         return reply.code(404).send({ error: "not found" });
       }
-      const repo = getRepo(request.params.projectId);
+      const repo = getProjectGitLink(dataDir, request.params.projectId);
       if (repo === null) {
         return { linked: false };
       }
@@ -98,20 +158,20 @@ export async function registerGitProjectsModule(
             "rev-list",
             "--left-right",
             "--count",
-            `origin/${repo.default_branch}...HEAD`,
+            `origin/${repo.branch}...HEAD`,
           ]);
           const parts = counts.stdout.trim().split(/\s+/);
           behind = Number.parseInt(parts[0] ?? "0", 10) || 0;
           ahead = Number.parseInt(parts[1] ?? "0", 10) || 0;
         } catch {
-          // best-effort — a missing remote branch or fresh clone shouldn't fail the route
         }
       }
       return {
         linked: true,
-        owner: repo.github_owner,
-        repo: repo.github_repo,
-        branch: repo.default_branch,
+        provider: repo.provider,
+        owner: repo.owner,
+        repo: repo.repo,
+        branch: repo.branch,
         dirty,
         ahead,
         behind,
@@ -130,7 +190,7 @@ export async function registerGitProjectsModule(
     const dir = projectDir(options, projectId);
     mkdirSync(dir, { recursive: true });
     if (readdirSync(dir).length > 0) {
-      return "project folder is not empty — clear it before linking a repo";
+      return "project folder is not empty; clear it before linking a repo";
     }
     try {
       await runGit(process.cwd(), [
@@ -141,16 +201,22 @@ export async function registerGitProjectsModule(
         authedRepoUrl(token, owner, repoName),
         dir,
       ]);
-      // Strip the token back out of the stored remote — it's re-injected fresh on
-      // every push/pull instead of sitting in .git/config indefinitely.
       await runGit(dir, ["remote", "set-url", "origin", repoUrl(owner, repoName)]);
     } catch (err) {
       return `clone failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-    db.prepare(
-      `INSERT INTO project_repos (project_id, owner_id, github_owner, github_repo, default_branch, linked_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(projectId, ownerId, owner, repoName, branch, Date.now());
+    const saved = insertProjectGitLink(dataDir, {
+      projectId,
+      ownerId,
+      provider: "github",
+      owner,
+      repo: repoName,
+      branch,
+      linkedAt: Date.now(),
+    });
+    if (saved !== true) {
+      return "a repo is already linked to this project";
+    }
     return null;
   }
 
@@ -161,8 +227,8 @@ export async function registerGitProjectsModule(
       if (user === null) {
         return reply.code(404).send({ error: "not found" });
       }
-      const token = options.github.getAccessToken(user.id);
-      if (token === null) {
+      const token = githubUserToken(options.github, user.id, options.databasePath);
+      if (token.length === 0) {
         return reply.code(409).send({ error: "github not connected" });
       }
       const owner = typeof request.body.owner === "string" ? request.body.owner.trim() : "";
@@ -173,7 +239,7 @@ export async function registerGitProjectsModule(
       const branch = typeof request.body.branch === "string" && request.body.branch.length > 0
         ? request.body.branch
         : "main";
-      if (getRepo(request.params.projectId) !== null) {
+      if (getProjectGitLink(dataDir, request.params.projectId) !== null) {
         return reply.code(409).send({ error: "a repo is already linked to this project" });
       }
       const failure = await cloneIntoProject(request.params.projectId, user.id, token, owner, repoName, branch);
@@ -184,73 +250,6 @@ export async function registerGitProjectsModule(
     },
   );
 
-  // Starting a project from a blank idea shouldn't require detouring to github.com
-  // first — create the repo via GitHub's API, then clone it the same way /git/link
-  // does.
-  app.post<{
-    Params: { projectId: string };
-    Body: { name?: unknown; private?: unknown; description?: unknown };
-  }>("/api/v1/projects/:projectId/git/create", async (request, reply) => {
-    const user = await requireProjectAccess(request, request.params.projectId);
-    if (user === null) {
-      return reply.code(404).send({ error: "not found" });
-    }
-    const account = options.github.getAccount(user.id);
-    const token = options.github.getAccessToken(user.id);
-    if (account === null || token === null) {
-      return reply.code(409).send({ error: "github not connected" });
-    }
-    const name = typeof request.body.name === "string" ? request.body.name.trim() : "";
-    if (name.length === 0) {
-      return reply.code(400).send({ error: "name is required" });
-    }
-    if (getRepo(request.params.projectId) !== null) {
-      return reply.code(409).send({ error: "a repo is already linked to this project" });
-    }
-    const isPrivate = request.body.private !== false;
-    const description = typeof request.body.description === "string" ? request.body.description : "";
-
-    const createResponse = await fetch("https://api.github.com/user/repos", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: "application/vnd.github+json",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        name,
-        private: isPrivate,
-        description,
-        auto_init: true,
-      }),
-    });
-    if (!createResponse.ok) {
-      const text = await createResponse.text();
-      return reply.code(502).send({ error: `github repo creation failed: ${text}` });
-    }
-    const created = (await createResponse.json()) as {
-      owner?: { login?: unknown };
-      name?: unknown;
-      default_branch?: unknown;
-    };
-    const owner = typeof created.owner?.login === "string" ? created.owner.login : account.login;
-    const repoName = typeof created.name === "string" ? created.name : name;
-    const branch = typeof created.default_branch === "string" ? created.default_branch : "main";
-
-    // Freshly created repos need a moment before they're clone-able.
-    let failure: string | null = "repo not ready";
-    for (let attempt = 0; attempt < 5 && failure !== null; attempt++) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-      failure = await cloneIntoProject(request.params.projectId, user.id, token, owner, repoName, branch);
-    }
-    if (failure !== null) {
-      return reply.code(502).send({ error: failure });
-    }
-    return reply.code(201).send({ linked: true, owner, repo: repoName, branch });
-  });
-
   app.post<{ Params: { projectId: string }; Body: { message?: unknown } }>(
     "/api/v1/projects/:projectId/git/push",
     async (request, reply) => {
@@ -258,13 +257,16 @@ export async function registerGitProjectsModule(
       if (user === null) {
         return reply.code(404).send({ error: "not found" });
       }
-      const repo = getRepo(request.params.projectId);
+      const repo = getProjectGitLink(dataDir, request.params.projectId);
       if (repo === null) {
         return reply.code(409).send({ error: "no repo linked to this project" });
       }
-      const token = options.github.getAccessToken(user.id);
+      if (repo.provider !== "github") {
+        return reply.code(409).send({ error: "push is only available for GitHub repos" });
+      }
+      const token = githubUserToken(options.github, user.id, options.databasePath);
       const account = options.github.getAccount(user.id);
-      if (token === null || account === null) {
+      if (token.length === 0 || account === null) {
         return reply.code(409).send({ error: "github not connected" });
       }
       const message = typeof request.body.message === "string" && request.body.message.trim().length > 0
@@ -290,14 +292,14 @@ export async function registerGitProjectsModule(
             throw err;
           }
         }
-        await runGit(dir, ["remote", "set-url", "origin", authedRepoUrl(token, repo.github_owner, repo.github_repo)]);
-        await runGit(dir, ["push", "origin", `HEAD:${repo.default_branch}`]);
+        await runGit(dir, ["remote", "set-url", "origin", authedRepoUrl(token, repo.owner, repo.repo)]);
+        await runGit(dir, ["push", "origin", `HEAD:${repo.branch}`]);
       } catch (err) {
         return reply.code(502).send({
           error: `push failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       } finally {
-        await runGit(dir, ["remote", "set-url", "origin", repoUrl(repo.github_owner, repo.github_repo)]).catch(
+        await runGit(dir, ["remote", "set-url", "origin", repoUrl(repo.owner, repo.repo)]).catch(
           () => {},
         );
       }
@@ -312,24 +314,27 @@ export async function registerGitProjectsModule(
       if (user === null) {
         return reply.code(404).send({ error: "not found" });
       }
-      const repo = getRepo(request.params.projectId);
+      const repo = getProjectGitLink(dataDir, request.params.projectId);
       if (repo === null) {
         return reply.code(409).send({ error: "no repo linked to this project" });
       }
-      const token = options.github.getAccessToken(user.id);
-      if (token === null) {
+      if (repo.provider !== "github") {
+        return reply.code(409).send({ error: "pull is only available for GitHub repos" });
+      }
+      const token = githubUserToken(options.github, user.id, options.databasePath);
+      if (token.length === 0) {
         return reply.code(409).send({ error: "github not connected" });
       }
       const dir = projectDir(options, request.params.projectId);
       try {
-        await runGit(dir, ["remote", "set-url", "origin", authedRepoUrl(token, repo.github_owner, repo.github_repo)]);
-        await runGit(dir, ["pull", "--ff-only", "origin", repo.default_branch]);
+        await runGit(dir, ["remote", "set-url", "origin", authedRepoUrl(token, repo.owner, repo.repo)]);
+        await runGit(dir, ["pull", "--ff-only", "origin", repo.branch]);
       } catch (err) {
         return reply.code(502).send({
           error: `pull failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       } finally {
-        await runGit(dir, ["remote", "set-url", "origin", repoUrl(repo.github_owner, repo.github_repo)]).catch(
+        await runGit(dir, ["remote", "set-url", "origin", repoUrl(repo.owner, repo.repo)]).catch(
           () => {},
         );
       }

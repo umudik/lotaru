@@ -344,9 +344,13 @@ export async function pollGithubOnce(
     maxPages?: number;
     pageSize?: number;
     maxWalkPages?: number;
+    token?: string;
   } = {},
 ): Promise<void> {
-  const token = loadGithubToken(db);
+  let token = loadGithubToken(db);
+  if (options.token !== undefined && options.token.length > 0) {
+    token = options.token;
+  }
   if (token.length === 0) {
     return;
   }
@@ -468,6 +472,7 @@ export function startGithubPoller(
   loadTunnel: () => { enabled: boolean; state: string; publicUrl: string } = () => {
     return { enabled: false, state: "off", publicUrl: "" };
   },
+  resolveGithubToken: () => string = () => loadGithubToken(db),
 ): () => void {
   ensurePollSchema(db);
   ensureConnectionSchema(db);
@@ -496,11 +501,11 @@ export function startGithubPoller(
     inFlight = true;
     void loadWatches()
       .then(async (watches) => {
-        await pollGithubOnce(db, watches, emit);
+        const githubToken = resolveGithubToken();
+        await pollGithubOnce(db, watches, emit, { token: githubToken });
         const projectIds = projectIdsForPoll(watches, loadProjectIds);
         await pollConnectedAdapters(db, projectIds, emit);
         const tunnel = loadTunnel();
-        const githubToken = loadGithubToken(db);
         const linearToken = loadConnectionSecret(db, "linear");
         const stripeToken = loadConnectionSecret(db, "stripe");
         const tunnelLive = tunnel.state === "up" && tunnel.publicUrl.length > 0;

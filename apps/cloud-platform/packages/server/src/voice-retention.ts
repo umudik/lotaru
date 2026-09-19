@@ -26,11 +26,6 @@ function tableExists(db: Database.Database, table: string): boolean {
   return row !== undefined;
 }
 
-/**
- * Where the rule scanner has read up to, or null when it has never run for this
- * project — in which case no line is pending and the window applies to all of
- * them.
- */
 export function scanCursor(db: Database.Database, projectId: string): ScanCursor | null {
   if (tableExists(db, "voice_batch_state") !== true) {
     return null;
@@ -46,41 +41,66 @@ export function scanCursor(db: Database.Database, projectId: string): ScanCursor
   return { createdAt: row.last_created_at, segmentId: row.last_segment_id };
 }
 
-/** Drops scanned lines that have fallen out of the newest VOICE_SEGMENT_KEEP. */
+export function slowestScanCursor(db: Database.Database): ScanCursor | null {
+  if (tableExists(db, "voice_batch_state") !== true) {
+    return null;
+  }
+  const rows = db
+    .prepare("SELECT last_created_at, last_segment_id FROM voice_batch_state")
+    .all() as { last_created_at: number; last_segment_id: string }[];
+  if (Array.isArray(rows) !== true || rows.length === 0) {
+    return null;
+  }
+  let slowest: ScanCursor | null = null;
+  for (const row of rows) {
+    const candidate: ScanCursor = {
+      createdAt: row.last_created_at,
+      segmentId: row.last_segment_id,
+    };
+    if (slowest === null) {
+      slowest = candidate;
+      continue;
+    }
+    if (candidate.createdAt < slowest.createdAt) {
+      slowest = candidate;
+      continue;
+    }
+    if (candidate.createdAt === slowest.createdAt && candidate.segmentId < slowest.segmentId) {
+      slowest = candidate;
+    }
+  }
+  return slowest;
+}
+
 export function pruneVoiceSegments(
   db: Database.Database,
-  projectId: string,
   keep: number = VOICE_SEGMENT_KEEP,
 ): number {
   const survivors = `
     SELECT id FROM voice_segments
-     WHERE project_id = @projectId
      ORDER BY created_at DESC, id DESC
      LIMIT @keep
   `;
-  const cursor = scanCursor(db, projectId);
+  const cursor = slowestScanCursor(db);
   if (cursor === null) {
     const result = db
       .prepare(
         `DELETE FROM voice_segments
-          WHERE project_id = @projectId
-            AND id NOT IN (${survivors})`,
+          WHERE id NOT IN (${survivors})`,
       )
-      .run({ projectId, keep });
+      .run({ keep });
     return result.changes;
   }
   const result = db
     .prepare(
       `DELETE FROM voice_segments
-        WHERE project_id = @projectId
-          AND (
+        WHERE (
             created_at < @cursorCreatedAt
             OR (created_at = @cursorCreatedAt AND id <= @cursorSegmentId)
           )
           AND id NOT IN (${survivors})`,
     )
     .run({
-      projectId,
       keep,
       cursorCreatedAt: cursor.createdAt,
       cursorSegmentId: cursor.segmentId,

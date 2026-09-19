@@ -160,7 +160,7 @@ export function ScriptTile(props: Props): React.JSX.Element {
   return (
     <Card
       className={cn(
-        'cursor-pointer hover:bg-secondary/20 transition-colors overflow-hidden flex flex-col relative min-h-[5.5rem]',
+        'cursor-pointer hover:bg-secondary/20 transition-colors overflow-hidden relative',
         flash !== null && 'script-card-flash',
         props.selected && 'bg-secondary/20',
         !t.enabled && 'opacity-55',
@@ -170,23 +170,23 @@ export function ScriptTile(props: Props): React.JSX.Element {
       onClick={props.onSelect}
     >
       {props.selected && (
-        <span className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
+        <span className="absolute left-0 top-2.5 bottom-2.5 w-0.5 rounded-full bg-muted-foreground/45 pointer-events-none" />
       )}
-      <div className="p-3.5 flex flex-col gap-2.5 flex-1 min-w-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', dotClass)} />
-          <div className="flex-1 min-w-0">
-            <div className="text-[15px] font-semibold leading-tight truncate">{t.name}</div>
-            <div className="flex items-center gap-2 min-w-0 mt-1">
-              <span className="text-xs text-muted-foreground truncate">{triggerSummary(t)}</span>
-              {statusLine}
-            </div>
-          </div>
-          <div onClick={stopBubble} className="shrink-0">
-            {runBtn}
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3">
+        <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} />
+        <div className="min-w-0 max-w-xs shrink-0">
+          <div className="truncate text-[15px] font-semibold leading-tight">{t.name}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs text-muted-foreground">{triggerSummary(t)}</span>
+            {statusLine}
           </div>
         </div>
-        <RunDotsPreview scriptId={t.id} max={14} />
+        <div className="min-w-0 flex-1">
+          <RunDotsPreview scriptId={t.id} max={14} />
+        </div>
+        <div onClick={stopBubble} className="shrink-0">
+          {runBtn}
+        </div>
       </div>
     </Card>
   );

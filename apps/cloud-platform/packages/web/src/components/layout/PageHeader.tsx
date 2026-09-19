@@ -70,7 +70,7 @@ export function PageHeader(rawProps: Partial<PageHeaderProps> & Pick<PageHeaderP
   const showContext = context !== null || contextExtra !== null;
 
   return (
-    <header className={cn("page-toolbar flex-wrap", className)}>
+    <header className={cn("page-toolbar", className)}>
       <div className="min-w-0">
         {breadcrumb !== null && breadcrumb.length > 0 ? <Breadcrumb items={breadcrumb} /> : null}
         {showContext ? (
@@ -85,7 +85,7 @@ export function PageHeader(rawProps: Partial<PageHeaderProps> & Pick<PageHeaderP
         </div>
         {subtitle !== null ? <p className="text-xs text-muted-foreground">{subtitle}</p> : null}
       </div>
-      {actions !== null ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions !== null ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>
   );
 }

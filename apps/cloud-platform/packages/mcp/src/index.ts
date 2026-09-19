@@ -259,9 +259,8 @@ function createLotaruMcpServer(): McpServer {
 
   server.tool(
     "voice_segments",
-    "List voice transcript segments for a project",
+    "List the global Voice transcript (not project-scoped)",
     {
-      projectId: z.string(),
       limit: z.number().int().positive().optional(),
     },
     async (args) => {
@@ -270,10 +269,7 @@ function createLotaruMcpServer(): McpServer {
         limit = args.limit;
       }
       return textResult(
-        await api(
-          "GET",
-          `/api/voice/segments?projectId=${encodeURIComponent(args.projectId)}&limit=${String(limit)}`,
-        ),
+        await api("GET", `/api/voice/segments?limit=${String(limit)}`),
       );
     },
   );
@@ -311,12 +307,9 @@ function createLotaruMcpServer(): McpServer {
 
   server.tool(
     "voice_status",
-    "Voice listen / sidecar status",
-    { projectId: z.string() },
-    async (args) =>
-      textResult(
-        await api("GET", `/api/voice/status?projectId=${encodeURIComponent(args.projectId)}`),
-      ),
+    "Voice listen / sidecar status (global, not project-scoped)",
+    {},
+    async () => textResult(await api("GET", "/api/voice/status")),
   );
 
   server.tool("projects_list", "List Lotaru projects", {}, async () =>
@@ -411,14 +404,12 @@ function createLotaruMcpServer(): McpServer {
 
   server.tool(
     "speak",
-    "Queue text for Lotaru to read aloud (Settings → Voice). Plays in the Lotaru UI when Speak is on. Returns MCP audio/mpeg.",
+    "Queue text for Lotaru to read aloud (Settings → Voice). Plays in the Lotaru UI when Speak is on. Returns MCP audio/mpeg. The queue is global, not project-scoped.",
     {
-      projectId: z.string(),
       text: z.string(),
     },
     async (args) => {
       const created = await api("POST", "/api/speak", {
-        projectId: args.projectId,
         text: args.text,
         source: "mcp",
       });

@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-rou
 import { Loader2, Pause, Play, Plus, RotateCcw, Trash2, Volume2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { VoiceSettingsLink } from "@/components/VoiceSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -489,23 +490,21 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   }
 
   return (
-    <div className="note-desk flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        title="Notes"
+        info="Translate, polish, and summary use the AI you pick on each book. Read-aloud uses Voice settings."
+        actions={
+          <>
+            <AiSettingsLink />
+            <VoiceSettingsLink />
+          </>
+        }
+      />
+      <div className="note-desk flex min-h-0 flex-1">
       <aside className="flex w-[18rem] shrink-0 flex-col border-r border-border/70">
-        <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold tracking-tight">Notes</h1>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Translate, polish, and summary use the AI you pick on each book. Read-aloud uses
-              Voice settings.
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <AiSettingsLink />
-              <VoiceSettingsLink />
-            </div>
-          </div>
-        </div>
         <form
-          className="flex gap-2 px-4 pb-3"
+          className="flex gap-2 px-4 pb-3 pt-3"
           onSubmit={(event) => {
             event.preventDefault();
             void createBook();
@@ -555,7 +554,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-8 py-4">
               <h2 className="mr-auto text-base font-semibold">{book.title}</h2>
               <div className="w-[min(100%,16rem)]">
                 <ConnectedAiSelect
@@ -589,13 +588,13 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-            <p className="border-b border-border/70 px-6 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="border-b border-border/70 px-8 py-3 text-[11px] leading-relaxed text-muted-foreground">
               On runs that job when you add or edit a page. Translate uses the target language in
               Voice settings. Polish and summary use AI. Each job keeps its own text, and each
               text can be read aloud.
             </p>
             <form
-              className="border-b border-border/70 px-6 py-4"
+              className="border-b border-border/70 px-8 py-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 void addPage();
@@ -639,7 +638,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                   ))
                 )}
               </div>
-              <div className="min-h-0 overflow-y-auto px-6 py-6">
+              <div className="min-h-0 overflow-y-auto px-8 py-6">
                 {selected === undefined ? (
                   <p className="text-sm text-muted-foreground">Select a page, or add one from the paste box.</p>
                 ) : (
@@ -741,6 +740,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           </>
         )}
       </section>
+      </div>
     </div>
   );
 }

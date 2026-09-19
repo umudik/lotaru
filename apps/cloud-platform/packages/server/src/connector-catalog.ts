@@ -10,6 +10,7 @@ export const CONNECTOR_KIND_VALUES = [
   "asana",
   "autopilot",
   "aws.sns",
+  "azuredevops",
   "bitbucket",
   "box",
   "brevo",
@@ -266,6 +267,14 @@ const CONNECTORS: readonly Connector[] = [
     intake: "trigger",
     events: [
       { type: "aws.sns.triggered", label: "Triggered" },
+    ],
+  },
+  {
+    id: "azuredevops",
+    label: "Azure DevOps",
+    intake: "trigger",
+    events: [
+      { type: "azuredevops.triggered", label: "Triggered" },
     ],
   },
   {

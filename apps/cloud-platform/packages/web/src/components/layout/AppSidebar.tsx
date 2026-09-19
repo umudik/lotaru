@@ -74,6 +74,10 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
+        <NavGroup label="You">
+          <NavItem to="/voice" label="Voice" icon={Mic} />
+          <NavItem to="/speak" label="Speak" icon={Volume2} />
+        </NavGroup>
         <div className="space-y-0.5">
           <NavItem to="/projects" label="Projects" icon={FolderKanban} end />
         </div>
@@ -83,12 +87,8 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
             <p className="truncate px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {projectName}
             </p>
-            <NavGroup label="Voice">
-              <NavItem to={`/projects/${projectId}/voice`} label="Voice" icon={Mic} />
-              <NavItem to={`/projects/${projectId}/speak`} label="Speak" icon={Volume2} />
-              <NavItem to={`/projects/${projectId}/rules`} label="Event extractors" icon={Wand2} />
-            </NavGroup>
             <NavGroup label="Automation">
+              <NavItem to={`/projects/${projectId}/rules`} label="Event extractors" icon={Wand2} />
               <NavItem to={`/projects/${projectId}/agents`} label="Event responders" icon={Bot} />
               <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={ScrollText} />
             </NavGroup>
@@ -150,18 +150,16 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
         ) : null}
       </nav>
       <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
-        {projectId !== null ? (
-          <div className="space-y-1">
-            <SidebarListenButton projectId={projectId} voice={voice} />
-            <SidebarSpeakButton projectId={projectId} speak={speak} />
-            {voice.error.length > 0 ? (
-              <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
-            ) : null}
-            {speak.error.length > 0 ? (
-              <p className="px-3 text-[10px] leading-snug text-destructive">{speak.error}</p>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="space-y-1">
+          <SidebarListenButton voice={voice} />
+          <SidebarSpeakButton speak={speak} />
+          {voice.error.length > 0 ? (
+            <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
+          ) : null}
+          {speak.error.length > 0 ? (
+            <p className="px-3 text-[10px] leading-snug text-destructive">{speak.error}</p>
+          ) : null}
+        </div>
         <NavItem to="/settings" label="Settings" icon={Settings} warn={ingest.kind !== "ok"} />
       </div>
     </aside>
@@ -180,10 +178,9 @@ function NavGroup(props: { label: string; children: React.ReactNode }): React.JS
 }
 
 function SidebarListenButton(props: {
-  projectId: string;
   voice: ReturnType<typeof useVoiceListen>;
 }): React.JSX.Element {
-  const listenActive = props.voice.armed && props.voice.projectId === props.projectId;
+  const listenActive = props.voice.armed;
   const listenLive = listenActive && props.voice.listening;
   let listenLabel = "Listen";
   if (props.voice.reconnecting && listenActive) {
@@ -207,7 +204,7 @@ function SidebarListenButton(props: {
           props.voice.stop();
           return;
         }
-        void props.voice.start(props.projectId).catch((err: unknown) => {
+        void props.voice.start().catch((err: unknown) => {
           const message =
             err instanceof Error && err.message.length > 0
               ? err.message
@@ -238,10 +235,9 @@ function SidebarListenButton(props: {
 }
 
 function SidebarSpeakButton(props: {
-  projectId: string;
   speak: ReturnType<typeof useSpeakPlayer>;
 }): React.JSX.Element {
-  const speakActive = props.speak.armed && props.speak.projectId === props.projectId;
+  const speakActive = props.speak.armed;
   let speakLabel = "Speak";
   if (speakActive && props.speak.speaking) {
     speakLabel = "Speaking";

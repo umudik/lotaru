@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { cachedSqlite } from "./sqlite-cache.js";
+import { USER_IO_STREAM } from "./user-io.js";
 
 export const SPEAK_SOURCES = ["ui", "mcp", "note"] as const;
 export const SPEAK_STATUSES = ["queued", "ready", "played", "failed"] as const;
@@ -137,15 +138,15 @@ function requireSpeakUtterance(databasePath: string, id: string): SpeakUtterance
   return stored;
 }
 
-function countSpeakPlayable(databasePath: string, projectId: string): number {
+function countSpeakPlayable(databasePath: string): number {
   const db = openSpeakDb(databasePath);
   const row = db
     .prepare(
       `SELECT COUNT(*) AS queued
        FROM speak_utterances
-       WHERE project_id = ? AND status IN ('queued', 'ready')`,
+       WHERE status IN ('queued', 'ready')`,
     )
-    .get(projectId);
+    .get();
   const parsed = z.object({ queued: z.coerce.number().int().nonnegative() }).safeParse(row);
   if (parsed.success !== true) {
     throw new Error("Invalid speak queue count");
@@ -164,20 +165,19 @@ function clipSpeakText(raw: string): string {
   return trimmed.slice(0, SPEAK_TEXT_MAX);
 }
 
-function pruneSpeakProject(databasePath: string, projectId: string): void {
+function pruneSpeakHistory(databasePath: string): void {
   const db = openSpeakDb(databasePath);
   db.prepare(
     `DELETE FROM speak_utterances
      WHERE id IN (
        SELECT id FROM (
          SELECT id FROM speak_utterances
-         WHERE project_id = ?
-           AND status IN ('played', 'failed')
+         WHERE status IN ('played', 'failed')
          ORDER BY created_at DESC, rowid DESC
          LIMIT -1 OFFSET ?
        ) overflow
      )`,
-  ).run(projectId, SPEAK_KEEP);
+  ).run(SPEAK_KEEP);
 }
 
 export function enqueueSpeakUtterance(
@@ -185,9 +185,8 @@ export function enqueueSpeakUtterance(
   input: EnqueueSpeakInput,
 ): SpeakUtterance {
   const text = clipSpeakText(input.text);
-  const projectId = input.projectId.trim();
-  if (projectId.length === 0) {
-    throw new Error("project required");
+  if (countSpeakPlayable(databasePath) >= SPEAK_KEEP) {
+    throw new Error(SPEAK_QUEUE_FULL);
   }
   const sourceParsed = sourceSchema.safeParse(input.source);
   if (sourceParsed.success !== true) {
@@ -198,9 +197,6 @@ export function enqueueSpeakUtterance(
   if (actor.length === 0) {
     actor = "lotaru";
   }
-  if (countSpeakPlayable(databasePath, projectId) >= SPEAK_KEEP) {
-    throw new Error(SPEAK_QUEUE_FULL);
-  }
   const id = randomUUID();
   const createdAt = Date.now();
   const db = openSpeakDb(databasePath);
@@ -208,8 +204,8 @@ export function enqueueSpeakUtterance(
     `INSERT INTO speak_utterances
       (id, project_id, text, source, status, error, created_at, created_by, audio)
      VALUES (?, ?, ?, ?, 'queued', '', ?, ?, NULL)`,
-  ).run(id, projectId, text, sourceParsed.data, createdAt, actor);
-  pruneSpeakProject(databasePath, projectId);
+  ).run(id, USER_IO_STREAM, text, sourceParsed.data, createdAt, actor);
+  pruneSpeakHistory(databasePath);
   return requireSpeakUtterance(databasePath, id);
 }
 
@@ -236,7 +232,6 @@ export function getSpeakUtterance(
 
 export function listSpeakUtterances(
   databasePath: string,
-  projectId: string,
   status: SpeakStatus | undefined,
 ): SpeakUtterance[] {
   const db = openSpeakDb(databasePath);
@@ -244,37 +239,36 @@ export function listSpeakUtterances(
     const filtered = db
       .prepare(
         `SELECT ${SPEAK_ROW_SQL}
-         FROM speak_utterances WHERE project_id = ? AND status = ?
+         FROM speak_utterances WHERE status = ?
          ORDER BY created_at ASC, rowid ASC LIMIT ?`,
       )
-      .all(projectId, status, SPEAK_KEEP);
+      .all(status, SPEAK_KEEP);
     return rowsToUtterances(filtered);
   }
-  const playable = listSpeakPlayable(databasePath, projectId);
+  const playable = listSpeakPlayable(databasePath);
   const historyRows = db
     .prepare(
       `SELECT ${SPEAK_ROW_SQL}
        FROM speak_utterances
-       WHERE project_id = ? AND status IN ('played', 'failed')
+       WHERE status IN ('played', 'failed')
        ORDER BY created_at DESC, rowid DESC LIMIT ?`,
     )
-    .all(projectId, SPEAK_KEEP);
+    .all(SPEAK_KEEP);
   return mergeSpeakRecent(playable, rowsToUtterances(historyRows));
 }
 
 export function listSpeakPlayable(
   databasePath: string,
-  projectId: string,
 ): SpeakUtterance[] {
   const db = openSpeakDb(databasePath);
   const rows = db
     .prepare(
       `SELECT ${SPEAK_ROW_SQL}
        FROM speak_utterances
-       WHERE project_id = ? AND status IN ('queued', 'ready')
+       WHERE status IN ('queued', 'ready')
        ORDER BY created_at ASC, rowid ASC LIMIT ?`,
     )
-    .all(projectId, SPEAK_KEEP);
+    .all(SPEAK_KEEP);
   return rowsToUtterances(rows);
 }
 

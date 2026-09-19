@@ -78,10 +78,35 @@ function secretPlaceholder(row: ConnectorRow): string {
     }
     return "https://yoursite.atlassian.net you@email API_TOKEN";
   }
+  if (row.id === "azuredevops") {
+    if (row.connected) {
+      return "Paste a new organization and PAT to replace";
+    }
+    return "fabrikam PAT";
+  }
+  if (row.id === "bitbucket") {
+    if (row.connected) {
+      return "Paste a new token to replace";
+    }
+    return "workspace-token";
+  }
   if (row.connected) {
     return "Paste a new token to replace";
   }
   return "API token";
+}
+
+function secretHint(row: ConnectorRow): string {
+  if (row.id === "jira") {
+    return "Site URL, Atlassian email, and API token, separated by spaces. Poll walks issues from the last cursor.";
+  }
+  if (row.id === "azuredevops") {
+    return "Organization name and PAT, separated by a space. Code (read) scope is required to list repositories.";
+  }
+  if (row.id === "bitbucket") {
+    return "Workspace access token, or Bitbucket username and app password separated by a space.";
+  }
+  return "";
 }
 
 export function ConnectionsSettings(props: {
@@ -198,6 +223,7 @@ export function ConnectionsSettings(props: {
             const tokenValue = isGithub ? props.githubToken : secretValue;
             const saving = isGithub ? props.githubSaving : props.savingId === row.id;
             const placeholder = secretPlaceholder(row);
+            const hint = secretHint(row);
             return (
               <li key={row.id}>
                 <details
@@ -248,7 +274,7 @@ export function ConnectionsSettings(props: {
                         type="password"
                         value={tokenValue}
                         placeholder={placeholder}
-                        aria-describedby={row.id === "jira" ? `${row.id}-secret-hint` : undefined}
+                        aria-describedby={hint.length > 0 ? `${row.id}-secret-hint` : undefined}
                         onChange={(event) => {
                           if (isGithub) {
                             props.onGithubToken(event.target.value);
@@ -273,10 +299,9 @@ export function ConnectionsSettings(props: {
                         {row.connected ? "Update" : "Connect"}
                       </Button>
                     </div>
-                    {row.id === "jira" ? (
+                    {hint.length > 0 ? (
                       <p id={`${row.id}-secret-hint`} className="text-xs text-muted-foreground">
-                        Site URL, Atlassian email, and API token, separated by spaces. Poll walks
-                        issues from the last cursor.
+                        {hint}
                       </p>
                     ) : null}
                     {row.connected && openToolId === row.id ? (

@@ -51,7 +51,7 @@ describe("speak store", () => {
       source: "mcp",
       createdBy: "lotaru-local",
     });
-    const listed = listSpeakUtterances(databasePath, PROJECT_ID, undefined);
+    const listed = listSpeakUtterances(databasePath, undefined);
     assert.equal(listed.length, 2);
     assert.equal(listed[0]?.text, "second");
     assert.equal(listed[1]?.text, "hello speak");
@@ -80,7 +80,7 @@ describe("speak store", () => {
         }),
       /Speak queue is full/,
     );
-    const listed = listSpeakUtterances(databasePath, PROJECT_ID, undefined);
+    const listed = listSpeakUtterances(databasePath, undefined);
     assert.equal(listed.length, 50);
   });
 
@@ -107,10 +107,10 @@ describe("speak store", () => {
     const stillQueued = getSpeakUtterance(databasePath, kept.id);
     assert.equal(stillQueued?.text, "keep-me");
     assert.equal(stillQueued?.status, "queued");
-    const playable = listSpeakPlayable(databasePath, PROJECT_ID);
+    const playable = listSpeakPlayable(databasePath);
     assert.equal(playable.length, 1);
     assert.equal(playable[0]?.text, "keep-me");
-    const listed = listSpeakUtterances(databasePath, PROJECT_ID, undefined);
+    const listed = listSpeakUtterances(databasePath, undefined);
     assert.equal(listed.length, 51);
     assert.equal(listed[0]?.text, "keep-me");
     assert.equal(listed[1]?.text, "played 54");
@@ -208,22 +208,24 @@ describe("speak http", () => {
     assert.equal(playable.json().utterances.length, 0);
   });
 
-  it("hides speak when the project is not visible", async (t) => {
+  it("lists speak without a project", async (t) => {
     const { app } = await startSpeak(false);
     t.after(async () => {
       await app.close();
     });
     const listed = await app.inject({
       method: "GET",
-      url: `/api/speak?projectId=${PROJECT_ID}`,
+      url: "/api/speak",
     });
-    assert.equal(listed.statusCode, 404);
+    assert.equal(listed.statusCode, 200);
+    assert.equal(listed.json().utterances.length, 0);
     const created = await app.inject({
       method: "POST",
       url: "/api/speak",
-      payload: { projectId: PROJECT_ID, text: "nope" },
+      payload: { text: "global hello" },
     });
-    assert.equal(created.statusCode, 404);
+    assert.equal(created.statusCode, 201);
+    assert.equal(created.json().text, "global hello");
   });
 
   it("rejects empty create bodies", async (t) => {

@@ -261,7 +261,7 @@ export function MarketplacePage(): React.JSX.Element {
   }
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Marketplace"
         subtitle="Install proven documents, diagrams, scripts, and pipeline stages. Scripts stay off until you enable them."
@@ -319,8 +319,8 @@ export function MarketplacePage(): React.JSX.Element {
           </div>
         }
       />
-      <PageContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
-        <div className="sticky top-0 z-10 space-y-3 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur">
+      <PageContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="sticky top-0 z-10 space-y-3 border-b border-border/60 bg-background/95 pb-3">
           <Input
             value={query}
             placeholder="Search templates, sources, categories"
@@ -392,7 +392,7 @@ export function MarketplacePage(): React.JSX.Element {
             ))}
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto pt-4">
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -481,7 +481,7 @@ export function MarketplacePage(): React.JSX.Element {
           ) : null}
         </div>
       </PageContent>
-    </>
+    </div>
   );
 }
 

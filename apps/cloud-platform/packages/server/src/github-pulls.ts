@@ -4,6 +4,7 @@ import {
   EVENT_GITHUB_PR_OPENED,
   EVENT_GITHUB_PR_UPDATED,
 } from "./events.js";
+import type { GitProvider } from "./git-repo-store.js";
 
 export type PullSnapshot = {
   number: number;
@@ -70,48 +71,202 @@ function stripGitSuffix(path: string): string {
   return trimmed;
 }
 
-function ownerRepoFromPath(pathname: string): string {
-  let path = pathname.trim();
+export type DetectedGitRemote = {
+  provider: GitProvider;
+  owner: string;
+  repo: string;
+};
+
+function pathSegments(pathname: string): string[] {
+  let path = stripGitSuffix(pathname.trim());
   if (path.startsWith("/")) {
     path = path.slice(1);
   }
-  path = stripGitSuffix(path);
-  if (path.endsWith("/")) {
-    path = path.slice(0, path.length - 1);
+  const segments: string[] = [];
+  for (const part of path.split("/")) {
+    if (part.length === 0) {
+      continue;
+    }
+    try {
+      const decoded = decodeURIComponent(part);
+      if (decoded.length > 0) {
+        segments.push(decoded);
+      }
+    } catch {
+      return [];
+    }
   }
-  const split = splitGithubRepo(path);
-  if (split.owner.length === 0) {
-    return "";
-  }
-  return `${split.owner}/${split.name}`;
+  return segments;
 }
 
-export function githubRepoFromRemoteUrl(raw: string): string {
+function ownerRepoFromSegments(segments: readonly string[]): { owner: string; repo: string }[] {
+  if (segments.length < 2) {
+    return [];
+  }
+  const repo = segments[segments.length - 1];
+  if (repo === undefined || repo.length === 0) {
+    return [];
+  }
+  const ownerParts: string[] = [];
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const part = segments[index];
+    if (part === undefined || part.length === 0) {
+      continue;
+    }
+    ownerParts.push(part);
+  }
+  const owner = ownerParts.join("/");
+  if (owner.length === 0) {
+    return [];
+  }
+  return [{ owner, repo }];
+}
+
+function azureOwnerRepo(pathname: string): { owner: string; repo: string }[] {
+  const raw = pathSegments(pathname);
+  let segments = raw;
+  if (raw[0] === "v3") {
+    segments = raw.slice(1);
+  }
+  const gitAt = segments.indexOf("_git");
+  if (gitAt >= 1 && gitAt + 1 < segments.length) {
+    const organization = segments[0];
+    const repoName = segments[gitAt + 1];
+    if (organization === undefined || repoName === undefined) {
+      return [];
+    }
+    let project = repoName;
+    if (gitAt >= 2) {
+      project = segments.slice(1, gitAt).join("/");
+    }
+    if (organization.length === 0 || project.length === 0 || repoName.length === 0) {
+      return [];
+    }
+    return [{ owner: `${organization}/${project}`, repo: repoName }];
+  }
+  return ownerRepoFromSegments(segments);
+}
+
+function providerFromHost(host: string): GitProvider[] {
+  const name = host.trim().toLowerCase();
+  if (name === "github.com" || name === "www.github.com") {
+    return ["github"];
+  }
+  if (name === "gitlab.com") {
+    return ["gitlab"];
+  }
+  if (name === "bitbucket.org") {
+    return ["bitbucket"];
+  }
+  if (name === "dev.azure.com" || name === "ssh.dev.azure.com") {
+    return ["azuredevops"];
+  }
+  if (name.endsWith(".visualstudio.com") === true) {
+    return ["azuredevops"];
+  }
+  return [];
+}
+
+function remoteFromHostPath(host: string, pathname: string): DetectedGitRemote[] {
+  const providers = providerFromHost(host);
+  const provider = providers[0];
+  if (provider === undefined) {
+    return [];
+  }
+  let parts = ownerRepoFromSegments(pathSegments(pathname));
+  if (provider === "azuredevops") {
+    parts = azureOwnerRepo(pathname);
+  }
+  const split = parts[0];
+  if (split === undefined) {
+    return [];
+  }
+  return [{ provider, owner: split.owner, repo: split.repo }];
+}
+
+export function gitRemoteFromUrl(raw: string): DetectedGitRemote[] {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return "";
-  }
-  const scp = /^git@github\.com:(.+)$/.exec(trimmed);
-  if (scp !== null) {
-    const captured = scp[1];
-    if (captured === undefined) {
-      return "";
-    }
-    return ownerRepoFromPath(captured);
+    return [];
   }
   let href = trimmed;
-  if (trimmed.startsWith("git+")) {
+  if (trimmed.startsWith("git+") === true) {
     href = trimmed.slice(4);
   }
   try {
     const parsed = new URL(href);
-    if (parsed.hostname !== "github.com" && parsed.hostname !== "www.github.com") {
-      return "";
+    if (parsed.hostname.length > 0) {
+      return remoteFromHostPath(parsed.hostname, parsed.pathname);
     }
-    return ownerRepoFromPath(parsed.pathname);
   } catch {
+  }
+  const scp = /^([^@\s]+)@([^:\s]+):(.+)$/.exec(href);
+  if (scp === null) {
+    return [];
+  }
+  const host = scp[2];
+  const pathname = scp[3];
+  if (host === undefined || pathname === undefined) {
+    return [];
+  }
+  return remoteFromHostPath(host, pathname);
+}
+
+export function githubRepoFromRemoteUrl(raw: string): string {
+  const hits = gitRemoteFromUrl(raw);
+  const first = hits[0];
+  if (first === undefined) {
     return "";
   }
+  if (first.provider !== "github") {
+    return "";
+  }
+  return `${first.owner}/${first.repo}`;
+}
+
+export function gitRemotesFromListing(stdout: string): DetectedGitRemote[] {
+  const originRemotes: DetectedGitRemote[] = [];
+  const otherRemotes: DetectedGitRemote[] = [];
+  const seen = new Set<string>();
+  const lines = stdout.split("\n");
+  for (const line of lines) {
+    const trimmed = line.replaceAll("\r", "").trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const chunks = trimmed.split(/\s+/);
+    if (chunks.length < 2) {
+      continue;
+    }
+    const name = chunks[0];
+    const url = chunks[1];
+    if (name === undefined || url === undefined) {
+      continue;
+    }
+    const parsed = gitRemoteFromUrl(url);
+    const remote = parsed[0];
+    if (remote === undefined) {
+      continue;
+    }
+    const key = `${remote.provider}:${remote.owner}/${remote.repo}`;
+    if (seen.has(key) === true) {
+      continue;
+    }
+    seen.add(key);
+    if (name === "origin") {
+      originRemotes.push(remote);
+    } else {
+      otherRemotes.push(remote);
+    }
+  }
+  const ordered: DetectedGitRemote[] = [];
+  for (const remote of originRemotes) {
+    ordered.push(remote);
+  }
+  for (const remote of otherRemotes) {
+    ordered.push(remote);
+  }
+  return ordered;
 }
 
 export function githubReposFromRemoteListing(stdout: string): string[] {

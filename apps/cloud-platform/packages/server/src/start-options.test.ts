@@ -5,9 +5,9 @@ import { describe, it } from "node:test";
 import { resolveStartOptions } from "./start-options.js";
 
 describe("resolveStartOptions", () => {
-  it("defaults to localhost 4317 and ~/.lotaru", () => {
+  it("defaults to localhost 2222 and ~/.lotaru", () => {
     const opts = resolveStartOptions([], {}, homedir());
-    assert.equal(opts.port, 4317);
+    assert.equal(opts.port, 2222);
     assert.equal(opts.host, "127.0.0.1");
     assert.equal(opts.dataDir, join(homedir(), ".lotaru"));
     assert.equal(opts.staticDir, null);

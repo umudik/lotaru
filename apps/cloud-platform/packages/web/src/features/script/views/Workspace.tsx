@@ -4,8 +4,10 @@ import { ResizeHandle } from '@script/components/resize-handle';
 import { useDragResize } from '@script/hooks/use-drag-resize';
 import { Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyStatePanel } from '@/components/EmptyStatePanel';
+import { PageContent } from '@/components/layout/PageContent';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@script/components/ui/switch';
 import { ScriptTile } from '@script/components/script-tile';
@@ -39,8 +41,6 @@ const PENDING_SETTINGS = Object.freeze({
 });
 
 export function ProjectScriptView(props: Props): React.JSX.Element {
-  // Falls back to a placeholder instead of bailing out, so the header/toolbar stays
-  // mounted the whole time — no separate "loading" page swapped in once data arrives.
   const settings = useStore((s) => s.settings) ?? PENDING_SETTINGS;
   const scripts = useStore((s) => s.scripts);
   const liveExec = useStore((s) => s.liveExecutions);
@@ -249,56 +249,73 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
   }
 
   return (
-    <>
-      <div className="flex h-[calc(100vh-4rem)] -mx-6 overflow-hidden">
-        <div className="flex-1 min-w-[280px] flex flex-col px-6 border-r">
-          <header className="flex items-center justify-between gap-3 py-3 border-b shrink-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight truncate">Scripts</h1>
-              {stateBadge}
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        title="Scripts"
+        info="Scripts run in this project. Pause stops new runs. Open a tile to edit the command and browse run history."
+        actions={
+          <>
+            {stateBadge}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="scripts-resume"
+                checked={!settings.paused}
+                onCheckedChange={(v) => {
+                  void setProjectLive(v);
+                }}
+              />
+              <label htmlFor="scripts-resume" className="text-sm text-muted-foreground whitespace-nowrap">
+                Resume
+              </label>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="flex items-center gap-2 px-2">
-                <Switch
-                  checked={!settings.paused}
-                  onCheckedChange={(v) => {
-                    void setProjectLive(v);
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exporting}
+              onClick={() => {
+                void exportProject();
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export JSON
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void createScript();
+              }}
+              disabled={creating}
+              size="sm"
+            >
+              New script
+            </Button>
+          </>
+        }
+      />
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <PageContent>
+          {scripts.length === 0 ? (
+            <EmptyStatePanel
+              plain
+              title="No scripts yet"
+              description="Create a script to run commands on this project. Pause the workspace when you want no new runs."
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={creating}
+                  onClick={() => {
+                    void createScript();
                   }}
-                />
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Resume</span>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={exporting}
-                onClick={() => {
-                  void exportProject();
-                }}
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export JSON
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  void createScript();
-                }}
-                disabled={creating}
-                size="sm"
-              >
-                New script
-              </Button>
-            </div>
-          </header>
-
-          <div className="flex-1 min-h-0 overflow-y-auto py-3">
-            {scripts.length === 0 && (
-              <Card className="border-dashed">
-                <div className="p-8 text-center text-sm text-muted-foreground">No scripts yet</div>
-              </Card>
-            )}
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
+                >
+                  New script
+                </Button>
+              }
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
               {scripts.map((t) => (
                 <ScriptTile
                   key={t.id}
@@ -311,7 +328,8 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
                 />
               ))}
             </div>
-          </div>
+          )}
+        </PageContent>
         </div>
 
         {detailOpen && (
@@ -331,6 +349,6 @@ export function ProjectScriptView(props: Props): React.JSX.Element {
           {detailBody}
         </div>
       </div>
-    </>
+    </div>
   );
 }

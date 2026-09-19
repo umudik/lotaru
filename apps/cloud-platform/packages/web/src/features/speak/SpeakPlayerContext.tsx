@@ -8,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { matchPath, useLocation } from "react-router-dom";
 import { useSession } from "@/hooks/useSession";
 import {
   fetchSpeakAudio,
@@ -19,7 +18,6 @@ import {
 } from "@/lib/api";
 
 type SpeakPlayerContextValue = {
-  projectId: string;
   armed: boolean;
   speaking: boolean;
   error: string;
@@ -30,21 +28,6 @@ type SpeakPlayerContextValue = {
 };
 
 const SpeakPlayerContext = createContext<SpeakPlayerContextValue | null>(null);
-
-function projectIdFromPath(pathname: string): string {
-  const match = matchPath("/projects/:projectId/*", pathname);
-  if (match === null) {
-    return "";
-  }
-  const id = match.params.projectId;
-  if (id === undefined) {
-    return "";
-  }
-  if (id.length === 0) {
-    return "";
-  }
-  return id;
-}
 
 function exceptionName(err: unknown): string {
   if (err instanceof DOMException) {
@@ -68,8 +51,6 @@ function playFailureMessage(err: unknown): string {
 
 export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.Element {
   const session = useSession();
-  const { pathname } = useLocation();
-  const projectId = projectIdFromPath(pathname);
   const [armed, setArmed] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState("");
@@ -187,9 +168,6 @@ export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.E
     if (armed !== true) {
       return;
     }
-    if (projectId.length === 0) {
-      return;
-    }
     let cancelled = false;
     let timer = 0;
     const tick = async (): Promise<void> => {
@@ -199,7 +177,7 @@ export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.E
       const pollBusy = playingRef.current === true;
       if (pollBusy !== true) {
         try {
-          const data = await fetchSpeakPlayable(session, projectId);
+          const data = await fetchSpeakPlayable(session);
           const next = data.utterances[0];
           if (cancelled) {
             return;
@@ -228,7 +206,7 @@ export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.E
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [armed, projectId, playUtterance, session]);
+  }, [armed, playUtterance, session]);
 
   useEffect(() => {
     return () => {
@@ -249,7 +227,6 @@ export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.E
 
   const value = useMemo(
     () => ({
-      projectId,
       armed,
       speaking,
       error,
@@ -258,7 +235,7 @@ export function SpeakPlayerProvider(props: { children: ReactNode }): React.JSX.E
       disarm,
       playUtterance,
     }),
-    [projectId, armed, speaking, error, current, arm, disarm, playUtterance],
+    [armed, speaking, error, current, arm, disarm, playUtterance],
   );
 
   return <SpeakPlayerContext.Provider value={value}>{props.children}</SpeakPlayerContext.Provider>;

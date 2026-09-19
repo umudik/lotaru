@@ -30,6 +30,7 @@
     --success: 142 60% 50%;
     --warn: 38 90% 60%;
     --radius: 0.75rem;
+    --page-gutter: 1.5rem;
   }
 
   * {
@@ -108,7 +109,15 @@
   }
 
   .page-toolbar {
-    @apply flex shrink-0 items-center justify-between gap-4 border-b border-border/60 px-8 py-4;
+    @apply flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/60;
+    padding-left: var(--page-gutter);
+    padding-right: var(--page-gutter);
+  }
+
+  .page-content {
+    @apply min-h-0 flex-1 pb-4 pt-3;
+    padding-left: var(--page-gutter);
+    padding-right: var(--page-gutter);
   }
 
   .page-info-popover {
@@ -146,7 +155,7 @@
   }
 
   .panel-card {
-    @apply rounded-2xl border border-border/70 bg-card shadow-[0_8px_30px_rgba(0,0,0,0.35)];
+    @apply rounded-2xl border border-border/70 bg-card shadow-[0_4px_12px_rgba(0,0,0,0.28)];
   }
 
   .connection-summary {

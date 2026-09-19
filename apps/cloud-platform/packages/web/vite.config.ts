@@ -4,7 +4,7 @@ import path from "node:path";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, "../.."), "");
-  const backend = env.VITE_BACKEND_URL?.trim() || "http://127.0.0.1:4317";
+  const backend = env.VITE_BACKEND_URL?.trim() || "http://127.0.0.1:2222";
   const proxy = {
     "/api": { target: backend, changeOrigin: true, ws: true },
     "/health": { target: backend, changeOrigin: true },

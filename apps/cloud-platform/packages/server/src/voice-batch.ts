@@ -126,7 +126,6 @@ function writeCursor(
 
 function listPendingSegments(
   db: Database.Database,
-  projectId: string,
   state: BatchStateRow,
 ): PendingSegment[] {
   const table = db
@@ -138,14 +137,12 @@ function listPendingSegments(
   const rows = db
     .prepare(
       `SELECT id, text, created_at FROM voice_segments
-       WHERE project_id = ?
-         AND kind = 'final'
+       WHERE kind = 'final'
          AND (created_at > ? OR (created_at = ? AND id > ?))
        ORDER BY created_at ASC, id ASC
        LIMIT ?`,
     )
     .all(
-      projectId,
       state.last_created_at,
       state.last_created_at,
       state.last_segment_id,
@@ -219,7 +216,7 @@ export async function scanVoiceBatchForProject(input: {
   if (force !== true && now - lastScanAt < VOICE_BATCH_INTERVAL_MS) {
     return { ran: false, scanned: 0, matched: 0, skipped: "waiting for the next scan window" };
   }
-  const pending = listPendingSegments(db, input.projectId, readState(db, input.projectId));
+  const pending = listPendingSegments(db, readState(db, input.projectId));
   if (pending.length === 0) {
     // Still stamp the scan time so an idle project does not re-check every tick.
     writeCursor(db, input.projectId, now, null);

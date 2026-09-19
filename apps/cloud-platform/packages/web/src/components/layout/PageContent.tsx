@@ -9,5 +9,5 @@ export function PageContent(props: {
   if (props.className !== undefined) {
     extra = props.className;
   }
-  return <div className={cn("min-h-0 flex-1 px-8 pb-6 pt-2", extra)}>{props.children}</div>;
+  return <div className={cn("page-content", extra)}>{props.children}</div>;
 }

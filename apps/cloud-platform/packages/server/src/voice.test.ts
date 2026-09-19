@@ -25,7 +25,7 @@ describe("pageVoiceSegments", () => {
         1000 + i,
       );
     }
-    const first = pageVoiceSegments(db, "proj-a", 2, "");
+    const first = pageVoiceSegments(db, 2, "");
     assert.equal(first.segments.length, 2);
     assert.equal(first.next.length, 1);
     assert.equal(first.segments[0]?.text, "line 4");
@@ -34,7 +34,7 @@ describe("pageVoiceSegments", () => {
     if (cursor === undefined) {
       assert.fail("missing cursor");
     }
-    const second = pageVoiceSegments(db, "proj-a", 2, cursor);
+    const second = pageVoiceSegments(db, 2, cursor);
     assert.equal(second.segments.length, 2);
     assert.equal(second.segments[0]?.text, "line 2");
     assert.equal(second.next.length, 1);

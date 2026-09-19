@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { EmptyStatePanel } from "@/components/EmptyStatePanel";
 import { InlineErrorBanner } from "@/components/InlineErrorBanner";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ResizeHandle } from "@script/components/resize-handle";
@@ -292,7 +293,7 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Event extractors"
-        info="An extractor turns something you said into an event. Responders and scripts can subscribe to that event."
+        info="An extractor reads the global Voice transcript and emits an event into this project. Responders and scripts can subscribe to that event."
         actions={
           <div className="flex items-center gap-2">
             <AiSettingsLink />
@@ -323,15 +324,14 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
           </div>
         }
       />
-      <div className="flex min-h-0 flex-1 overflow-hidden border-t">
-        <div className="flex min-w-[280px] flex-1 flex-col px-8">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <PageContent className="min-w-[280px] space-y-6 overflow-y-auto">
           {error.length > 0 && panelMode === "closed" ? (
-            <div className="mt-3">
+            <div className="mb-3">
               <InlineErrorBanner message={error} />
             </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-3">
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading extractors…</p>
             ) : rules.length === 0 ? (
@@ -409,8 +409,7 @@ export function RulesFeature(props: { projectId: string }): React.JSX.Element {
                 </div>
               </>
             )}
-          </div>
-        </div>
+        </PageContent>
 
         {detailOpen ? (
           <ResizeHandle

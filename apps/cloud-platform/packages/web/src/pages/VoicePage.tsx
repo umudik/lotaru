@@ -10,10 +10,8 @@ import { VoiceWaveform } from "@/features/voice/VoiceWaveform";
 import { useSession } from "@/hooks/useSession";
 import {
   ApiError,
-  fetchVoiceRules,
   fetchVoiceSegments,
   fetchVoiceStatus,
-  type VoiceRuleHit,
   type VoiceSegment,
 } from "@/lib/api";
 import { cn, formatMillis } from "@/lib/utils";
@@ -26,7 +24,7 @@ function voiceHistoryLoadError(err: unknown): string {
       return "Voice API is missing on this server — restart Lotaru.";
     }
     if (err.status === 403) {
-      return "This project is not available for voice history.";
+      return "Voice history is not available.";
     }
     if (err.status === 401) {
       return "Sign in again to load voice history.";
@@ -100,12 +98,11 @@ function liveHint(
   return "Speak — waveform shows the mic is live.";
 }
 
-export function VoicePage(props: { projectId: string }): React.JSX.Element {
+export function VoicePage(): React.JSX.Element {
   const session = useSession();
   const voice = useVoiceListen();
   const [segments, setSegments] = useState<VoiceSegment[]>([]);
   const [nextCursor, setNextCursor] = useState("");
-  const [hits, setHits] = useState<VoiceRuleHit[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
@@ -124,7 +121,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     let cancelled = false;
     async function refreshSidecar(): Promise<void> {
       try {
-        const status = await fetchVoiceStatus(session, props.projectId);
+        const status = await fetchVoiceStatus(session);
         if (cancelled) {
           return;
         }
@@ -156,18 +153,15 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [session, props.projectId]);
+  }, [session]);
 
   useEffect(() => {
     if (session === null) {
       return;
     }
     setLoading(true);
-    void Promise.all([
-      fetchVoiceSegments(session, props.projectId, { limit: TRANSCRIPT_PAGE }),
-      fetchVoiceRules(session, props.projectId),
-    ])
-      .then(([segmentData, ruleData]) => {
+    void fetchVoiceSegments(session, { limit: TRANSCRIPT_PAGE })
+      .then((segmentData) => {
         setSegments(segmentData.segments);
         const nextPage = segmentData.next[0];
         if (nextPage !== undefined) {
@@ -175,14 +169,13 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
         } else {
           setNextCursor("");
         }
-        setHits(ruleData.hits);
         setLoading(false);
       })
       .catch((err: unknown) => {
         setError(voiceHistoryLoadError(err));
         setLoading(false);
       });
-  }, [session, props.projectId]);
+  }, [session]);
 
   useEffect(() => {
     if (voice.liveSegments.length === 0) {
@@ -215,7 +208,7 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     }
     setLoadingMore(true);
     try {
-      const page = await fetchVoiceSegments(session, props.projectId, {
+      const page = await fetchVoiceSegments(session, {
         limit: TRANSCRIPT_PAGE,
         cursor: nextCursor,
       });
@@ -247,14 +240,14 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
     }
   }
 
-  const listeningThisProject = voice.listening && voice.projectId === props.projectId;
-  const liveOnThisProject = voice.armed && voice.projectId === props.projectId;
+  const listeningLive = voice.listening;
+  const liveArmed = voice.armed;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Voice"
-        info="Speak to text. Use Listen in the sidebar. Transcript is kept; audio is not."
+        info="Speak to text for you, not a project. Event extractors on a project read this transcript and emit into that project."
         actions={<VoiceSettingsLink />}
       />
       <PageContent className="space-y-4 overflow-y-auto">
@@ -301,21 +294,21 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
                 )}
                 aria-live="polite"
               >
-                {livePhaseLabel(listeningThisProject, voice.phase, voice.reconnecting)}
+                {livePhaseLabel(listeningLive, voice.phase, voice.reconnecting)}
               </p>
             </div>
           </div>
           <VoiceWaveform
-            stream={liveOnThisProject ? voice.mediaStream : null}
-            active={listeningThisProject}
+            stream={liveArmed ? voice.mediaStream : null}
+            active={listeningLive}
             className={cn(
               "border border-border/60",
-              listeningThisProject ? "opacity-100" : "opacity-40",
+              listeningLive ? "opacity-100" : "opacity-40",
             )}
           />
           <p className="min-h-[3rem] text-sm text-foreground" aria-live="polite">
             {liveHint(
-              listeningThisProject,
+              listeningLive,
               voice.phase,
               voice.reconnecting,
               voice.partialText,
@@ -370,66 +363,17 @@ export function VoicePage(props: { projectId: string }): React.JSX.Element {
             </>
           )}
         </section>
-        <section className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Matches</h2>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/rules`}
-              >
-                Event extractors
-              </Link>
-              <Link
-                className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/agents`}
-              >
-                Event responders
-              </Link>
-              <Link
-                className="text-[11px] text-muted-foreground underline underline-offset-2"
-                to={`/projects/${props.projectId}/logs`}
-              >
-                Log
-              </Link>
-            </div>
-          </div>
-          {loading !== true && hits.length === 0 ? (
-            <div className="panel-card space-y-2 px-6 py-10 text-center">
-              <p className="text-sm font-semibold">Nothing has matched yet</p>
-              <Link
-                className="inline-block text-sm font-medium underline underline-offset-2"
-                to={`/projects/${props.projectId}/rules`}
-              >
-                Set up extractors
-              </Link>
-            </div>
-          ) : (
-            <ul className="space-y-2">
-              {hits.map((hit) => (
-                <li key={hit.id} className="panel-card p-4 text-sm">
-                  <p className="font-medium">{hit.title}</p>
-                  <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                    voice.rule.{hit.slug}
-                  </p>
-                  {hit.summary.length > 0 ? (
-                    <p className="mt-2 text-xs text-muted-foreground">{hit.summary}</p>
-                  ) : null}
-                  {hit.quote.length > 0 ? (
-                    <p className="mt-2 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
-                      {hit.quote}
-                    </p>
-                  ) : null}
-                  <Link
-                    className="mt-2 inline-block text-[11px] text-muted-foreground underline underline-offset-2"
-                    to={`/projects/${props.projectId}/logs?type=voice.rule.${hit.slug}`}
-                  >
-                    Log
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+        <section className="panel-card space-y-2 p-4">
+          <h2 className="text-sm font-semibold">Event extractors</h2>
+          <p className="text-sm text-muted-foreground">
+            Extractors live on a project. They read this transcript and emit into that project.
+          </p>
+          <Link
+            className="inline-block text-sm font-medium underline underline-offset-2"
+            to="/projects"
+          >
+            Open a project
+          </Link>
         </section>
       </PageContent>
     </div>

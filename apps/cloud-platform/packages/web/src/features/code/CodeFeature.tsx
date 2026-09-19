@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ExternalLink, Github, Plus, RefreshCw, Rocket, Square, UploadCloud } from "lucide-react";
+import { ExternalLink, Github, RefreshCw, Rocket, Square, UploadCloud } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { codeApi, type DeployStatus, type GithubRepo, type GithubStatus, type GitStatus } from "@/features/code/api";
-
-type LinkMode = "existing" | "new";
 
 function repoNoteFor(status: GitStatus): string {
   if (!status.linked) {
@@ -160,9 +157,6 @@ export function CodeFeature(props: { projectId: string }): React.JSX.Element {
   const [repos, setRepos] = useState<GithubRepo[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState("");
   const [branch, setBranch] = useState("");
-  const [linkMode, setLinkMode] = useState<LinkMode>("existing");
-  const [newRepoName, setNewRepoName] = useState("");
-  const [newRepoPrivate, setNewRepoPrivate] = useState(true);
   const [commitMessage, setCommitMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -217,28 +211,6 @@ export function CodeFeature(props: { projectId: string }): React.JSX.Element {
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Clone failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createRepo(): Promise<void> {
-    const name = newRepoName.trim();
-    if (name.length === 0) {
-      toast.error("Name the repository first");
-      return;
-    }
-    setBusy(true);
-    try {
-      await codeApi.createRepo(props.projectId, {
-        name,
-        private: newRepoPrivate,
-        description: "",
-      });
-      toast.success("Repository created and cloned");
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Repository creation failed");
     } finally {
       setBusy(false);
     }
@@ -312,72 +284,26 @@ export function CodeFeature(props: { projectId: string }): React.JSX.Element {
     body = (
       <div className="panel-card mx-auto max-w-xl space-y-4 p-6">
         <p className="text-sm text-muted-foreground">
-          Connected as <span className="font-medium text-foreground">{github.login}</span>.
+          Connected as <span className="font-medium text-foreground">{github.login}</span>. Pick an
+          existing repository. GitHub repo creation stays on GitHub.
         </p>
-        <div className="flex gap-1 rounded-lg border p-1">
-          <button
-            type="button"
-            onClick={() => setLinkMode("existing")}
-            className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              linkMode === "existing" ? "bg-secondary text-foreground" : "text-muted-foreground",
-            )}
-          >
-            Use existing repo
-          </button>
-          <button
-            type="button"
-            onClick={() => setLinkMode("new")}
-            className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              linkMode === "new" ? "bg-secondary text-foreground" : "text-muted-foreground",
-            )}
-          >
-            Create new repo
-          </button>
-        </div>
-
-        {linkMode === "existing" ? (
-          <>
-            <Select value={selectedRepo} onChange={(e) => setSelectedRepo(e.target.value)}>
-              <option value="">Select a repository…</option>
-              {(repos ?? []).map((repo) => (
-                <option key={repo.fullName} value={repo.fullName}>
-                  {repo.fullName}
-                  {repo.private ? " (private)" : ""}
-                </option>
-              ))}
-            </Select>
-            <Input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="Branch (defaults to the repo's default branch)"
-            />
-            <Button type="button" disabled={busy || selectedRepo.length === 0} onClick={() => void linkRepo()}>
-              Clone into project
-            </Button>
-          </>
-        ) : (
-          <>
-            <Input
-              value={newRepoName}
-              onChange={(e) => setNewRepoName(e.target.value)}
-              placeholder="Repository name"
-            />
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={newRepoPrivate}
-                onChange={(e) => setNewRepoPrivate(e.target.checked)}
-              />
-              Private repository
-            </label>
-            <Button type="button" disabled={busy || newRepoName.trim().length === 0} onClick={() => void createRepo()}>
-              <Plus className="h-4 w-4" />
-              Create & clone
-            </Button>
-          </>
-        )}
+        <Select value={selectedRepo} onChange={(e) => setSelectedRepo(e.target.value)}>
+          <option value="">Select a repository…</option>
+          {(repos ?? []).map((repo) => (
+            <option key={repo.fullName} value={repo.fullName}>
+              {repo.fullName}
+              {repo.private ? " (private)" : ""}
+            </option>
+          ))}
+        </Select>
+        <Input
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="Branch (defaults to the repo's default branch)"
+        />
+        <Button type="button" disabled={busy || selectedRepo.length === 0} onClick={() => void linkRepo()}>
+          Clone into project
+        </Button>
       </div>
     );
   } else {

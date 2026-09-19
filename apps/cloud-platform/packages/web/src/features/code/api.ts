@@ -45,16 +45,6 @@ export const codeApi = {
       body: JSON.stringify(body),
     });
   },
-  createRepo(
-    projectId: string,
-    body: { name: string; private: boolean; description: string },
-  ): Promise<{ linked: true; owner: string; repo: string; branch: string }> {
-    return fetchJson(`/api/v1/projects/${projectId}/git/create`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  },
   pull(projectId: string): Promise<{ ok: boolean }> {
     return fetchJson(`/api/v1/projects/${projectId}/git/pull`, { method: "POST" });
   },

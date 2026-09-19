@@ -13,7 +13,7 @@ import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useSession } from "@/hooks/useSession";
 import {
   catalogEventLabel,
-  eventLabelWithRules,
+  occurrenceEventLabel,
   isClockCatalogEvent,
   isVoiceRuleEvent,
 } from "@/lib/event-catalog";
@@ -470,7 +470,11 @@ export function EventsPage(): React.JSX.Element {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-sm font-semibold tracking-tight">
-                          {eventLabelWithRules(cluster.head.type, mintedLabels)}
+                          {occurrenceEventLabel(
+                            cluster.head.type,
+                            eventTextField(cluster.head.path),
+                            mintedLabels,
+                          )}
                         </h2>
                         {cluster.count > 1 ? (
                           <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium tabular-nums">

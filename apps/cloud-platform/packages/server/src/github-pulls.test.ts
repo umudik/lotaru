@@ -10,6 +10,7 @@ import {
   classifyPullChange,
   githubRepoFromRemoteUrl,
   githubReposFromRemoteListing,
+  gitRemoteFromUrl,
   mapGithubNotificationType,
   parseGithubIssues,
   parseGithubNotifications,
@@ -104,6 +105,29 @@ describe("splitGithubRepo", () => {
     assert.equal(ok.name, "lotaru");
     const bad = splitGithubRepo("lotaru");
     assert.equal(bad.owner, "");
+  });
+});
+
+describe("gitRemoteFromUrl", () => {
+  it("maps github gitlab azure and bitbucket clone urls", () => {
+    const github = gitRemoteFromUrl("https://github.com/umudik/lotaru.git");
+    const gitlab = gitRemoteFromUrl("git@gitlab.com:acme/platform.git");
+    const azure = gitRemoteFromUrl(
+      "https://dev.azure.com/fabrikam/Fabrikam%20Fiber/_git/platform",
+    );
+    const azureSsh = gitRemoteFromUrl("git@ssh.dev.azure.com:v3/fabrikam/Fiber/platform");
+    const bitbucket = gitRemoteFromUrl("https://bitbucket.org/acme/platform.git");
+    const unknown = gitRemoteFromUrl("https://example.com/acme/platform.git");
+    assert.equal(github[0]?.provider, "github");
+    assert.equal(github[0]?.owner, "umudik");
+    assert.equal(gitlab[0]?.provider, "gitlab");
+    assert.equal(gitlab[0]?.repo, "platform");
+    assert.equal(azure[0]?.provider, "azuredevops");
+    assert.equal(azure[0]?.owner, "fabrikam/Fabrikam Fiber");
+    assert.equal(azure[0]?.repo, "platform");
+    assert.equal(azureSsh[0]?.owner, "fabrikam/Fiber");
+    assert.equal(bitbucket[0]?.provider, "bitbucket");
+    assert.equal(unknown.length, 0);
   });
 });
 

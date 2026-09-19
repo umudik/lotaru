@@ -4,6 +4,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
 import { EventSourceSelect, eventOptionsFromCatalog } from "@/components/EventSourceSelect";
+import { EmptyStatePanel } from "@/components/EmptyStatePanel";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageContent } from "@/components/layout/PageContent";
 import { Button } from "@/components/ui/button";
@@ -210,28 +211,27 @@ function TemplatesPage(props: {
           </div>
         }
       />
-      <PageContent className="flex min-h-0 flex-1 overflow-hidden p-0">
-        <div className="min-h-0 flex-1 overflow-y-auto py-2">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <PageContent className="overflow-y-auto">
           {templates.length === 0 ? (
-            <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
-              <p className="text-sm font-semibold text-foreground">No templates yet</p>
-              <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                Pick a When event, describe the output, and Lotaru writes into {listLabel} when that
-                event happens in this project.
-              </p>
-              <Button
-                className="mt-4"
-                size="sm"
-                onClick={() => {
-                  setCreateOpen(true);
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                New template
-              </Button>
-            </div>
+            <EmptyStatePanel
+              title="No templates yet"
+              description={`Pick a When event, describe the output, and Lotaru writes into ${listLabel} when that event happens in this project.`}
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setCreateOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  New template
+                </Button>
+              }
+            />
           ) : (
-            <ul className="space-y-2">
+            <ul className="flex flex-col gap-2">
               {templates.map((template) => (
                 <li key={template.id} className="panel-card flex items-start justify-between gap-3 p-4">
                   <div className="min-w-0">
@@ -272,7 +272,7 @@ function TemplatesPage(props: {
             </Link>
             .
           </p>
-        </div>
+        </PageContent>
         {createOpen ? (
           <aside className="flex w-[380px] shrink-0 flex-col border-l border-border bg-card/20">
             <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
@@ -365,7 +365,7 @@ function TemplatesPage(props: {
             </form>
           </aside>
         ) : null}
-      </PageContent>
+      </div>
     </div>
   );
 }
@@ -418,23 +418,20 @@ function ArtifactsPage(props: {
       <PageContent className="overflow-y-auto">
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         {artifacts.length === 0 ? (
-          <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
-            <p className="text-sm font-semibold text-foreground">
-              {props.kind === "diagram" ? "No diagrams yet" : "No documents yet"}
-            </p>
-            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              Outputs appear here after a matching event. Define a template first, then watch
-              State turn into Knowledge.
-            </p>
-            <Link
-              to={templatesPath}
-              className="mt-4 inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
-            >
-              Define a template
-            </Link>
-          </div>
+          <EmptyStatePanel
+            title={props.kind === "diagram" ? "No diagrams yet" : "No documents yet"}
+            description="Outputs appear here after a matching event. Define a template first, then watch State turn into Knowledge."
+            action={
+              <Link
+                to={templatesPath}
+                className="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
+              >
+                Define a template
+              </Link>
+            }
+          />
         ) : (
-          <ul className="space-y-2">
+          <ul className="flex flex-col gap-2">
             {artifacts.map((artifact) => (
               <li key={artifact.id} className="panel-card flex items-start justify-between gap-3 p-4">
                 <Link
@@ -536,7 +533,7 @@ function ArtifactDetail(props: {
           </Button>
         }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <PageContent className="overflow-y-auto">
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
         <textarea
           className="min-h-[24rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
@@ -557,7 +554,7 @@ function ArtifactDetail(props: {
             Back to list
           </Button>
         </div>
-      </div>
+      </PageContent>
     </div>
   );
 }

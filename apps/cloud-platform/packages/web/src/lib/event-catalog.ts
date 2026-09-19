@@ -280,3 +280,35 @@ export function eventLabelWithRules(
   }
   return catalogEventLabel(eventType);
 }
+
+function gitOccurrencePrefix(eventType: string): boolean {
+  if (eventType.startsWith("github.") === true) {
+    return true;
+  }
+  if (eventType.startsWith("gitlab.") === true) {
+    return true;
+  }
+  if (eventType.startsWith("azuredevops.") === true) {
+    return true;
+  }
+  if (eventType.startsWith("bitbucket.") === true) {
+    return true;
+  }
+  return false;
+}
+
+export function occurrenceEventLabel(
+  eventType: string,
+  path: string,
+  mintedLabels: Record<string, string>,
+): string {
+  const base = eventLabelWithRules(eventType, mintedLabels);
+  const repo = path.trim();
+  if (repo.length === 0) {
+    return base;
+  }
+  if (gitOccurrencePrefix(eventType) !== true) {
+    return base;
+  }
+  return `${base} · ${repo}`;
+}

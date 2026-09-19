@@ -3,6 +3,7 @@ import { useState } from "react";
 const CONNECTOR_DOMAINS: Record<string, string> = {
   github: "github.com",
   gitlab: "gitlab.com",
+  azuredevops: "dev.azure.com",
   bitbucket: "bitbucket.org",
   linear: "linear.app",
   jira: "atlassian.com",

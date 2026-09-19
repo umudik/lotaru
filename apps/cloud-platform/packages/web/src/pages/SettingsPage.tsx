@@ -401,7 +401,7 @@ export function SettingsPage(): React.JSX.Element {
         onValueChange={handleSettingsTab}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="shrink-0 border-b border-white/[0.06] px-5">
+        <div className="shrink-0 border-b border-white/[0.06] px-8">
           <TabsList className="h-10 bg-transparent p-0">
             <TabsTrigger value="ai" className={SETTINGS_TAB_CLASS}>
               AI

@@ -65,7 +65,7 @@ describe("voice segment retention", () => {
     addSegments(db, 10);
     assert.equal(scanCursor(db, PROJECT), null);
 
-    const removed = pruneVoiceSegments(db, PROJECT, 4);
+    const removed = pruneVoiceSegments(db, 4);
     assert.equal(removed, 6);
     assert.equal(segmentCount(db), 4);
 
@@ -83,7 +83,7 @@ describe("voice segment retention", () => {
     // The scanner stalled after line 2, so 3..9 are still owed a pass.
     setCursor(db, 2);
 
-    const removed = pruneVoiceSegments(db, PROJECT, 4);
+    const removed = pruneVoiceSegments(db, 4);
     assert.equal(removed, 3);
     assert.equal(segmentCount(db), 7);
 
@@ -97,7 +97,7 @@ describe("voice segment retention", () => {
     const db = voiceHarness();
     addSegments(db, 10);
     setCursor(db, -1);
-    assert.equal(pruneVoiceSegments(db, PROJECT, 2), 0);
+    assert.equal(pruneVoiceSegments(db, 2), 0);
     assert.equal(segmentCount(db), 10);
   });
 
@@ -105,25 +105,29 @@ describe("voice segment retention", () => {
     const db = voiceHarness();
     addSegments(db, 10);
     setCursor(db, -1);
-    assert.equal(pruneVoiceSegments(db, PROJECT, 4), 0);
+    assert.equal(pruneVoiceSegments(db, 4), 0);
 
     setCursor(db, 9);
-    assert.equal(pruneVoiceSegments(db, PROJECT, 4), 6);
+    assert.equal(pruneVoiceSegments(db, 4), 6);
     assert.equal(segmentCount(db), 4);
   });
 
-  it("leaves another project's lines alone", () => {
+  it("waits for the slowest extractor before dropping lines", () => {
     const db = voiceHarness();
-    addSegments(db, 6);
+    addSegments(db, 10);
+    setCursor(db, 9);
     db.prepare(
-      "INSERT INTO voice_segments (id, project_id, session_id, kind, text, started_at, ended_at, audio_path, created_at) VALUES ('other', 'proj-other', 'sess', 'final', 'x', 0, 0, '', 0)",
-    ).run();
+      `INSERT INTO voice_batch_state (project_id, last_scan_at, last_created_at, last_segment_id)
+       VALUES ('proj-other', 0, ?, ?)`,
+    ).run(2, segmentId(2));
 
-    pruneVoiceSegments(db, PROJECT, 2);
-    const other = db
-      .prepare("SELECT COUNT(*) AS n FROM voice_segments WHERE project_id = 'proj-other'")
-      .get() as { n: number };
-    assert.equal(other.n, 1);
+    const removed = pruneVoiceSegments(db, 4);
+    assert.equal(removed, 3);
+    assert.equal(segmentCount(db), 7);
+    const oldest = db
+      .prepare("SELECT id FROM voice_segments ORDER BY created_at ASC LIMIT 1")
+      .get() as { id: string };
+    assert.equal(oldest.id, segmentId(3));
   });
 });
 

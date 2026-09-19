@@ -49,7 +49,7 @@ function statusLabel(status: SpeakUtterance["status"], playing: boolean): string
   return "Failed";
 }
 
-export function SpeakPage(props: { projectId: string }): React.JSX.Element {
+export function SpeakPage(): React.JSX.Element {
   const session = useSession();
   const speak = useSpeakPlayer();
   const [draft, setDraft] = useState("");
@@ -59,9 +59,9 @@ export function SpeakPage(props: { projectId: string }): React.JSX.Element {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (): Promise<void> => {
-    const data = await fetchSpeakUtterances(session, props.projectId);
+    const data = await fetchSpeakUtterances(session);
     setRows(data.utterances);
-  }, [session, props.projectId]);
+  }, [session]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +109,7 @@ export function SpeakPage(props: { projectId: string }): React.JSX.Element {
     setSaving(true);
     setError("");
     try {
-      const utterance = await createSpeakUtterance(session, props.projectId, text, "ui");
+      const utterance = await createSpeakUtterance(session, text, "ui");
       setDraft("");
       speak.arm();
       await speak.playUtterance(utterance.id);
@@ -129,7 +129,7 @@ export function SpeakPage(props: { projectId: string }): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Speak"
-        info="Lotaru reads this aloud with the voice in Settings. Notes and MCP share this queue."
+        info="Lotaru reads this aloud with the voice in Settings. Notes and MCP share this queue — it is not tied to a project."
         actions={<VoiceSettingsLink />}
       />
       <PageContent className="space-y-4 overflow-y-auto">

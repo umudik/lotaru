@@ -46,10 +46,10 @@ function printHelp(): void {
 
 Usage:
   npx @umudik/lotaru
-  npx @umudik/lotaru --port 4317 --data ~/.lotaru
+  npx @umudik/lotaru --port 2222 --data ~/.lotaru
 
 Options:
-  -p, --port   Listen port (default 4317, or $LOTARU_PORT)
+  -p, --port   Listen port (default 2222, or $LOTARU_PORT)
   -d, --data   Data directory (default ~/.lotaru, or $LOTARU_DATA_DIR)
   -h, --help   Show this help
 `);

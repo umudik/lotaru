@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { loadAppSettings, openSettingsDb } from "../app-settings.js";
 import {
   enqueueSpeakUtterance,
@@ -21,6 +20,7 @@ import {
 } from "../speak-store.js";
 import { synthesizeSpeech } from "../tts.js";
 import type { Identity } from "./identity.js";
+import { USER_IO_STREAM } from "../user-io.js";
 
 type SpeakOptions = {
   databasePath: string;
@@ -31,14 +31,14 @@ type SpeakOptions = {
 
 const createBodySchema = z
   .object({
-    projectId: z.string().trim().min(1),
+    projectId: z.string().trim().min(1).optional(),
     text: z.string().trim().min(1),
     source: sourceSchema.optional(),
   })
   .strict();
 
 const listQuerySchema = z.object({
-  projectId: z.string().trim().min(1),
+  projectId: z.string().trim().min(1).optional(),
   status: statusSchema.optional(),
   playable: z.enum(["1", "true"]).optional(),
 });
@@ -47,17 +47,9 @@ const utteranceIdParamsSchema = z.object({
   utteranceId: z.string().trim().min(1),
 });
 
-function canSeeProject(options: SpeakOptions, projectId: string, userId: string): boolean {
-  if (options.projectAccess !== undefined) {
-    return options.projectAccess(projectId, userId);
-  }
-  return userCanAccessProject(projectId, userId);
-}
-
 function loadVisibleUtterance(
   options: SpeakOptions,
   rawId: string,
-  userId: string,
 ): SpeakUtterance[] {
   const parsed = utteranceIdParamsSchema.safeParse({ utteranceId: rawId });
   if (parsed.success !== true) {
@@ -65,9 +57,6 @@ function loadVisibleUtterance(
   }
   const utterance = getSpeakUtterance(options.databasePath, parsed.data.utteranceId);
   if (utterance === undefined) {
-    return [];
-  }
-  if (canSeeProject(options, utterance.projectId, userId) !== true) {
     return [];
   }
   return [utterance];
@@ -95,7 +84,7 @@ async function utteranceFromRequest(
     await reply.code(401).send({ error: "unauthorized" });
     return [];
   }
-  const hits = loadVisibleUtterance(options, request.params.utteranceId, userId);
+  const hits = loadVisibleUtterance(options, request.params.utteranceId);
   if (hits.length === 0) {
     await reply.code(404).send(replyMissing());
     return [];
@@ -180,23 +169,20 @@ export async function registerSpeakModule(
     }
     const parsed = listQuerySchema.safeParse(request.query);
     if (parsed.success !== true) {
-      return reply.code(400).send({ error: "project required" });
+      return reply.code(400).send({ error: "invalid query" });
     }
     if (parsed.data.playable !== undefined && parsed.data.status !== undefined) {
       return reply.code(400).send({ error: "invalid query" });
     }
-    if (canSeeProject(options, parsed.data.projectId, userId) !== true) {
-      return reply.code(404).send(replyMissing());
-    }
     let utterances: SpeakUtterance[] = [];
     if (parsed.data.playable !== undefined) {
-      utterances = listSpeakPlayable(options.databasePath, parsed.data.projectId);
+      utterances = listSpeakPlayable(options.databasePath);
     } else {
       let status: SpeakStatus | undefined;
       if (parsed.data.status !== undefined) {
         status = parsed.data.status;
       }
-      utterances = listSpeakUtterances(options.databasePath, parsed.data.projectId, status);
+      utterances = listSpeakUtterances(options.databasePath, status);
     }
     return { utterances };
   });
@@ -210,16 +196,13 @@ export async function registerSpeakModule(
     if (parsed.success !== true) {
       return reply.code(400).send({ error: "text required" });
     }
-    if (canSeeProject(options, parsed.data.projectId, userId) !== true) {
-      return reply.code(404).send(replyMissing());
-    }
     let source: SpeakSource = "ui";
     if (parsed.data.source !== undefined) {
       source = parsed.data.source;
     }
     try {
       const utterance = enqueueSpeakUtterance(options.databasePath, {
-        projectId: parsed.data.projectId,
+        projectId: USER_IO_STREAM,
         text: parsed.data.text,
         source,
         createdBy: userId,

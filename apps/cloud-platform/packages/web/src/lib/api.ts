@@ -3,27 +3,57 @@ import { loadSession, saveSession } from "./session";
 
 export const DEFAULT_WORKFLOW_TEMPLATE_ID = "plan-build-deliver";
 
+export type GitProviderId = "github" | "gitlab" | "azuredevops" | "bitbucket";
+
+export const GIT_PROVIDERS: readonly { id: GitProviderId; label: string }[] = [
+  { id: "github", label: "GitHub" },
+  { id: "gitlab", label: "GitLab" },
+  { id: "azuredevops", label: "Azure DevOps" },
+  { id: "bitbucket", label: "Bitbucket" },
+];
+
+export type ProjectGit = {
+  provider: GitProviderId;
+  owner: string;
+  repo: string;
+  branch: string;
+};
+
 export type Project = {
   id: string;
   name: string;
   description: string;
   workflowTemplateId: string;
   repoPath: string;
+  git: ProjectGit | null;
 };
 
 export type UpdateProjectInput = {
   name: string;
   description: string;
   workflowTemplateId: string;
-  repoPath: string;
 };
 
-export type CreateProjectInput = {
+export type CreateGitInput = {
+  name: string;
+  description: string;
+  workflowTemplateId: string;
+  git: {
+    provider: GitProviderId;
+    owner: string;
+    repo: string;
+    branch: string;
+  };
+};
+
+export type CreateFolderInput = {
   name: string;
   description: string;
   workflowTemplateId: string;
   repoPath: string;
 };
+
+export type CreateProjectInput = CreateGitInput | CreateFolderInput;
 
 export type AppSettings = {
   ollamaHost: string;
@@ -736,10 +766,9 @@ export type VoiceSegment = {
 
 export async function fetchVoiceSegments(
   session: Session,
-  projectId: string,
   options: { limit?: number; cursor?: string } = {},
 ) {
-  const query = new URLSearchParams({ projectId });
+  const query = new URLSearchParams();
   let limit = 40;
   if (options.limit !== undefined) {
     limit = options.limit;
@@ -754,8 +783,7 @@ export async function fetchVoiceSegments(
   );
 }
 
-export async function fetchVoiceStatus(session: Session, projectId: string) {
-  const query = new URLSearchParams({ projectId });
+export async function fetchVoiceStatus(session: Session) {
   return request<{
     listening: boolean;
     projectId: string;
@@ -767,7 +795,7 @@ export async function fetchVoiceStatus(session: Session, projectId: string) {
     sidecarModel: string;
     sidecarLanguage: string;
     sidecarDevice: string;
-  }>(session, `/api/voice/status?${query.toString()}`);
+  }>(session, "/api/voice/status");
 }
 
 export async function fetchKnowledgeArtifacts(
@@ -1021,14 +1049,13 @@ export type SpeakUtterance = {
 
 export async function createSpeakUtterance(
   session: Session,
-  projectId: string,
   text: string,
   source: SpeakSource,
 ): Promise<SpeakUtterance> {
   return request<SpeakUtterance>(session, "/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId, text, source }),
+    body: JSON.stringify({ text, source }),
   });
 }
 
@@ -1043,16 +1070,12 @@ export async function fetchSpeakUtterance(session: Session, utteranceId: string)
   );
 }
 
-export async function fetchSpeakUtterances(session: Session, projectId: string) {
-  const query = new URLSearchParams({ projectId });
-  return request<{ utterances: SpeakUtterance[] }>(
-    session,
-    `/api/speak?${query.toString()}`,
-  );
+export async function fetchSpeakUtterances(session: Session) {
+  return request<{ utterances: SpeakUtterance[] }>(session, "/api/speak");
 }
 
-export async function fetchSpeakPlayable(session: Session, projectId: string) {
-  const query = new URLSearchParams({ projectId, playable: "1" });
+export async function fetchSpeakPlayable(session: Session) {
+  const query = new URLSearchParams({ playable: "1" });
   return request<{ utterances: SpeakUtterance[] }>(
     session,
     `/api/speak?${query.toString()}`,
@@ -1558,10 +1581,14 @@ export async function fetchProjects(session: Session) {
   if (data.projects === null) {
     return [];
   }
-  return data.projects.map((project) => {
+    return data.projects.map((project) => {
     let repoPath = "";
     if (typeof project.repoPath === "string") {
       repoPath = project.repoPath;
+    }
+    let git: ProjectGit | null = null;
+    if (project.git !== null && project.git !== undefined) {
+      git = project.git;
     }
     return {
       id: project.id,
@@ -1569,6 +1596,7 @@ export async function fetchProjects(session: Session) {
       description: project.description,
       workflowTemplateId: project.workflowTemplateId,
       repoPath,
+      git,
     };
   });
 }
@@ -1584,6 +1612,18 @@ export type WorkflowTemplate = WorkflowTemplateSummary & {
 };
 
 export async function createProject(session: Session, input: CreateProjectInput) {
+  if ("git" in input) {
+    return request<Project>(session, "/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: input.name,
+        description: input.description.trim(),
+        workflowTemplateId: input.workflowTemplateId.trim() || DEFAULT_WORKFLOW_TEMPLATE_ID,
+        git: input.git,
+      }),
+    });
+  }
   return request<Project>(session, "/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1591,9 +1631,45 @@ export async function createProject(session: Session, input: CreateProjectInput)
       name: input.name,
       description: input.description.trim(),
       workflowTemplateId: input.workflowTemplateId.trim() || DEFAULT_WORKFLOW_TEMPLATE_ID,
-      repoPath: input.repoPath.trim(),
+      repoPath: input.repoPath,
     }),
   });
+}
+
+export async function pickProjectFolder(session: Session) {
+  return request<{ path: string }>(session, "/api/folder/pick", {
+    method: "POST",
+  });
+}
+
+export type GitProviderStatus = {
+  id: GitProviderId;
+  label: string;
+  connected: boolean;
+};
+
+export type GitRemoteRepo = {
+  provider: GitProviderId;
+  fullName: string;
+  owner: string;
+  repo: string;
+  defaultBranch: string;
+  private: boolean;
+};
+
+export async function fetchGitProviders(session: Session) {
+  return request<{ providers: GitProviderStatus[] }>(session, "/api/v1/git/providers");
+}
+
+export async function fetchGitRepos(session: Session, provider: GitProviderId) {
+  return request<{ repos: GitRemoteRepo[] }>(
+    session,
+    `/api/v1/git/repos?provider=${encodeURIComponent(provider)}`,
+  );
+}
+
+export async function fetchGithubConnectUrl(session: Session) {
+  return request<{ url: string }>(session, "/api/v1/github/connect");
 }
 
 export async function updateProject(session: Session, projectId: string, input: UpdateProjectInput) {
@@ -1601,12 +1677,6 @@ export async function updateProject(session: Session, projectId: string, input: 
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-  });
-}
-
-export async function pickProjectFolder(session: Session) {
-  return request<{ path: string }>(session, "/api/folder/pick", {
-    method: "POST",
   });
 }
 

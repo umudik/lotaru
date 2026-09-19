@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronRight, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { CreateEpicModal } from "@/components/CreateEpicModal";
+import { EmptyStatePanel } from "@/components/EmptyStatePanel";
 import { LoadMore } from "@/components/LoadMore";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -108,7 +110,7 @@ export function TasksPage() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <PageContent className="overflow-y-auto">
         {loading && items.length === 0 ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Skeleton className="h-28 rounded-2xl" />
@@ -116,13 +118,16 @@ export function TasksPage() {
             <Skeleton className="h-28 rounded-2xl" />
           </div>
         ) : items.length === 0 ? (
-          <div className="panel-card flex flex-col items-center justify-center px-6 py-16 text-center">
-            <p className="text-sm text-muted-foreground">Create your first task to start the pipeline.</p>
-            <Button className="mt-4" size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              New task
-            </Button>
-          </div>
+          <EmptyStatePanel
+            title="No tasks yet"
+            description="Create your first task to start the pipeline."
+            action={
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                New task
+              </Button>
+            }
+          />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((item) => (
@@ -173,7 +178,7 @@ export function TasksPage() {
             void load(nextCursor, true);
           }}
         />
-      </div>
+      </PageContent>
 
       <CreateEpicModal
         open={createOpen}

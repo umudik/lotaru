@@ -5,9 +5,6 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { z } from "zod";
-import {
-  userCanAccessProject,
-} from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import { publishLotaruEvent } from "../event-bus.js";
 import { pruneVoiceSegments } from "../voice-retention.js";
 import { EVENT_VOICE_SEGMENT } from "../events.js";
@@ -17,6 +14,7 @@ import {
   startVoiceSidecarWithRetry,
   type VoiceSidecarHandle,
 } from "../voice-sidecar.js";
+import { USER_IO_STREAM } from "../user-io.js";
 import type { Identity } from "./identity.js";
 
 type Viewer = { email: string; sub: string };
@@ -52,13 +50,6 @@ export type VoiceSegment = {
   audioPath: string;
   createdAt: number;
 };
-
-function canSeeProject(options: ModuleOptions, projectId: string, userId: string): boolean {
-  if (options.projectAccess !== undefined) {
-    return options.projectAccess(projectId, userId);
-  }
-  return userCanAccessProject(projectId, userId);
-}
 
 async function viewersFrom(request: FastifyRequest, options: ModuleOptions): Promise<Viewer[]> {
   const user = await options.identity.userFrom(request);
@@ -159,7 +150,6 @@ export type VoiceSegmentPage = {
 
 export function pageVoiceSegments(
   db: Database.Database,
-  projectId: string,
   limit: number,
   cursor: string,
 ): VoiceSegmentPage {
@@ -172,20 +162,20 @@ export function pageVoiceSegments(
   if (cursor.trim().length === 0) {
     raw = db
       .prepare(
-        "SELECT * FROM voice_segments WHERE project_id = ? AND kind = 'final' ORDER BY created_at DESC, id DESC LIMIT ?",
+        "SELECT * FROM voice_segments WHERE kind = 'final' ORDER BY created_at DESC, id DESC LIMIT ?",
       )
-      .all(projectId, fetchLimit);
+      .all(fetchLimit);
   } else {
     const decoded = decodeVoiceSegmentCursor(cursor);
     raw = db
       .prepare(
         `SELECT * FROM voice_segments
-         WHERE project_id = ? AND kind = 'final'
+         WHERE kind = 'final'
            AND (created_at < ? OR (created_at = ? AND id < ?))
          ORDER BY created_at DESC, id DESC
          LIMIT ?`,
       )
-      .all(projectId, decoded.createdAt, decoded.createdAt, decoded.id, fetchLimit);
+      .all(decoded.createdAt, decoded.createdAt, decoded.id, fetchLimit);
   }
   if (Array.isArray(raw) !== true) {
     return { segments: [], next: [] };
@@ -216,10 +206,13 @@ export function pageVoiceSegments(
 
 export function listVoiceSegments(
   db: Database.Database,
-  projectId: string,
   limit: number,
 ): VoiceSegment[] {
-  return pageVoiceSegments(db, projectId, limit, "").segments;
+  const page = pageVoiceSegments(db, limit, "");
+  if (page.segments.length === 0) {
+    return [];
+  }
+  return page.segments;
 }
 
 export async function registerVoiceModule(
@@ -425,7 +418,7 @@ export async function registerVoiceModule(
         "",
         createdAt,
       );
-      pruneVoiceSegments(db, listenProjectId);
+      pruneVoiceSegments(db);
       broadcast({
         kind: "segment",
         segment: {
@@ -466,13 +459,6 @@ export async function registerVoiceModule(
       if (viewers.length === 0) {
         return reply.code(401).send({ error: "unauthorized" });
       }
-      let projectId = "";
-      if (request.query.projectId !== undefined) {
-        projectId = request.query.projectId.trim();
-      }
-      if (projectId.length === 0) {
-        return reply.code(400).send({ error: "projectId required" });
-      }
       let limit = 40;
       if (request.query.limit !== undefined) {
         const parsed = Number(request.query.limit);
@@ -484,17 +470,11 @@ export async function registerVoiceModule(
       if (request.query.cursor !== undefined) {
         cursor = request.query.cursor.trim();
       }
-      for (const viewer of viewers) {
-        if (!canSeeProject(options, projectId, viewer.sub)) {
-          return reply.code(403).send({ error: "project access denied" });
-        }
-        try {
-          return pageVoiceSegments(db, projectId, limit, cursor);
-        } catch {
-          return reply.code(400).send({ error: "invalid cursor" });
-        }
+      try {
+        return pageVoiceSegments(db, limit, cursor);
+      } catch {
+        return reply.code(400).send({ error: "invalid cursor" });
       }
-      return reply.code(401).send({ error: "unauthorized" });
     },
   );
 
@@ -503,29 +483,19 @@ export async function registerVoiceModule(
     if (viewers.length === 0) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    let projectId = "";
-    if (request.query.projectId !== undefined) {
-      projectId = request.query.projectId.trim();
-    }
-    for (const viewer of viewers) {
-      if (projectId.length > 0 && !canSeeProject(options, projectId, viewer.sub)) {
-        return reply.code(403).send({ error: "project access denied" });
-      }
-      const probe = await probeVoiceSidecar();
-      return {
-        listening: listenProjectId.length > 0,
-        projectId: listenProjectId,
-        sessionId: listenSessionId,
-        sidecar: sidecar !== false,
-        sidecarMode: sidecar === false ? "none" : sidecar.mode,
-        sidecarReachable: probe.reachable,
-        sidecarUrl: probe.url,
-        sidecarModel: probe.model,
-        sidecarLanguage: probe.language,
-        sidecarDevice: probe.device,
-      };
-    }
-    return reply.code(401).send({ error: "unauthorized" });
+    const probe = await probeVoiceSidecar();
+    return {
+      listening: listenProjectId.length > 0,
+      projectId: listenProjectId,
+      sessionId: listenSessionId,
+      sidecar: sidecar !== false,
+      sidecarMode: sidecar === false ? "none" : sidecar.mode,
+      sidecarReachable: probe.reachable,
+      sidecarUrl: probe.url,
+      sidecarModel: probe.model,
+      sidecarLanguage: probe.language,
+      sidecarDevice: probe.device,
+    };
   });
 
   app.get<{ Querystring: { projectId?: string } }>(
@@ -538,24 +508,6 @@ export async function registerVoiceModule(
           socket.close(4401, "unauthorized");
           return;
         }
-        let projectId = "";
-        if (request.query.projectId !== undefined) {
-          projectId = request.query.projectId.trim();
-        }
-        if (projectId.length === 0) {
-          socket.close(4400, "projectId required");
-          return;
-        }
-        let allowed = false;
-        for (const viewer of viewers) {
-          if (canSeeProject(options, projectId, viewer.sub)) {
-            allowed = true;
-          }
-        }
-        if (allowed !== true) {
-          socket.close(4404, "not found");
-          return;
-        }
         try {
           await ensureSidecar("open");
         } catch (err) {
@@ -565,16 +517,16 @@ export async function registerVoiceModule(
           return;
         }
         const sessionId = randomUUID();
-        listenProjectId = projectId;
+        listenProjectId = USER_IO_STREAM;
         listenSessionId = sessionId;
         db.prepare(
           "INSERT INTO voice_sessions (id, project_id, created_at, ended_at) VALUES (?, ?, ?, ?)",
-        ).run(sessionId, projectId, Date.now(), 0);
+        ).run(sessionId, USER_IO_STREAM, Date.now(), 0);
         browserSockets.add(socket);
         socket.send(
           JSON.stringify({
             kind: "hello",
-            projectId,
+            projectId: USER_IO_STREAM,
             sessionId,
             listening: true,
           }),

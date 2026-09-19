@@ -74,8 +74,8 @@ export function GithubConnectPanel(props: {
             <span className={`text-xs ${statusClass}`}>{status}</span>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Paste a personal access token so Lotaru can record pull request opened, updated, and
-            merged events from this folder’s remotes.
+            Optional. Project git events come from the repository chosen at create. A token here
+            only adds extra GitHub connector events.
           </p>
         </div>
       </div>

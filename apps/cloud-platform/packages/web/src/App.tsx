@@ -29,6 +29,8 @@ export function App() {
         <Routes>
         <Route element={<AppLayout />}>
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/voice" element={<VoicePage />} />
+          <Route path="/speak" element={<SpeakPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<ProjectIndexRedirect />} />
@@ -43,8 +45,8 @@ export function App() {
             <Route path="library" element={<LibraryPage />} />
             <Route path="logs" element={<EventsPage />} />
             <Route path="events" element={<LegacyLogsRedirect />} />
-            <Route path="voice" element={<ProjectVoiceRoute />} />
-            <Route path="speak" element={<ProjectSpeakRoute />} />
+            <Route path="voice" element={<Navigate to="/voice" replace />} />
+            <Route path="speak" element={<Navigate to="/speak" replace />} />
             <Route path="scripts/*" element={<ProjectScriptsRoute />} />
             <Route path="notes/*" element={<ProjectNotesRoute />} />
             <Route path="knowledge/*" element={<ProjectKnowledgeRoute />} />
@@ -145,20 +147,4 @@ function ProjectTerminalRoute(): React.JSX.Element {
     return <Navigate to="/projects" replace />;
   }
   return <TerminalFeature projectId={projectId} />;
-}
-
-function ProjectVoiceRoute(): React.JSX.Element {
-  const { projectId } = useParams();
-  if (projectId === undefined) {
-    return <Navigate to="/projects" replace />;
-  }
-  return <VoicePage projectId={projectId} />;
-}
-
-function ProjectSpeakRoute(): React.JSX.Element {
-  const { projectId } = useParams();
-  if (projectId === undefined) {
-    return <Navigate to="/projects" replace />;
-  }
-  return <SpeakPage projectId={projectId} />;
 }

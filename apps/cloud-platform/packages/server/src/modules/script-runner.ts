@@ -8,6 +8,7 @@ import type { WebSocket } from "ws";
 import { z } from "zod";
 import { getProjectById, refreshProjectRegistry, userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
 import type { Identity, IdentityUser } from "./identity.js";
+import type { GithubAuth } from "./github-auth.js";
 import { requireExistingDirectory } from "../folder-path.js";
 import { hostProcessEnv, hostShellSpawn } from "../host-shell.js";
 import { parseHostRuntime } from "../script-runtime.js";
@@ -33,14 +34,14 @@ import { ensureEventLogSchema, eventsById, listProjectEvents, recordEvent } from
 import { parseLotaruPublish, replayPayloadsFromStored, storedEnvelopeFromPublish, type LotaruPublishInput } from "../event-publish.js";
 import { createFileWatchers } from "../file-watch.js";
 import { mergeGithubWatches, pollGithubOnce, startGithubPoller, type GithubWatch } from "../github-poll.js";
-import { listGithubReposAt } from "../github-remote.js";
+import { githubWatchesFromLinks, listProjectGitLinks } from "../git-repo-store.js";
 import {
   fireKnowledgeTemplatesForEvent,
   listProjectEventTemplates,
 } from "./knowledge-templates.js";
 import { fireAgentsForEvent, listAgents, openAgentsDb } from "./agents.js";
 import { setLotaruEventPublisher, publishLotaruEvent } from "../event-bus.js";
-import { ensureGithubSchema } from "../github-store.js";
+import { ensureGithubSchema, loadGithubToken } from "../github-store.js";
 import { ensureConnectionSchema } from "../connection-store.js";
 import {
   connectorIdForHookToken,
@@ -139,6 +140,7 @@ export type ScriptRunnerOptions = {
   dataDir: string;
   databasePath: string;
   tunnelSnapshot?: () => { enabled: boolean; state: string; publicUrl: string };
+  github?: GithubAuth;
 };
 
 const SCHEMA = `
@@ -903,14 +905,29 @@ export async function registerScriptRunnerModule(
   setLotaruEventPublisher(emitLotaruEvent);
 
   async function loadGithubWatches(): Promise<GithubWatch[]> {
-    const fromRemotes: GithubWatch[] = [];
-    for (const project of refreshProjectRegistry()) {
-      const remotes = await listGithubReposAt(project.repoPath);
-      for (const repo of remotes) {
-        fromRemotes.push({ repo, projectId: project.id });
+    const linked = githubWatchesFromLinks(listProjectGitLinks(options.dataDir));
+    return mergeGithubWatches(linked);
+  }
+
+  function resolveGithubToken(): string {
+    const pat = loadGithubToken(db);
+    if (pat.length > 0) {
+      return pat;
+    }
+    if (options.github === undefined) {
+      return "";
+    }
+    const links = listProjectGitLinks(options.dataDir);
+    for (const link of links) {
+      if (link.provider !== "github") {
+        continue;
+      }
+      const oauth = options.github.getAccessToken(link.ownerId);
+      if (oauth !== null && oauth.length > 0) {
+        return oauth;
       }
     }
-    return mergeGithubWatches(fromRemotes);
+    return "";
   }
 
   function emitGithubPoll(payload: { type: string; projectId: string; path: string; detail: string }): void {
@@ -1737,6 +1754,7 @@ export async function registerScriptRunnerModule(
       }
       return { enabled: false, state: "off", publicUrl: "" };
     },
+    resolveGithubToken,
   );
 
   app.post<{ Params: { token: string } }>("/api/ingest/hooks/:token", async (request, reply) => {

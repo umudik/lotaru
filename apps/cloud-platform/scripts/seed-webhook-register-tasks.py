@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BASE = "http://127.0.0.1:4317"
+BASE = "http://127.0.0.1:2222"
 PROJECT_ID = "01a01702-5291-7782-b810-114969279c82"
 N8N_RAW = "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/"
 AUTH = {"Authorization": "Bearer local", "Content-Type": "application/json"}

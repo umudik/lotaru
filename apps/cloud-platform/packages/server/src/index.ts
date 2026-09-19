@@ -16,6 +16,9 @@ import { registerKnowledgeTemplatesModule } from "./modules/knowledge-templates.
 import { registerNotesModule } from "./modules/notes.js";
 import { registerSpeakModule } from "./modules/speak.js";
 import { registerProjectsModule } from "./modules/projects.js";
+import { registerGithubAuthModule } from "./modules/github-auth.js";
+import { registerGitProjectsModule } from "./modules/git-projects.js";
+import { registerGitProvidersModule } from "./git-providers.js";
 import { registerScriptRunnerModule } from "./modules/script-runner.js";
 import { registerSettingsModule } from "./modules/settings.js";
 import { registerClockSchedulesModule } from "./modules/clock-schedules.js";
@@ -43,6 +46,34 @@ function publicUrlFor(host: string, port: number): string {
     }
   }
   return `http://${host}:${String(port)}`;
+}
+
+function githubTokenKeyFromEnv(env: NodeJS.ProcessEnv): Buffer | null {
+  const raw = env.GITHUB_TOKEN_KEY;
+  if (raw === undefined) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const key = Buffer.from(trimmed, "base64");
+  if (key.length !== 32) {
+    return null;
+  }
+  return key;
+}
+
+function envOrNull(env: NodeJS.ProcessEnv, name: string): string | null {
+  const raw = env[name];
+  if (raw === undefined) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  return trimmed;
 }
 
 function applyDataEnv(dataDirectory: string): string {
@@ -75,7 +106,37 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
   });
 
   await identity.register(app);
-  await registerProjectsModule(app, identity);
+  const github = await registerGithubAuthModule(app, {
+    identity,
+    dataDir: dataDirectory,
+    publicUrl,
+    clientId: envOrNull(process.env, "GITHUB_CLIENT_ID"),
+    clientSecret: envOrNull(process.env, "GITHUB_CLIENT_SECRET"),
+    tokenKey: githubTokenKeyFromEnv(process.env),
+  });
+  const projectPaths = {
+    dataDir: dataDirectory,
+    workspacesHostDir: envOrNull(process.env, "LOTARU_WORKSPACES_HOST_DIR"),
+  };
+  await registerProjectsModule(app, {
+    identity,
+    github,
+    dataDir: dataDirectory,
+    workspacesHostDir: projectPaths.workspacesHostDir,
+    databasePath: dbPath,
+  });
+  await registerGitProvidersModule(app, {
+    identity,
+    github,
+    databasePath: dbPath,
+  });
+  await registerGitProjectsModule(app, {
+    identity,
+    github,
+    dataDir: dataDirectory,
+    workspacesHostDir: projectPaths.workspacesHostDir,
+    databasePath: dbPath,
+  });
   const tunnel = createWebhookTunnel({
     databasePath: dbPath,
     dataDir: dataDirectory,
@@ -123,6 +184,7 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
   });
   await registerScriptRunnerModule(app, {
     identity,
+    github,
     dataDir: dataDirectory,
     databasePath: dbPath,
     tunnelSnapshot: () => {

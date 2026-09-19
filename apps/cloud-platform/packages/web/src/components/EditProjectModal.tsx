@@ -1,4 +1,4 @@
-import { FolderOpen, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchWorkflowTemplates,
-  pickProjectFolder,
   updateProject,
   type Project,
   type WorkflowTemplateSummary,
@@ -38,9 +37,7 @@ export function EditProjectModal({
   onSaved,
 }: EditProjectModalProps) {
   const [saving, setSaving] = useState(false);
-  const [picking, setPicking] = useState(false);
   const [name, setName] = useState("");
-  const [folderPath, setFolderPath] = useState("");
   const [description, setDescription] = useState("");
   const [workflowTemplateId, setWorkflowTemplateId] = useState("");
   const [templates, setTemplates] = useState<WorkflowTemplateSummary[]>([]);
@@ -48,7 +45,6 @@ export function EditProjectModal({
   useEffect(() => {
     if (!open || !project) return;
     setName(project.name);
-    setFolderPath(project.repoPath);
     setDescription(project.description.trim());
     setWorkflowTemplateId("");
     void fetchWorkflowTemplates(session)
@@ -63,11 +59,6 @@ export function EditProjectModal({
       toast.error("Name is required");
       return;
     }
-    const trimmedPath = folderPath.trim();
-    if (!trimmedPath) {
-      toast.error("Folder is required");
-      return;
-    }
 
     const currentTemplateId = project.workflowTemplateId.trim();
     const selectedTemplateId = workflowTemplateId.trim();
@@ -79,7 +70,6 @@ export function EditProjectModal({
         name: trimmedName,
         description: description.trim(),
         workflowTemplateId: nextTemplateId,
-        repoPath: trimmedPath,
       });
       onSaved(updated);
       onOpenChange(false);
@@ -91,23 +81,8 @@ export function EditProjectModal({
     }
   }
 
-  async function handlePickFolder() {
-    setPicking(true);
-    try {
-      const result = await pickProjectFolder(session);
-      if (result.path.length === 0) {
-        return;
-      }
-      setFolderPath(result.path);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to pick folder");
-    } finally {
-      setPicking(false);
-    }
-  }
-
-  const canSubmit = Boolean(name.trim()) && Boolean(folderPath.trim());
-  const busy = saving || picking;
+  const canSubmit = Boolean(name.trim());
+  const busy = saving;
 
   const currentTemplate = project !== null
     ? templates.find((item) => item.id === project.workflowTemplateId)
@@ -118,6 +93,13 @@ export function EditProjectModal({
     project !== null &&
     selectedTemplateId !== project.workflowTemplateId.trim();
   const selectedTemplate = templates.find((item) => item.id === selectedTemplateId);
+
+  let gitLabel = "No folder or git repository";
+  if (project !== null && project.git !== null) {
+    gitLabel = `${project.git.provider}:${project.git.owner}/${project.git.repo} (${project.git.branch})`;
+  } else if (project !== null && project.repoPath.trim().length > 0) {
+    gitLabel = project.repoPath;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -130,27 +112,7 @@ export function EditProjectModal({
         </DialogHeader>
 
         <div className="space-y-4 px-6 py-5">
-          <div className="space-y-2">
-            <Label htmlFor="edit-project-folder">Folder</Label>
-            <div className="flex gap-2">
-              <Input
-                id="edit-project-folder"
-                value={folderPath}
-                onChange={(event) => setFolderPath(event.target.value)}
-                placeholder="C:\Users\you\code\my-app"
-                disabled={busy}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handlePickFolder()}
-                disabled={busy}
-              >
-                {picking ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                Browse
-              </Button>
-            </div>
-          </div>
+          <p className="font-mono text-xs text-muted-foreground">{gitLabel}</p>
           <div className="space-y-2">
             <Label htmlFor="edit-project-name">Name</Label>
             <Input

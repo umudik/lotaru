@@ -6,15 +6,15 @@ Local-only app for projects, tasks, scripts, and notes. Nothing is deployed; it 
 npm run dev
 ```
 
-Opens `http://127.0.0.1:4317`. Data is `~/.lotaru/app.sqlite`. No login.
+Opens `http://127.0.0.1:2222`. Data is `~/.lotaru/app.sqlite`. No login.
 
 ```bash
-npx -y @umudik/lotaru --port 4317 --data ~/.lotaru
+npx -y @umudik/lotaru --port 2222 --data ~/.lotaru
 ```
 
 | Flag / env | Default | Purpose |
 | --- | --- | --- |
-| `-p, --port` / `LOTARU_PORT` | `4317` | HTTP port |
+| `-p, --port` / `LOTARU_PORT` | `2222` | HTTP port |
 | `-d, --data` / `LOTARU_DATA_DIR` | `~/.lotaru` | SQLite file `app.sqlite`, workspaces, logs |
 
 ## From this repo

@@ -21,7 +21,6 @@ export type VoiceListenPhase =
   | "reconnecting";
 
 type VoiceListenContextValue = {
-  projectId: string;
   armed: boolean;
   listening: boolean;
   reconnecting: boolean;
@@ -31,7 +30,7 @@ type VoiceListenContextValue = {
   error: string;
   liveSegments: VoiceSegment[];
   mediaStream: MediaStream | null;
-  start: (projectId: string) => Promise<void>;
+  start: () => Promise<void>;
   stop: () => void;
 };
 
@@ -88,7 +87,6 @@ function nextBackoffMs(attempt: number): number {
 }
 
 export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.Element {
-  const [projectId, setProjectId] = useState("");
   const [armed, setArmed] = useState(false);
   const [listening, setListening] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
@@ -106,13 +104,12 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
   const intentionalCloseRef = useRef(false);
   const wantListenRef = useRef(false);
   const sessionRef = useRef(0);
-  const projectIdRef = useRef("");
   const reconnectTimerRef = useRef(0);
   const reconnectAttemptRef = useRef(0);
   const levelRafRef = useRef(0);
   const phaseRef = useRef<VoiceListenPhase>("idle");
   const lastLevelEmitRef = useRef(0);
-  const startRef = useRef<(nextProjectId: string, mode: "user" | "reconnect") => Promise<void>>(
+  const startRef = useRef<(mode: "user" | "reconnect") => Promise<void>>(
     async () => undefined,
   );
   const scheduleReconnectRef = useRef<(reason: string) => void>(() => undefined);
@@ -195,9 +192,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       if (wantListenRef.current !== true || intentionalCloseRef.current === true) {
         return;
       }
-      if (projectIdRef.current.length === 0) {
-        return;
-      }
       clearReconnectTimer();
       setArmed(true);
       setReconnecting(true);
@@ -214,7 +208,7 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
         if (wantListenRef.current !== true) {
           return;
         }
-        void startRef.current(projectIdRef.current, "reconnect").catch(() => {
+        void startRef.current("reconnect").catch(() => {
           scheduleReconnectRef.current("Speech engine unavailable — retrying…");
         });
       }, delay);
@@ -339,7 +333,7 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
   );
 
   const start = useCallback(
-    async (nextProjectId: string, mode: "user" | "reconnect" = "user"): Promise<void> => {
+    async (mode: "user" | "reconnect" = "user"): Promise<void> => {
       clearReconnectTimer();
       if (mode === "user") {
         wantListenRef.current = true;
@@ -350,9 +344,7 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       intentionalCloseRef.current = false;
       const session = sessionRef.current + 1;
       sessionRef.current = session;
-      projectIdRef.current = nextProjectId;
       setError("");
-      setProjectId(nextProjectId);
       setPartialText("");
       setPhase(mode === "reconnect" ? "reconnecting" : "connecting");
       phaseRef.current = mode === "reconnect" ? "reconnecting" : "connecting";
@@ -381,7 +373,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
           proto = "wss";
         }
         const url = new URL(`${proto}://${window.location.host}/api/v1/voice/stream`);
-        url.searchParams.set("projectId", nextProjectId);
         const token = isCloudHost() ? getAccessToken() : null;
         const socket =
           token !== null
@@ -499,9 +490,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       if (wantListenRef.current !== true) {
         return;
       }
-      if (projectIdRef.current.length === 0) {
-        return;
-      }
       if (socketIsOpen(wsRef.current)) {
         return;
       }
@@ -531,7 +519,6 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
 
   const value = useMemo(
     () => ({
-      projectId,
       armed,
       listening,
       reconnecting,
@@ -541,11 +528,10 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
       error,
       liveSegments,
       mediaStream,
-      start: (nextProjectId: string) => start(nextProjectId, "user"),
+      start: () => start("user"),
       stop,
     }),
     [
-      projectId,
       armed,
       listening,
       reconnecting,

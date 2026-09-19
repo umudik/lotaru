@@ -193,4 +193,33 @@ describe("github poll catch-up", () => {
     assert.equal(third.lastSuccessAt, evenLater);
     db.close();
   });
+
+  it("polls with an explicit token when no settings PAT is stored", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lotaru-ghpoll-oauth-"));
+    const db = new Database(join(dir, "app.sqlite"));
+    ensureGithubSchema(db);
+    ensurePollSchema(db);
+    const seen: string[] = [];
+    const httpGet: GithubHttpGet = async (url, token) => {
+      seen.push(token);
+      if (url.includes("/notifications") || url.includes("/pulls") || url.includes("/issues")) {
+        return { ok: true, status: 200, body: [] };
+      }
+      return { ok: false, status: 404, body: [] };
+    };
+    await pollGithubOnce(
+      db,
+      [{ repo: "acme/demo", projectId: "proj-1" }],
+      () => {
+        return;
+      },
+      {
+        httpGet,
+        token: "gho_oauth_only",
+        nowMs: Date.parse("2026-09-16T00:00:00.000Z"),
+      },
+    );
+    assert.equal(seen.includes("gho_oauth_only"), true);
+    db.close();
+  });
 });

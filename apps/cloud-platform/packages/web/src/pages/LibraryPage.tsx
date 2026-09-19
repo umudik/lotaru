@@ -10,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -349,19 +350,29 @@ export function LibraryPage() {
   }
 
   if (projectId === "") {
-        return <p className="text-sm text-muted-foreground">Open a project to use Sources.</p>;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader title="Sources" />
+        <PageContent>
+          <p className="text-sm text-muted-foreground">Open a project to use Sources.</p>
+        </PageContent>
+      </div>
+    );
   }
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader title="Sources" />
+        <PageContent className="flex items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </PageContent>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Sources"
         actions={
@@ -397,7 +408,8 @@ export function LibraryPage() {
         }
       />
 
-      <div className="grid min-h-[70vh] grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.2fr)]">
+      <PageContent className="min-h-0 overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.2fr)]">
         <aside className="rounded-xl border border-white/[0.06] bg-[#0c0c0c] p-3">
           <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Folders
@@ -601,6 +613,7 @@ export function LibraryPage() {
           <DocumentReader preview={preview} selected={selectedDoc} />
         </article>
       </div>
+      </PageContent>
     </div>
   );
 }

@@ -531,8 +531,8 @@ function tryClaim(db: Database.Database, key: string, agentId: string): boolean 
   }
 }
 
-function voiceContext(databasePath: string, projectId: string): string {
-  const segments = listVoiceSegments(openVoiceDb(databasePath), projectId, 80);
+function voiceContext(databasePath: string): string {
+  const segments = listVoiceSegments(openVoiceDb(databasePath), 80);
   if (segments.length === 0) {
     return "No recent voice transcript segments.";
   }
@@ -826,7 +826,7 @@ async function executeAgent(input: {
   try {
     let voice = "";
     if (input.agent.includeVoice) {
-      voice = voiceContext(input.options.databasePath, input.agent.projectId);
+      voice = voiceContext(input.options.databasePath);
     }
     const settings = loadAppSettings(openSettingsDb(input.options.databasePath));
     const prompt = buildPrompt(

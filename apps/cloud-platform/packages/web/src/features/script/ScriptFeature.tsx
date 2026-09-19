@@ -14,24 +14,12 @@ function ScriptNavigatorBinder(props: { basePath: string }): null {
   return null;
 }
 
-function ScriptHeader(): React.JSX.Element {
-  return (
-    <div className="page-toolbar">
-      <h1 className="truncate text-lg font-semibold tracking-tight text-white">Scripts</h1>
-    </div>
-  );
-}
-
 function ScriptRedirect(props: { basePath: string }): React.JSX.Element {
   const params = useParams();
   useEffect(() => {
     navigate(props.basePath);
   }, [params["scriptId"], props.basePath]);
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ScriptHeader />
-    </div>
-  );
+  return <Navigate to={props.basePath} replace />;
 }
 
 function ScriptProjectPage(props: {
@@ -40,7 +28,7 @@ function ScriptProjectPage(props: {
 }): React.JSX.Element {
   useBootstrap(props.projectId);
   return (
-    <div className="w-full">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <ProjectScriptView projectId={props.projectId} projectName={props.projectName} />
     </div>
   );

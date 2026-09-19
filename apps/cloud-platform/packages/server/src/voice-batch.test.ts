@@ -217,4 +217,38 @@ describe("scanVoiceBatchForProject", () => {
     });
     assert.match(seen, /hatirlatma ekle/);
   });
+
+  it("reads transcript lines even when they were stored under another project", async () => {
+    const h = harness([HATIRLATMA]);
+    const voiceDb = openVoiceDb(h.databasePath);
+    voiceDb
+      .prepare(
+        "INSERT INTO voice_segments (id, project_id, session_id, kind, text, started_at, ended_at, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        randomUUID(),
+        "proj-other",
+        "sess",
+        "final",
+        "yarin Ali icin hatirlatma ekle",
+        0,
+        1,
+        "",
+        1000,
+      );
+    let seen = "";
+    const result = await scanVoiceBatchForProject({
+      databasePath: h.databasePath,
+      projectId: PROJECT,
+      now: VOICE_BATCH_INTERVAL_MS + 1,
+      emit: h.emit,
+      runScanner: async (payload) => {
+        seen = payload.prompt;
+        return '{"matches":[{"rule":"hatirlatma","title":"Ali ara","summary":"Yarin Ali aranacak","quote":"yarin Ali icin hatirlatma ekle"}]}';
+      },
+    });
+    assert.equal(result.ran, true);
+    assert.match(seen, /hatirlatma ekle/);
+    assert.equal(h.emitted[0]?.projectId, PROJECT);
+  });
 });
