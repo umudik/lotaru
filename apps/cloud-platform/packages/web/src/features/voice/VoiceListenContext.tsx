@@ -382,6 +382,8 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
         socket.binaryType = "arraybuffer";
         let dropReason = "Connection lost — reconnecting…";
         let opened = false;
+        let helloSeen = false;
+        let helloWaiter: (() => void) | null = null;
         socket.onmessage = (event) => {
           if (sessionRef.current !== session) {
             return;
@@ -411,8 +413,18 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
             setPartialText("");
             setLiveSegments((prev) => [record.segment as VoiceSegment, ...prev]);
           }
+          if (record.kind === "hello") {
+            helloSeen = true;
+            if (helloWaiter !== null) {
+              helloWaiter();
+            }
+          }
           if (record.kind === "sidecar" && record.status === "ready") {
             setError("");
+            helloSeen = true;
+            if (helloWaiter !== null) {
+              helloWaiter();
+            }
           }
           if (record.kind === "error" && typeof record.text === "string") {
             dropReason = record.text;
@@ -452,6 +464,26 @@ export function VoiceListenProvider(props: { children: ReactNode }): React.JSX.E
           return;
         }
         await bindMediaPipeline(session, keepMedia);
+        if (sessionRef.current !== session) {
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          if (helloSeen) {
+            resolve();
+            return;
+          }
+          helloWaiter = () => {
+            helloWaiter = null;
+            resolve();
+          };
+          window.setTimeout(() => {
+            if (helloWaiter === null) {
+              return;
+            }
+            helloWaiter = null;
+            reject(new Error("Speech engine is starting — retrying…"));
+          }, 180_000);
+        });
         if (sessionRef.current !== session) {
           return;
         }

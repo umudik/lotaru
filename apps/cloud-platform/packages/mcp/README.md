@@ -26,7 +26,7 @@ Env inside the container:
 ```bash
 cd apps/cloud-platform/packages/mcp
 npm install && npm run build
-LOTARU_URL=http://127.0.0.1:11222 node dist/index.js
+LOTARU_URL=http://127.0.0.1:2222 node dist/index.js
 ```
 
 ## Tools

@@ -25,7 +25,7 @@ services:
       FOOKIE_ADMIN_EMAIL: ${FOOKIE_ADMIN_EMAIL:-}
       FOOKIE_ADMIN_PASSWORD: ${FOOKIE_ADMIN_PASSWORD:-}
       FOOKIE_ADMIN_NAME: ${FOOKIE_ADMIN_NAME:-Admin}
-      LOTARU_VOICE_SIDECAR_URL: http://voice-sidecar:18765
+      LOTARU_VOICE_SIDECAR_URL: http://host.docker.internal:18765
       LOTARU_MCP_URL: http://lotaru-mcp:18766/mcp
       LOTARU_OLLAMA_HOST: ${LOTARU_OLLAMA_HOST:-http://host.docker.internal:11434}
     extra_hosts:
@@ -33,9 +33,6 @@ services:
     volumes:
       - fookie-cloud-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      voice-sidecar:
-        condition: service_started
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -44,8 +41,9 @@ services:
       start_period: 40s
 
   voice-sidecar:
+    profiles: ["voice"]
     container_name: lotaru-voice-sidecar
-    restart: always
+    restart: "no"
     build:
       context: ./apps/cloud-platform/voice-sidecar
       dockerfile: Dockerfile

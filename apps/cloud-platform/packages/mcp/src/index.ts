@@ -6,7 +6,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import type { Request, Response } from "express";
 import { z } from "zod";
 
-const LOTARU_URL = (process.env.LOTARU_URL || "http://127.0.0.1:11222").replace(/\/$/, "");
+const LOTARU_URL = (process.env.LOTARU_URL || "http://127.0.0.1:2222").replace(/\/$/, "");
 const LOTARU_API_KEY = process.env.LOTARU_API_KEY || "";
 
 async function api(method: string, path: string, body?: unknown): Promise<unknown> {

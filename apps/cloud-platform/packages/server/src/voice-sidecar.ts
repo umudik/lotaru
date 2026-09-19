@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { z } from "zod";
+import { ensureVoiceSidecarContainer } from "./voice-docker.js";
 
 const sidecarMessageSchema = z.object({
   kind: z.enum(["partial", "final", "error"]),
@@ -161,6 +162,14 @@ function portFromHttpBase(httpBase: string): number {
   return 18765;
 }
 
+async function probeAndEnsureSidecar(): Promise<void> {
+  const probe = await probeVoiceSidecar();
+  if (probe.reachable === true) {
+    return;
+  }
+  await ensureVoiceSidecarContainer();
+}
+
 export async function startVoiceSidecar(options: {
   onMessage: (message: SidecarTranscriptMessage) => void;
   onError: (message: string) => void;
@@ -168,10 +177,11 @@ export async function startVoiceSidecar(options: {
   healthTimeoutMs?: number;
 }): Promise<VoiceSidecarHandle> {
   const httpBase = resolveVoiceSidecarHttpBase();
-  let healthTimeoutMs = 60_000;
+  let healthTimeoutMs = 180_000;
   if (options.healthTimeoutMs !== undefined && options.healthTimeoutMs > 0) {
     healthTimeoutMs = options.healthTimeoutMs;
   }
+  await probeAndEnsureSidecar();
   await waitForHealth(httpBase, healthTimeoutMs);
   const wsUrl = `${httpBaseToWsBase(httpBase)}/v1/stream`;
   const socket = await connectSidecarSocket(wsUrl);

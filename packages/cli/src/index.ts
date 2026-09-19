@@ -45,13 +45,16 @@ function printHelp(): void {
   console.log(`lotaru — local task, script, and notes app
 
 Usage:
-  npx @umudik/lotaru
-  npx @umudik/lotaru --port 2222 --data ~/.lotaru
+  npx -y @umudik/lotaru@latest
+  npx -y @umudik/lotaru@latest --port 2222 --data ~/.lotaru
 
 Options:
   -p, --port   Listen port (default 2222, or $LOTARU_PORT)
   -d, --data   Data directory (default ~/.lotaru, or $LOTARU_DATA_DIR)
   -h, --help   Show this help
+
+Listen starts the speech Docker engine on demand (CPU on Mac, existing NVIDIA
+container on Windows/Linux when present) and stops it when you turn Listen off.
 `);
 }
 

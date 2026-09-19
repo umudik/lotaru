@@ -88,7 +88,7 @@ describe("buildHealthReport", () => {
     assert.equal(report.service, "lotaru");
     assert.equal(report.auth, "local");
     assert.equal(report.modules.scriptRunner, true);
-    assert.equal(report.ollama.reachable, false);
-    assert.equal(report.status, "degraded");
+    assert.equal(report.ollama.reason, "not probed at boot");
+    assert.equal(report.status, "ok");
   });
 });

@@ -35,10 +35,11 @@ describe("parseTunnelPublicUrl", () => {
 });
 
 describe("cloudflared assets", () => {
-  it("maps Windows and Linux release names and skips Darwin archives", () => {
+  it("maps Windows, Linux, and Darwin release names", () => {
     assert.equal(cloudflaredAssetName("win32", "x64"), "cloudflared-windows-amd64.exe");
     assert.equal(cloudflaredAssetName("linux", "arm64"), "cloudflared-linux-arm64");
-    assert.equal(cloudflaredAssetName("darwin", "arm64"), "");
+    assert.equal(cloudflaredAssetName("darwin", "arm64"), "cloudflared-darwin-arm64.tgz");
+    assert.equal(cloudflaredAssetName("darwin", "x64"), "cloudflared-darwin-amd64.tgz");
     assert.equal(
       cloudflaredDownloadUrl("win32", "x64"),
       "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",

@@ -74,14 +74,22 @@ export async function buildHealthReport(input: {
   modules: HealthModuleFlags;
 }): Promise<HealthReport> {
   const settingsDb = openSettingsDb(input.databasePath);
-  let settings = loadAppSettings(settingsDb);
+  const settings = loadAppSettings(settingsDb);
   settingsDb.close();
-  const ollama = await probeOllamaHealth(settings);
+  let modelConfigured = false;
+  if (settings.ollamaModel.trim().length > 0) {
+    modelConfigured = true;
+  }
   return {
-    status: healthStatusFromOllama(ollama),
+    status: "ok",
     service: "lotaru",
     auth: "local",
     modules: input.modules,
-    ollama,
+    ollama: {
+      reachable: false,
+      modelConfigured,
+      modelCount: 0,
+      reason: "not probed at boot",
+    },
   };
 }

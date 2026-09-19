@@ -3,13 +3,19 @@
 Local-only app for projects, tasks, scripts, and notes. Nothing is deployed; it runs on your machine.
 
 ```bash
-npm run dev
+npx -y @umudik/lotaru@latest
 ```
 
-Opens `http://127.0.0.1:2222`. Data is `~/.lotaru/app.sqlite`. No login.
+Opens `http://127.0.0.1:2222` on Windows, macOS, and Linux. Data is `~/.lotaru/app.sqlite`. No login.
+
+That command is the whole app (API + UI). Whisper Docker does **not** start with it. Press **Listen** to start the speech engine; turning Listen off stops the container we started.
+
+- macOS / Apple Silicon: CPU Whisper (`linux/arm64`)
+- Windows/Linux with an existing NVIDIA sidecar: that GPU container is reused
+- Otherwise: CPU image built on first Listen (Docker Desktop must be running)
 
 ```bash
-npx -y @umudik/lotaru --port 2222 --data ~/.lotaru
+npx -y @umudik/lotaru@latest --port 2222 --data ~/.lotaru
 ```
 
 | Flag / env | Default | Purpose |

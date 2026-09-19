@@ -14,6 +14,7 @@ import {
   startVoiceSidecarWithRetry,
   type VoiceSidecarHandle,
 } from "../voice-sidecar.js";
+import { stopOwnedVoiceSidecarContainer } from "../voice-docker.js";
 import { USER_IO_STREAM } from "../user-io.js";
 import type { Identity } from "./identity.js";
 
@@ -252,6 +253,7 @@ export async function registerVoiceModule(
       sidecar.close();
       sidecar = false;
     }
+    void stopOwnedVoiceSidecarContainer();
   }
 
   function shutdownVoiceClients(): void {
@@ -352,8 +354,8 @@ export async function registerVoiceModule(
     let healthTimeoutMs = 15_000;
     let maxAttempts = 0;
     if (mode === "open") {
-      healthTimeoutMs = 30_000;
-      maxAttempts = 12;
+      healthTimeoutMs = 180_000;
+      maxAttempts = 4;
     }
     const handle = await startVoiceSidecarWithRetry({
       ...callbacks,

@@ -65,7 +65,7 @@ function livePhaseLabel(
     return "Pause… (~2s ends the line)";
   }
   if (phase === "connecting") {
-    return "Connecting…";
+    return "Starting speech engine…";
   }
   return "Listening";
 }
@@ -87,7 +87,10 @@ function liveHint(
     if (sidecarReachable) {
       return "Mic is off. Use Listen in the sidebar footer.";
     }
-    return "Speech engine is warming up. Try Listen in the sidebar in a moment.";
+    return "Press Listen. Docker starts Whisper then; it is not running at boot.";
+  }
+  if (phase === "connecting") {
+    return "Starting the speech engine. First time can take a minute.";
   }
   if (phase === "speaking") {
     return "Wave moves with your voice — keep talking.";

@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { locateCliBinary } from "./agent-probe.js";
 import {
   clipLogTail,
+  cloudflaredAssetName,
   cloudflaredDownloadUrl,
+  installCloudflaredBytes,
   parseTunnelPublicUrl,
   redactSecret,
   tunnelBinaryFileName,
@@ -239,11 +241,7 @@ export function createWebhookTunnel(options: WebhookTunnelOptions): WebhookTunne
     };
     try {
       const bytes = await fetchBinary(url);
-      mkdirSync(dirname(bundled), { recursive: true });
-      writeFileSync(bundled, Buffer.from(bytes));
-      if (platform !== "win32") {
-        chmodSync(bundled, 0o755);
-      }
+      installCloudflaredBytes(bytes, bundled, cloudflaredAssetName(platform, arch), platform);
     } catch (err) {
       let message = "Could not download cloudflared.";
       if (err instanceof Error && err.message.length > 0) {
