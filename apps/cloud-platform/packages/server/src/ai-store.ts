@@ -63,9 +63,6 @@ function writeOllamaSettings(db: Database.Database, baseUrl: string, model: stri
     ollamaModel: model,
     translationEnabled: settings.translationEnabled,
     targetLanguage: settings.targetLanguage,
-    ttsEngine: settings.ttsEngine,
-    qwenTtsUrl: settings.qwenTtsUrl,
-    ttsVoice: settings.ttsVoice,
   });
 }
 

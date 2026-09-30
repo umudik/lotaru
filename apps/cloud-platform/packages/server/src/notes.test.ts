@@ -5,39 +5,16 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import Database from "better-sqlite3";
 import Fastify from "fastify";
-import { DEFAULT_APP_SETTINGS } from "./app-settings.js";
 import { createIdentity } from "./modules/identity.js";
 import {
   openNotesDb,
   registerNotesModule,
   appendNotePageByBookTitle,
-  speakVariant,
-  type NotePage,
 } from "./modules/notes.js";
 import { clearLotaruEventPublisher, setLotaruEventPublisher } from "./event-bus.js";
 import { storedEnvelopeFromPublish } from "./event-publish.js";
 
 const PROJECT_ID = "proj-notes";
-
-function emptyPage(): NotePage {
-  return {
-    id: "page-1",
-    bookId: "book-1",
-    title: "Hello",
-    body: "guzel kardesim",
-    position: 1,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    translatedBody: "beautiful sibling",
-    translationStatus: "ready",
-    translationError: "",
-    polishedBody: "güzel kardeşim",
-    polishStatus: "ready",
-    polishError: "",
-    summaryBody: "Kısa özet.",
-    summaryStatus: "ready",
-    summaryError: "",
-  };
-}
 
 async function startNotes(access = true) {
   const dir = mkdtempSync(join(tmpdir(), "lotaru-notes-"));
@@ -68,29 +45,6 @@ async function startNotes(access = true) {
   });
   return { app, dir };
 }
-
-describe("speakVariant", () => {
-  it("reads each output in its own language", () => {
-    const page = emptyPage();
-    const settings = Object.assign({}, DEFAULT_APP_SETTINGS, { targetLanguage: "en" });
-    assert.deepEqual(speakVariant(page, "original", settings), {
-      text: "guzel kardesim",
-      language: "en",
-    });
-    assert.deepEqual(speakVariant(page, "translated", settings), {
-      text: "beautiful sibling",
-      language: "en",
-    });
-    assert.deepEqual(speakVariant(page, "polished", settings), {
-      text: "güzel kardeşim",
-      language: "tr",
-    });
-    assert.deepEqual(speakVariant(page, "summary", settings), {
-      text: "Kısa özet.",
-      language: "en",
-    });
-  });
-});
 
 describe("openNotesDb", () => {
   it("moves legacy notes into an Inbox book per project", () => {
@@ -267,8 +221,6 @@ describe("note books", () => {
     assert.equal(createdPage.statusCode, 201);
     const page = createdPage.json();
     assert.equal(page.body, "guzel bir gun");
-    assert.equal(typeof page.speakId, "string");
-    assert.equal(page.speakId.length > 0, true);
     assert.equal(page.translationStatus, "error");
     assert.equal(page.translationError, "Pick a connected AI tool");
     assert.equal(page.polishStatus, "error");
@@ -375,32 +327,6 @@ describe("note books", () => {
       url: `/api/note-books/${book.id}`,
     });
     assert.equal(missing.statusCode, 404);
-  });
-
-  it("refuses to read an empty translation", async (t) => {
-    const { app } = await startNotes();
-    t.after(async () => {
-      await app.close();
-    });
-    const createdBook = await app.inject({
-      method: "POST",
-      url: "/api/note-books",
-      payload: { projectId: PROJECT_ID, title: "Voice" },
-    });
-    const book = createdBook.json();
-    const createdPage = await app.inject({
-      method: "POST",
-      url: `/api/note-books/${book.id}/pages`,
-      payload: { body: "okunacak metin" },
-    });
-    const page = createdPage.json();
-    const spoken = await app.inject({
-      method: "POST",
-      url: `/api/note-pages/${page.id}/speak`,
-      payload: { variant: "translated" },
-    });
-    assert.equal(spoken.statusCode, 400);
-    assert.equal(spoken.json().error, "Nothing to read");
   });
 
   it("hides books when the project is not visible", async (t) => {

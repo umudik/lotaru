@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { userCanAccessProject } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
-import { loadAppSettings, openSettingsDb, type AppSettings } from "../app-settings.js";
+import { loadAppSettings, openSettingsDb } from "../app-settings.js";
 import { runProjectAgentPrompt } from "../agent-prompt.js";
 import { requireConnectedAiToolId, PICK_CONNECTED_AI_ERROR } from "../ai-health.js";
 import { titleFromBody, languageLabel } from "../note-language.js";
@@ -18,12 +18,9 @@ import {
   summarySystemPrompt,
   translationSystemPrompt,
 } from "../ollama.js";
-import { enqueueSpeakUtterance } from "../speak-store.js";
-import { synthesizeSpeech } from "../tts.js";
 import type { Identity } from "./identity.js";
 
 export type JobStatus = "none" | "pending" | "ready" | "error";
-export type SpeakVariant = "original" | "translated" | "polished" | "summary";
 
 type NoteBook = {
   id: string;
@@ -118,10 +115,6 @@ const patchPageSchema = z.object({
   body: z.string().trim().min(1).optional(),
 });
 
-const speakSchema = z.object({
-  variant: z.enum(["original", "translated", "polished", "summary"]),
-});
-
 const retrySchema = z.object({
   variant: z.enum(["translate", "polish", "summary"]),
 });
@@ -161,29 +154,6 @@ export function bindNoteJobEnqueue(handler: NoteJobEnqueue): void {
 
 export function releaseNoteJobEnqueue(): void {
   noteJobEnqueueSlot.handler = false;
-}
-
-function enqueueNoteSpeak(input: {
-  databasePath: string;
-  projectId: string;
-  text: string;
-  createdBy: string;
-}): string {
-  const body = input.text.trim();
-  if (body.length === 0) {
-    return "";
-  }
-  try {
-    const utterance = enqueueSpeakUtterance(input.databasePath, {
-      projectId: input.projectId,
-      text: body,
-      source: "note",
-      createdBy: input.createdBy,
-    });
-    return utterance.id;
-  } catch {
-    return "";
-  }
 }
 
 function notifyNotePageAdded(pageId: string): void {
@@ -251,12 +221,6 @@ export function appendNotePageByBookTitle(input: {
       pageTitle,
     });
   }
-  enqueueNoteSpeak({
-    databasePath: input.databasePath,
-    projectId: input.projectId,
-    text: input.body,
-    createdBy: input.createdBy,
-  });
   return {
     bookId,
     bookTitle: bookTitleFinal,
@@ -974,13 +938,7 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     if (stored === null) {
       return reply.code(500).send({ error: "page missing" });
     }
-    const speakId = enqueueNoteSpeak({
-      databasePath: options.databasePath,
-      projectId: book.projectId,
-      text: stored.body,
-      createdBy: viewer.sub,
-    });
-    return reply.code(201).send(Object.assign({}, stored, { speakId }));
+    return reply.code(201).send(stored);
   });
 
   app.patch<{ Params: { pageId: string } }>("/api/note-pages/:pageId", async (request, reply) => {
@@ -1082,40 +1040,6 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     return next;
   });
 
-  app.post<{ Params: { pageId: string } }>("/api/note-pages/:pageId/speak", async (request, reply) => {
-    const viewer = await viewerFrom(request, options);
-    if (!viewer) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
-    const page = getPage(db, request.params.pageId);
-    if (page === null) {
-      return reply.code(404).send({ error: "not found" });
-    }
-    const book = getBook(db, page.bookId);
-    if (book === null) {
-      return reply.code(404).send({ error: "not found" });
-    }
-    if (!canSeeProject(options, book.projectId, viewer.sub)) {
-      return reply.code(404).send({ error: "not found" });
-    }
-    const parsed = speakSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid speak request" });
-    }
-    const settings = loadAppSettings(settingsDb);
-    const spoken = speakVariant(page, parsed.data.variant, settings);
-    if (spoken.text.trim().length === 0) {
-      return reply.code(400).send({ error: "Nothing to read" });
-    }
-    try {
-      const audio = await synthesizeSpeech(settings, spoken.text, spoken.language);
-      return reply.type("audio/mpeg").send(audio);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Speech failed";
-      return reply.code(502).send({ error: message });
-    }
-  });
-
   app.addHook("onClose", async () => {
     releaseNoteJobEnqueue();
     for (const timer of retryTimers.values()) {
@@ -1125,21 +1049,4 @@ export async function registerNotesModule(app: FastifyInstance, options: NotesOp
     db.close();
     settingsDb.close();
   });
-}
-
-export function speakVariant(
-  page: NotePage,
-  variant: SpeakVariant,
-  settings: AppSettings,
-): { text: string; language: string } {
-  if (variant === "translated") {
-    return { text: page.translatedBody, language: settings.targetLanguage };
-  }
-  if (variant === "polished") {
-    return { text: page.polishedBody, language: "tr" };
-  }
-  if (variant === "summary") {
-    return { text: page.summaryBody, language: settings.targetLanguage };
-  }
-  return { text: page.body, language: settings.targetLanguage };
 }

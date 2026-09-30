@@ -55,9 +55,6 @@ describe("probeOllamaHealth", () => {
       ollamaModel: "llama3",
       translationEnabled: false,
       targetLanguage: "tr",
-      ttsEngine: "edge",
-      qwenTtsUrl: "",
-      ttsVoice: "",
     });
     assert.equal(result.reachable, false);
     assert.match(result.reason, /host/i);
@@ -74,9 +71,6 @@ describe("buildHealthReport", () => {
       ollamaModel: "",
       translationEnabled: false,
       targetLanguage: "tr",
-      ttsEngine: "edge",
-      qwenTtsUrl: "",
-      ttsVoice: "",
     });
     settingsDb.close();
     const report = await buildHealthReport({

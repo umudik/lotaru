@@ -2,7 +2,7 @@
   "name": "@lotaru/local-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "Local Lotaru MCP — events, speak, scripts, tasks, pipeline",
+  "description": "Local Lotaru MCP — events, scripts, tasks, pipeline",
   "type": "module",
   "bin": {
     "lotaru-local-mcp": "dist/index.js"

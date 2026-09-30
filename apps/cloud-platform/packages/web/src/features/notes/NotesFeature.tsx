@@ -1,22 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Loader2, Pause, Play, Plus, RotateCcw, Trash2, Volume2 } from "lucide-react";
+import { Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { VoiceSettingsLink } from "@/components/VoiceSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getAccessToken } from "@/lib/auth";
-import { fetchAiTools, fetchAppSettings, type AiToolRow } from "@/lib/api";
-import { useSpeakPlayer } from "@/features/speak/SpeakPlayerContext";
+import { fetchAiTools, type AiToolRow } from "@/lib/api";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 
 type JobStatus = "none" | "pending" | "ready" | "error";
-type SpeakVariant = "original" | "translated" | "polished" | "summary";
 
 type NoteBookListItem = {
   id: string;
@@ -45,7 +42,6 @@ type NotePage = {
   summaryBody: string;
   summaryStatus: JobStatus;
   summaryError: string;
-  speakId?: string;
 };
 
 type NoteBook = NoteBookListItem & {
@@ -125,7 +121,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const pageId = params["pageId"];
   const navigate = useNavigate();
   const session = useSession();
-  const speakPlayer = useSpeakPlayer();
   const base = notesBase(props.projectId);
   const [books, setBooks] = useState<NoteBookListItem[]>([]);
   const [book, setBook] = useState<NoteBook | null>(null);
@@ -135,11 +130,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
   const [pageBody, setPageBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [speakingKey, setSpeakingKey] = useState<string | null>(null);
-  const [paused, setPaused] = useState(false);
   const [aiTools, setAiTools] = useState<AiToolRow[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
   const syncedPageId = useRef("");
   const pageSaveGen = useRef(0);
   const pageSaveTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
@@ -161,10 +152,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       setError(err instanceof Error ? err.message : "load failed");
     });
   }, [loadBooks]);
-
-  useEffect(() => {
-    void fetchAppSettings(session).catch(() => undefined);
-  }, [session]);
 
   useEffect(() => {
     if (session === null) {
@@ -226,12 +213,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       if (pageSaveTimer.current !== 0) {
         clearTimeout(pageSaveTimer.current);
       }
-      if (audioRef.current !== null) {
-        audioRef.current.pause();
-      }
-      if (objectUrlRef.current !== null) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
     };
   }, []);
 
@@ -272,13 +253,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
       await loadBook(book.id);
       await loadBooks();
       navigate(`${base}/${book.id}/${page.id}`);
-      let queuedId = "";
-      if (page.speakId !== undefined && page.speakId.length > 0) {
-        queuedId = page.speakId;
-      }
-      if (queuedId.length > 0) {
-        await speakPlayer.playUtterance(queuedId);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "page failed");
     } finally {
@@ -420,86 +394,12 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
     }
   }
 
-  async function speak(variant: SpeakVariant): Promise<void> {
-    if (selected === undefined) {
-      return;
-    }
-    let persistOriginal = false;
-    if (variant === "original") {
-      persistOriginal = true;
-    }
-    await speakPage(selected.id, variant, persistOriginal);
-  }
-
-  async function speakPage(
-    pageId: string,
-    variant: SpeakVariant,
-    persistOriginal: boolean,
-  ): Promise<void> {
-    if (persistOriginal === true) {
-      savePageNow(pageTitle, pageBody);
-    }
-    const key = `${pageId}:${variant}`;
-    if (audioRef.current !== null && paused && speakingKey === key) {
-      await audioRef.current.play();
-      setPaused(false);
-      setSpeakingKey(key);
-      return;
-    }
-    setSpeakingKey(key);
-    setPaused(false);
-    try {
-      const headers = new Headers({ "Content-Type": "application/json" });
-      const token = getAccessToken();
-      if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
-      const res = await fetch(`/api/note-pages/${pageId}/speak`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ variant }),
-      });
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error || "Speech failed");
-      }
-      const blob = await res.blob();
-      if (objectUrlRef.current !== null) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
-      const url = URL.createObjectURL(blob);
-      objectUrlRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = () => {
-        setSpeakingKey(null);
-        setPaused(false);
-      };
-      await audio.play();
-    } catch (err) {
-      setSpeakingKey(null);
-      setError(err instanceof Error ? err.message : "Speech failed");
-    }
-  }
-
-  function pauseSpeech(): void {
-    if (audioRef.current !== null) {
-      audioRef.current.pause();
-    }
-    setPaused(true);
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Notes"
-        info="Translate, polish, and summary use the AI you pick on each book. Read-aloud uses Voice settings."
-        actions={
-          <>
-            <AiSettingsLink />
-            <VoiceSettingsLink />
-          </>
-        }
+        info="Translate, polish, and summary use the AI you pick on each book."
+        actions={<AiSettingsLink />}
       />
       <div className="note-desk flex min-h-0 flex-1">
       <aside className="flex w-[18rem] shrink-0 flex-col border-r border-border/70">
@@ -549,7 +449,7 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
           <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
               Start with a book. Pages you paste live inside it. Translate, polish, and summarize
-              each stay as their own text, each with read aloud.
+              each stay as their own text.
             </p>
           </div>
         ) : (
@@ -589,9 +489,8 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
               </Button>
             </div>
             <p className="border-b border-border/70 px-8 py-3 text-[11px] leading-relaxed text-muted-foreground">
-              On runs that job when you add or edit a page. Translate uses the target language in
-              Voice settings. Polish and summary use AI. Each job keeps its own text, and each
-              text can be read aloud.
+              On runs that job when you add or edit a page. Translate uses the default language in
+              Settings. Polish and summary use AI. Each job keeps its own text.
             </p>
             <form
               className="border-b border-border/70 px-8 py-4"
@@ -644,26 +543,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                 ) : (
                   <div className="space-y-6">
                     <div className="flex flex-wrap items-center gap-2">
-                      {speakingKey === `${selected.id}:original` && !paused ? (
-                        <Button type="button" size="sm" onClick={pauseSpeech}>
-                          <Pause className="h-4 w-4" />
-                          Pause
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={pageBody.trim().length === 0}
-                          onClick={() => void speak("original")}
-                        >
-                          {paused && speakingKey === `${selected.id}:original` ? (
-                            <Play className="h-4 w-4" />
-                          ) : (
-                            <Volume2 className="h-4 w-4" />
-                          )}
-                          {paused && speakingKey === `${selected.id}:original` ? "Resume" : "Read aloud"}
-                        </Button>
-                      )}
                       <Button type="button" variant="ghost" size="sm" onClick={() => void deletePage()}>
                         <Trash2 className="h-4 w-4" />
                         Delete
@@ -700,10 +579,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                         text={selected.translatedBody}
                         status={selected.translationStatus}
                         errorText={selected.translationError}
-                        speaking={speakingKey === `${selected.id}:translated` && !paused}
-                        paused={paused && speakingKey === `${selected.id}:translated`}
-                        onSpeak={() => void speak("translated")}
-                        onPause={pauseSpeech}
                         onRetry={() => void retry("translate")}
                       />
                     ) : null}
@@ -713,10 +588,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                         text={selected.polishedBody}
                         status={selected.polishStatus}
                         errorText={selected.polishError}
-                        speaking={speakingKey === `${selected.id}:polished` && !paused}
-                        paused={paused && speakingKey === `${selected.id}:polished`}
-                        onSpeak={() => void speak("polished")}
-                        onPause={pauseSpeech}
                         onRetry={() => void retry("polish")}
                       />
                     ) : null}
@@ -726,10 +597,6 @@ function NotesStudio(props: { projectId: string }): React.JSX.Element {
                         text={selected.summaryBody}
                         status={selected.summaryStatus}
                         errorText={selected.summaryError}
-                        speaking={speakingKey === `${selected.id}:summary` && !paused}
-                        paused={paused && speakingKey === `${selected.id}:summary`}
-                        onSpeak={() => void speak("summary")}
-                        onPause={pauseSpeech}
                         onRetry={() => void retry("summary")}
                       />
                     ) : null}
@@ -788,10 +655,6 @@ function VariantCard(props: {
   text: string;
   status: JobStatus;
   errorText?: string;
-  speaking: boolean;
-  paused: boolean;
-  onSpeak: () => void;
-  onPause: () => void;
   onRetry?: () => void;
 }): React.JSX.Element {
   let failureText = "";
@@ -810,22 +673,6 @@ function VariantCard(props: {
               {props.status === "none" ? "Run" : "Retry"}
             </Button>
           ) : null}
-          {props.speaking ? (
-            <Button type="button" size="sm" onClick={props.onPause}>
-              <Pause className="h-4 w-4" />
-              Pause
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              disabled={props.status === "pending" || props.text.trim().length === 0}
-              onClick={props.onSpeak}
-            >
-              {props.paused ? <Play className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-              {props.paused ? "Resume" : "Read aloud"}
-            </Button>
-          )}
         </div>
       </div>
       {props.status === "pending" ? (

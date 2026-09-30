@@ -37,114 +37,11 @@ async function api(method: string, path: string, body?: unknown): Promise<unknow
   return data;
 }
 
-async function apiBinary(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const headers: Record<string, string> = {
-    Accept: "audio/mpeg, application/json",
-  };
-  if (LOTARU_API_KEY.length > 0) {
-    headers.Authorization = `Bearer ${LOTARU_API_KEY}`;
-  }
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  const res = await fetch(`${LOTARU_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (res.ok !== true) {
-    const text = await res.text();
-    let detail = text.slice(0, 400);
-    try {
-      const parsed = JSON.parse(text) as { error?: string };
-      if (parsed.error !== undefined) {
-        detail = parsed.error;
-      }
-    } catch {
-      detail = text.slice(0, 400);
-    }
-    throw new Error(`${method} ${path} -> ${String(res.status)}: ${detail}`);
-  }
-  const rawType = res.headers.get("content-type");
-  let contentType = "audio/mpeg";
-  if (rawType !== null && rawType.length > 0) {
-    contentType = rawType;
-  }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  return { bytes, contentType };
-}
-
-async function loadSpeakMpeg(utteranceId: string): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const id = utteranceId.trim();
-  if (id.length === 0) {
-    throw new Error("speak utterance missing");
-  }
-  const spoken = await apiBinary(
-    "GET",
-    `/api/speak/${encodeURIComponent(id)}/audio`,
-  );
-  if (spoken.bytes.byteLength === 0) {
-    throw new Error("Speech failed");
-  }
-  return spoken;
-}
-
 function textResult(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
   };
 }
-
-function speakAudioResult(input: {
-  bytes: Uint8Array;
-  contentType: string;
-  meta: Record<string, unknown>;
-}) {
-  const mimeParts = input.contentType.split(";");
-  let mimeType = "audio/mpeg";
-  if (mimeParts.length > 0 && mimeParts[0].trim().length > 0) {
-    mimeType = mimeParts[0].trim();
-  }
-  const base64 = Buffer.from(input.bytes).toString("base64");
-  return {
-    content: [
-      { type: "text" as const, text: JSON.stringify(input.meta, null, 2) },
-      { type: "audio" as const, data: base64, mimeType },
-    ],
-  };
-}
-
-function noteSpeakResult(input: {
-  pageId: string;
-  variant: "original" | "translated" | "polished" | "summary";
-  bytes: Uint8Array;
-  contentType: string;
-  page?: unknown;
-}) {
-  const meta: Record<string, unknown> = {
-    pageId: input.pageId,
-    variant: input.variant,
-    byteLength: input.bytes.byteLength,
-    hint: "MCP audio is Lotaru TTS (Settings → Voice). Speak and notes share the same queue.",
-  };
-  if (input.page !== undefined) {
-    meta.page = input.page;
-  }
-  return speakAudioResult({
-    bytes: input.bytes,
-    contentType: input.contentType,
-    meta,
-  });
-}
-
-const createdNotePageIdSchema = z.object({
-  id: z.string().min(1),
-  speakId: z.string().optional(),
-});
 
 function createLotaruMcpServer(): McpServer {
   const server = new McpServer({
@@ -538,111 +435,20 @@ function createLotaruMcpServer(): McpServer {
 
   server.tool(
     "note_page_append",
-    "Append a page to a note book. Lotaru queues it on Speak (same TTS as the Speak page). Pass speak false to skip audio.",
+    "Append a page to a note book.",
     {
       bookId: z.string(),
       body: z.string(),
       title: z.string().optional(),
-      speak: z.boolean().optional(),
     },
     async (args) => {
       const payload: { body: string; title?: string } = { body: args.body };
       if (args.title !== undefined) {
         payload.title = args.title;
       }
-      const created = await api(
-        "POST",
-        `/api/note-books/${encodeURIComponent(args.bookId)}/pages`,
-        payload,
+      return textResult(
+        await api("POST", `/api/note-books/${encodeURIComponent(args.bookId)}/pages`, payload),
       );
-      let shouldSpeak = true;
-      if (args.speak === false) {
-        shouldSpeak = false;
-      }
-      if (shouldSpeak !== true) {
-        return textResult(created);
-      }
-      const parsed = createdNotePageIdSchema.safeParse(created);
-      if (parsed.success !== true) {
-        return textResult(created);
-      }
-      let speakId = "";
-      if (parsed.data.speakId !== undefined && parsed.data.speakId.length > 0) {
-        speakId = parsed.data.speakId;
-      }
-      try {
-        if (speakId.length === 0) {
-          return textResult(created);
-        }
-        const spoken = await loadSpeakMpeg(speakId);
-        return noteSpeakResult({
-          pageId: parsed.data.id,
-          variant: "original",
-          bytes: spoken.bytes,
-          contentType: spoken.contentType,
-          page: created,
-        });
-      } catch {
-        return textResult(created);
-      }
-    },
-  );
-
-  server.tool(
-    "speak",
-    "Queue text for Lotaru to read aloud (Settings → Voice). Plays in the Lotaru UI when Speak is on. Returns MCP audio/mpeg. The queue is global, not project-scoped.",
-    {
-      text: z.string(),
-    },
-    async (args) => {
-      const created = await api("POST", "/api/speak", {
-        text: args.text,
-        source: "mcp",
-      });
-      const parsed = z.object({ id: z.string().min(1) }).safeParse(created);
-      if (parsed.success !== true) {
-        return textResult(created);
-      }
-      try {
-        const spoken = await loadSpeakMpeg(parsed.data.id);
-        return speakAudioResult({
-          bytes: spoken.bytes,
-          contentType: spoken.contentType,
-          meta: {
-            utteranceId: parsed.data.id,
-            byteLength: spoken.bytes.byteLength,
-            hint: "Turn Speak on in the Lotaru sidebar so this also plays on the machine.",
-          },
-        });
-      } catch {
-        return textResult(created);
-      }
-    },
-  );
-
-  server.tool(
-    "note_page_speak",
-    "Read a note page aloud via Lotaru TTS (Edge or Qwen). Returns MCP audio/mpeg plus metadata.",
-    {
-      pageId: z.string(),
-      variant: z.enum(["original", "translated", "polished", "summary"]).optional(),
-    },
-    async (args) => {
-      let variant: "original" | "translated" | "polished" | "summary" = "original";
-      if (args.variant !== undefined) {
-        variant = args.variant;
-      }
-      const spoken = await apiBinary(
-        "POST",
-        `/api/note-pages/${encodeURIComponent(args.pageId)}/speak`,
-        { variant },
-      );
-      return noteSpeakResult({
-        pageId: args.pageId,
-        variant,
-        bytes: spoken.bytes,
-        contentType: spoken.contentType,
-      });
     },
   );
 
@@ -788,21 +594,18 @@ function createLotaruMcpServer(): McpServer {
       textResult(await api("GET", `/api/agents/${encodeURIComponent(args.agentId)}/runs`)),
   );
 
-  server.tool("settings_get", "Get Lotaru app settings (Ollama, TTS, language)", {}, async () =>
+  server.tool("settings_get", "Get Lotaru app settings (Ollama, language)", {}, async () =>
     textResult(await api("GET", "/api/settings")),
   );
 
   server.tool(
     "settings_put",
-    "Update Lotaru app settings (Ollama host/model, TTS, language)",
+    "Update Lotaru app settings (Ollama host/model, language)",
     {
       ollamaHost: z.string(),
       ollamaModel: z.string(),
       translationEnabled: z.boolean(),
       targetLanguage: z.string(),
-      ttsEngine: z.enum(["edge", "qwen"]),
-      qwenTtsUrl: z.string(),
-      ttsVoice: z.string(),
     },
     async (args) =>
       textResult(
@@ -811,9 +614,6 @@ function createLotaruMcpServer(): McpServer {
           ollamaModel: args.ollamaModel,
           translationEnabled: args.translationEnabled,
           targetLanguage: args.targetLanguage,
-          ttsEngine: args.ttsEngine,
-          qwenTtsUrl: args.qwenTtsUrl,
-          ttsVoice: args.ttsVoice,
         }),
       ),
   );

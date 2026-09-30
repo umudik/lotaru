@@ -9,8 +9,6 @@ import { KnowledgeFeature } from "@/features/knowledge/KnowledgeFeature";
 import { NotesFeature } from "@/features/notes/NotesFeature";
 import { AgentsFeature } from "@/features/agents/AgentsFeature";
 import { TerminalFeature } from "@/features/terminal/TerminalFeature";
-import { SpeakPlayerProvider } from "@/features/speak/SpeakPlayerContext";
-import { SpeakPage } from "@/pages/SpeakPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { EventsPage } from "@/pages/EventsPage";
@@ -21,12 +19,11 @@ import { loadSession } from "@/lib/session";
 export function App() {
   return (
     <div className="h-full">
-      <SpeakPlayerProvider>
         <Routes>
         <Route element={<AppLayout />}>
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/voice" element={<Navigate to="/speak" replace />} />
-          <Route path="/speak" element={<SpeakPage />} />
+          <Route path="/voice" element={<Navigate to="/projects" replace />} />
+          <Route path="/speak" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<ProjectIndexRedirect />} />
@@ -41,8 +38,8 @@ export function App() {
             <Route path="library" element={<LibraryPage />} />
             <Route path="logs" element={<EventsPage />} />
             <Route path="events" element={<LegacyLogsRedirect />} />
-            <Route path="voice" element={<Navigate to="/speak" replace />} />
-            <Route path="speak" element={<Navigate to="/speak" replace />} />
+            <Route path="voice" element={<Navigate to="/projects" replace />} />
+            <Route path="speak" element={<Navigate to="/projects" replace />} />
             <Route path="scripts/*" element={<ProjectScriptsRoute />} />
             <Route path="notes/*" element={<ProjectNotesRoute />} />
             <Route path="knowledge/*" element={<ProjectKnowledgeRoute />} />
@@ -54,7 +51,6 @@ export function App() {
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
-      </SpeakPlayerProvider>
     </div>
   );
 }

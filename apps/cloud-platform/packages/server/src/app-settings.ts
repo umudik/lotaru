@@ -2,19 +2,12 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { edgeVoiceForLanguage } from "./note-language.js";
-import { canonicalQwenSpeaker, looksLikeEdgeVoice, qwenDefaultForLanguage } from "./tts-voices.js";
-
-export type TtsEngine = "edge" | "qwen";
 
 export type AppSettings = {
   ollamaHost: string;
   ollamaModel: string;
   translationEnabled: boolean;
   targetLanguage: string;
-  ttsEngine: TtsEngine;
-  qwenTtsUrl: string;
-  ttsVoice: string;
 };
 
 const SETTINGS_ID = "lotaru";
@@ -46,9 +39,6 @@ const settingsInputSchema = z.object({
   ollamaModel: z.string().trim(),
   translationEnabled: z.boolean(),
   targetLanguage: z.string().trim().min(1),
-  ttsEngine: z.enum(["edge", "qwen"]),
-  qwenTtsUrl: z.string().trim(),
-  ttsVoice: z.string().trim(),
 });
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -56,9 +46,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   ollamaModel: "",
   translationEnabled: false,
   targetLanguage: "tr",
-  ttsEngine: "edge",
-  qwenTtsUrl: "",
-  ttsVoice: "",
 };
 
 type SettingsRow = {
@@ -67,43 +54,15 @@ type SettingsRow = {
   ollama_model: string;
   translation_enabled: number;
   target_language: string;
-  tts_engine: string;
-  qwen_tts_url: string;
-  tts_voice: string;
 };
 
 function rowToSettings(row: SettingsRow): AppSettings {
-  let ttsEngine: TtsEngine = "edge";
-  if (row.tts_engine === "qwen") {
-    ttsEngine = "qwen";
-  }
   return {
     ollamaHost: row.ollama_host,
     ollamaModel: row.ollama_model,
     translationEnabled: row.translation_enabled === 1,
     targetLanguage: row.target_language,
-    ttsEngine,
-    qwenTtsUrl: row.qwen_tts_url,
-    ttsVoice: row.tts_voice,
   };
-}
-
-function coerceTtsVoice(settings: AppSettings): AppSettings {
-  if (settings.ttsEngine === "qwen") {
-    const canonical = canonicalQwenSpeaker(settings.ttsVoice);
-    if (canonical.length > 0) {
-      return Object.assign({}, settings, { ttsVoice: canonical });
-    }
-    return Object.assign({}, settings, {
-      ttsVoice: qwenDefaultForLanguage(settings.targetLanguage),
-    });
-  }
-  if (looksLikeEdgeVoice(settings.ttsVoice)) {
-    return settings;
-  }
-  return Object.assign({}, settings, {
-    ttsVoice: edgeVoiceForLanguage(settings.targetLanguage),
-  });
 }
 
 export function parseSettingsInput(body: unknown): AppSettings {
@@ -111,7 +70,7 @@ export function parseSettingsInput(body: unknown): AppSettings {
   if (!parsed.success) {
     throw new Error("Invalid settings");
   }
-  return coerceTtsVoice(parsed.data);
+  return parsed.data;
 }
 
 export function openSettingsDb(databasePath: string): Database.Database {
@@ -142,9 +101,9 @@ export function openSettingsDb(databasePath: string): Database.Database {
       DEFAULT_APP_SETTINGS.ollamaModel,
       0,
       DEFAULT_APP_SETTINGS.targetLanguage,
-      DEFAULT_APP_SETTINGS.ttsEngine,
-      DEFAULT_APP_SETTINGS.qwenTtsUrl,
-      DEFAULT_APP_SETTINGS.ttsVoice,
+      "edge",
+      "",
+      "",
     );
   } else {
     const envHost = defaultOllamaHost();
@@ -161,27 +120,23 @@ export function openSettingsDb(databasePath: string): Database.Database {
 }
 
 export function loadAppSettings(db: Database.Database): AppSettings {
-  const row = db.prepare("SELECT * FROM app_settings WHERE id = ?").get(SETTINGS_ID) as
-    | SettingsRow
-    | undefined;
+  const row = db.prepare(
+    "SELECT id, ollama_host, ollama_model, translation_enabled, target_language FROM app_settings WHERE id = ?",
+  ).get(SETTINGS_ID) as SettingsRow | undefined;
   if (row === undefined) {
-    return coerceTtsVoice(DEFAULT_APP_SETTINGS);
+    return DEFAULT_APP_SETTINGS;
   }
-  return coerceTtsVoice(rowToSettings(row));
+  return rowToSettings(row);
 }
 
 export function saveAppSettings(db: Database.Database, settings: AppSettings): AppSettings {
-  const next = coerceTtsVoice(settings);
   db.prepare(
-    "UPDATE app_settings SET ollama_host = ?, ollama_model = ?, translation_enabled = ?, target_language = ?, tts_engine = ?, qwen_tts_url = ?, tts_voice = ? WHERE id = ?",
+    "UPDATE app_settings SET ollama_host = ?, ollama_model = ?, translation_enabled = ?, target_language = ? WHERE id = ?",
   ).run(
-    next.ollamaHost,
-    next.ollamaModel,
-    next.translationEnabled ? 1 : 0,
-    next.targetLanguage,
-    next.ttsEngine,
-    next.qwenTtsUrl,
-    next.ttsVoice,
+    settings.ollamaHost,
+    settings.ollamaModel,
+    settings.translationEnabled ? 1 : 0,
+    settings.targetLanguage,
     SETTINGS_ID,
   );
   return loadAppSettings(db);

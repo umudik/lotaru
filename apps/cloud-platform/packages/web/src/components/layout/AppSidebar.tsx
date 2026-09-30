@@ -15,20 +15,17 @@ import {
   ScrollText,
   LayoutTemplate,
   ShoppingBag,
-  Volume2,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/useSession";
-import { useSpeakPlayer } from "@/features/speak/SpeakPlayerContext";
 import { useIngestAlarm } from "@/components/IngestAlarmBanner";
 
 export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) {
   const { pathname } = useLocation();
   const session = useSession();
-  const speak = useSpeakPlayer();
   const ingest = useIngestAlarm();
 
   const projectMatch = matchPath("/projects/:projectId/*", pathname);
@@ -66,9 +63,6 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
-        <NavGroup label="You">
-          <NavItem to="/speak" label="Speak" icon={Volume2} />
-        </NavGroup>
         <div className="space-y-0.5">
           <NavItem to="/projects" label="Projects" icon={FolderKanban} end />
         </div>
@@ -140,12 +134,6 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
         ) : null}
       </nav>
       <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
-        <div className="space-y-1">
-          <SidebarSpeakButton speak={speak} />
-          {speak.error.length > 0 ? (
-            <p className="px-3 text-[10px] leading-snug text-destructive">{speak.error}</p>
-          ) : null}
-        </div>
         <NavItem to="/settings" label="Settings" icon={Settings} warn={ingest.kind !== "ok"} />
       </div>
     </aside>
@@ -160,39 +148,6 @@ function NavGroup(props: { label: string; children: React.ReactNode }): React.JS
       </p>
       {props.children}
     </div>
-  );
-}
-
-function SidebarSpeakButton(props: {
-  speak: ReturnType<typeof useSpeakPlayer>;
-}): React.JSX.Element {
-  const speakActive = props.speak.armed;
-  let speakLabel = "Speak";
-  if (speakActive && props.speak.speaking) {
-    speakLabel = "Speaking";
-  } else if (speakActive) {
-    speakLabel = "Speak on";
-  }
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors",
-        speakActive
-          ? "bg-success/15 text-success hover:bg-success/20"
-          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-      )}
-      onClick={() => {
-        if (speakActive) {
-          props.speak.disarm();
-          return;
-        }
-        props.speak.arm();
-      }}
-    >
-      <Volume2 className="h-4 w-4 shrink-0 opacity-90" />
-      <span className="min-w-0 flex-1 truncate text-left">{speakLabel}</span>
-    </button>
   );
 }
 

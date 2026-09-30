@@ -8,7 +8,7 @@ npx -y @umudik/lotaru@latest
 
 Opens `http://127.0.0.1:2222` on Windows, macOS, and Linux. Data is `~/.lotaru/app.sqlite`. No login.
 
-That command is the whole app (API + UI). Speak reads notes and queued lines aloud.
+That command is the whole app (API + UI).
 
 ```bash
 npx -y @umudik/lotaru@latest --port 2222 --data ~/.lotaru

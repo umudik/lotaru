@@ -1,17 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { TARGET_LANGUAGES, ttsPreviewLine } from "../note-language.js";
+import { TARGET_LANGUAGES } from "../note-language.js";
 import {
   loadAppSettings,
   openSettingsDb,
   parseSettingsInput,
   saveAppSettings,
-  type AppSettings,
-  type TtsEngine,
 } from "../app-settings.js";
 import { listOllamaModels } from "../ollama.js";
-import { synthesizeSpeech } from "../tts.js";
-import { voicesForEngine } from "../tts-voices.js";
 import { loadAgentProfile, openAgentDb, parseAgentProfileInput, saveAgentProfile } from "../agent-store.js";
 import { probeAgentRuntime } from "../agent-probe.js";
 import { requestGithubPoll } from "../github-poll.js";
@@ -92,21 +88,6 @@ export async function registerSettingsModule(
     }
   });
 
-  app.get<{ Querystring: { engine?: string } }>("/api/settings/voices", async (request, reply) => {
-    const user = await options.identity.userFrom(request);
-    if (user === null) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
-    const settings = loadAppSettings(db);
-    const parsedEngine = z.enum(["edge", "qwen"]).safeParse(request.query.engine);
-    let engine: TtsEngine = settings.ttsEngine;
-    if (parsedEngine.success) {
-      engine = parsedEngine.data;
-    }
-    const voices = await voicesForEngine(engine);
-    return { engine, voices };
-  });
-
   app.get("/api/settings/ollama/models", async (request, reply) => {
     const user = await options.identity.userFrom(request);
     if (user === null) {
@@ -119,29 +100,6 @@ export async function registerSettingsModule(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Ollama is not reachable";
       return { models: [], reachable: false, error: message };
-    }
-  });
-
-  app.post("/api/settings/speak-preview", async (request, reply) => {
-    const user = await options.identity.userFrom(request);
-    if (user === null) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
-    const saved = loadAppSettings(db);
-    let preview: AppSettings = saved;
-    try {
-      preview = parseSettingsInput(Object.assign({}, saved, request.body));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Invalid settings";
-      return reply.code(400).send({ error: message });
-    }
-    const line = ttsPreviewLine(preview.targetLanguage);
-    try {
-      const audio = await synthesizeSpeech(preview, line, preview.targetLanguage);
-      return reply.type("audio/mpeg").send(audio);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Speech failed";
-      return reply.code(502).send({ error: message });
     }
   });
 
