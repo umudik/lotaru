@@ -24,8 +24,6 @@ import { registerSettingsModule } from "./modules/settings.js";
 import { registerClockSchedulesModule } from "./modules/clock-schedules.js";
 import { registerMarketplaceModule } from "./modules/marketplace.js";
 import { createWebhookTunnel } from "./webhook-tunnel.js";
-import { registerVoiceModule } from "./modules/voice.js";
-import { registerVoiceRulesModule } from "./modules/voice-rules.js";
 import { lotaruDatabasePath } from "./lotaru-db.js";
 import { closeCachedSqlite } from "./sqlite-cache.js";
 import { buildHealthReport, type HealthModuleFlags } from "./health.js";
@@ -192,16 +190,6 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
       return { enabled: snap.enabled, state: snap.state, publicUrl: snap.publicUrl };
     },
   });
-  await registerVoiceModule(app, {
-    identity,
-    dataDir: dataDirectory,
-    databasePath: dbPath,
-  });
-  await registerVoiceRulesModule(app, {
-    databasePath: dbPath,
-    identity,
-  });
-
   // The event bus reuses long-lived SQLite handles; hand them back on shutdown.
   app.addHook("onClose", async () => {
     await tunnel.stop();
@@ -209,10 +197,8 @@ export async function start(opts: StartOptions): Promise<{ url: string; app: Fas
   });
 
   const moduleFlags: HealthModuleFlags = {
-    voice: true,
     scriptRunner: true,
     agents: true,
-    voiceRules: true,
     notes: true,
     knowledge: true,
     knowledgeTemplates: true,

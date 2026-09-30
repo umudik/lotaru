@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { AiSettingsLink } from "@/components/AiSettingsLink";
 import { ConnectedAiSelect } from "@/components/ConnectedAiSelect";
 import { EventSourceSelect, eventOptionsFromCatalog } from "@/components/EventSourceSelect";
 import { EmptyStatePanel } from "@/components/EmptyStatePanel";
+import { MarkdownView } from "@/components/MarkdownView";
+import { MermaidBoard } from "@/components/MermaidBoard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageContent } from "@/components/layout/PageContent";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ import {
   type TargetLanguage,
 } from "@/lib/api";
 import { catalogEventLabel } from "@/lib/event-catalog";
+import { downloadDocumentPdf } from "@/lib/document-pdf";
 import { formatMillis } from "@/lib/utils";
 
 function templateAiLabel(template: KnowledgeTemplate, tools: readonly AiToolRow[]): string {
@@ -430,14 +433,42 @@ function ArtifactsPage(props: {
               </Link>
             }
           />
+        ) : props.kind === "diagram" ? (
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {artifacts.map((artifact) => (
+              <li key={artifact.id} className="panel-card overflow-hidden">
+                <Link to={`${base}/diagrams/list/${artifact.id}`} className="block min-w-0">
+                  <div className="h-56 border-b border-white/[0.06] bg-[#09090b]">
+                    <MermaidBoard body={artifact.body} mode="preview" />
+                  </div>
+                  <div className="p-4">
+                    <p className="text-sm font-semibold">{artifact.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Template: {artifact.templateTitle} · {catalogEventLabel(artifact.eventType)} ·{" "}
+                      {formatMillis(Date.parse(artifact.createdAt))}
+                    </p>
+                  </div>
+                </Link>
+                <div className="flex justify-end px-2 pb-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      void removeArtifact(artifact.id);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : (
           <ul className="flex flex-col gap-2">
             {artifacts.map((artifact) => (
               <li key={artifact.id} className="panel-card flex items-start justify-between gap-3 p-4">
-                <Link
-                  to={`${base}/${props.kind === "diagram" ? "diagrams" : "documentation"}/list/${artifact.id}`}
-                  className="min-w-0 flex-1"
-                >
+                <Link to={`${base}/documentation/list/${artifact.id}`} className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">{artifact.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Template: {artifact.templateTitle} · {catalogEventLabel(artifact.eventType)} ·{" "}
@@ -475,10 +506,16 @@ function ArtifactDetail(props: {
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [view, setView] = useState<"canvas" | "source">("canvas");
 
   let listPath = `${base}/documentation/list`;
   if (props.kind === "diagram") {
     listPath = `${base}/diagrams/list`;
+  }
+  let canvasLabel = "Read";
+  if (props.kind === "diagram") {
+    canvasLabel = "Board";
   }
 
   const load = useCallback(async (): Promise<void> => {
@@ -512,6 +549,27 @@ function ArtifactDetail(props: {
     }
   }
 
+  async function downloadPdf(): Promise<void> {
+    if (artifact === null) {
+      return;
+    }
+    if (props.kind !== "document") {
+      return;
+    }
+    setDownloadingPdf(true);
+    try {
+      await downloadDocumentPdf({
+        title: artifact.title,
+        body,
+        when: new Date(),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PDF download failed");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   if (artifact === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -527,33 +585,89 @@ function ArtifactDetail(props: {
         title={artifact.title}
         subtitle={`Template: ${artifact.templateTitle} · ${catalogEventLabel(artifact.eventType)}`}
         actions={
-          <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-white/[0.1] p-0.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={view === "canvas" ? "secondary" : "ghost"}
+                onClick={() => {
+                  setView("canvas");
+                }}
+              >
+                {canvasLabel}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={view === "source" ? "secondary" : "ghost"}
+                onClick={() => {
+                  setView("source");
+                }}
+              >
+                Source
+              </Button>
+            </div>
+            {props.kind === "document" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={downloadingPdf}
+                onClick={() => void downloadPdf()}
+              >
+                {downloadingPdf ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Download PDF
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save
+            </Button>
+          </div>
         }
       />
-      <PageContent className="overflow-y-auto">
+      <PageContent
+        className={
+          view === "canvas" && props.kind === "diagram"
+            ? "flex min-h-0 flex-col overflow-hidden px-0 pb-0"
+            : "overflow-y-auto"
+        }
+      >
         {error.length > 0 ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-        <textarea
-          className="min-h-[24rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
-          value={body}
-          onChange={(event) => {
-            setBody(event.target.value);
-          }}
-        />
-        <div className="mt-4">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              navigate(listPath);
+        {view === "source" ? (
+          <textarea
+            className="min-h-[24rem] w-full resize-y rounded-xl border border-white/[0.1] bg-[#111111] px-3 py-2 font-mono text-[13px] leading-6"
+            value={body}
+            onChange={(event) => {
+              setBody(event.target.value);
             }}
-          >
-            Back to list
-          </Button>
-        </div>
+          />
+        ) : props.kind === "diagram" ? (
+          <MermaidBoard body={body} mode="board" />
+        ) : (
+          <div className="panel-card p-6">
+            <MarkdownView content={body} />
+          </div>
+        )}
+        {view === "source" ? (
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigate(listPath);
+              }}
+            >
+              Back to list
+            </Button>
+          </div>
+        ) : null}
       </PageContent>
     </div>
   );
@@ -577,7 +691,7 @@ export function KnowledgeFeature(props: { projectId: string }): React.JSX.Elemen
         path="documentation/list/:artifactId"
         element={<ArtifactDetail projectId={props.projectId} kind="document" />}
       />
-      <Route path="diagrams" element={<Navigate to={`${base}/diagrams/templates`} replace />} />
+      <Route path="diagrams" element={<Navigate to={`${base}/diagrams/list`} replace />} />
       <Route
         path="diagrams/templates"
         element={<TemplatesPage projectId={props.projectId} kind="diagram" />}

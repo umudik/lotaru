@@ -6,7 +6,6 @@ import { describe, it } from "node:test";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createIdentity } from "./modules/identity.js";
 import { fireAgentsForEvent, registerAgentsModule } from "./modules/agents.js";
-import { registerVoiceRulesModule } from "./modules/voice-rules.js";
 import type { LotaruEvent } from "./events.js";
 import { parseLotaruPublish, storedEnvelopeFromPublish, type LotaruPublishInput } from "./event-publish.js";
 
@@ -87,7 +86,6 @@ async function bootstrap(replies: Record<string, string> = {}): Promise<Harness>
     }
   };
 
-  await registerVoiceRulesModule(app, { databasePath, identity, projectAccess: () => true });
   await registerAgentsModule(app, {
     databasePath,
     identity,

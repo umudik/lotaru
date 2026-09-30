@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { collectSpawnableTemplates, type TemplateSpawnContext } from "./task-template-graph.js";
+import {
+  collectSpawnableTemplates,
+  resolveActiveStagePosition,
+  type TemplateSpawnContext,
+} from "./task-template-graph.js";
 import type { StageTaskTemplate } from "./workflow-stage.js";
 
 function ctx(overrides: Partial<TemplateSpawnContext> = {}): TemplateSpawnContext {
@@ -71,6 +75,30 @@ describe("task template graph", () => {
       ctx({ spawnedTemplateIds: new Set(["parent"]) }),
     );
     assert.deepEqual(spawnable, []);
+  });
+
+  it("does not spawn a later stage before the active position", () => {
+    const spawnable = collectSpawnableTemplates(
+      [task("incele", "Incele")],
+      ctx({
+        stageId: "incele",
+        stagePosition: 1,
+        activeStagePosition: 0,
+      }),
+    );
+    assert.deepEqual(spawnable, []);
+  });
+
+  it("falls back to the first stage when the stored id does not match", () => {
+    const stages = [
+      { id: "do", position: 0 },
+      { id: "incele", position: 1 },
+      { id: "onay", position: 2 },
+    ];
+    assert.equal(resolveActiveStagePosition(stages, "do"), 0);
+    assert.equal(resolveActiveStagePosition(stages, "incele"), 1);
+    assert.equal(resolveActiveStagePosition(stages, "missing"), 0);
+    assert.equal(resolveActiveStagePosition(stages, null), 0);
   });
 
   it("spawns parallel children when parent task is done", () => {

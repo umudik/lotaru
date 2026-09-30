@@ -45,6 +45,26 @@ function stageIsReachable(ctx: TemplateSpawnContext): boolean {
   return ctx.stagePosition <= ctx.activeStagePosition;
 }
 
+export function resolveActiveStagePosition(
+  stages: readonly { id: string; position: number }[],
+  activeStageId: string | null,
+): number {
+  const ordered = stages.slice().toSorted((left, right) => left.position - right.position);
+  if (ordered.length === 0) {
+    return 0;
+  }
+  for (const stage of ordered) {
+    if (activeStageId !== null && stage.id === activeStageId) {
+      return stage.position;
+    }
+  }
+  const first = ordered[0];
+  if (first === undefined) {
+    return 0;
+  }
+  return first.position;
+}
+
 export function collectSpawnableTemplates(
   nodes: StageTaskTemplate[],
   ctx: TemplateSpawnContext,

@@ -27,6 +27,7 @@ const IGNORED_SEGMENTS = [
   ".cache",
   ".local",
   ".cursor",
+  ".impeccable",
 ];
 
 function isSqliteSidecarName(name: string): boolean {
@@ -52,6 +53,38 @@ function isSqliteSidecarName(name: string): boolean {
   return false;
 }
 
+const IGNORED_EXTENSIONS = [
+  ".obj",
+  ".glb",
+  ".gltf",
+  ".fbx",
+  ".bin",
+  ".wasm",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".mp4",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".ico",
+  ".pdf",
+  ".zip",
+];
+
+function hasIgnoredExtension(name: string): boolean {
+  const lower = name.toLowerCase();
+  for (const extension of IGNORED_EXTENSIONS) {
+    if (lower.endsWith(extension)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isIgnoredRuntimeFileName(name: string): boolean {
   const lower = name.toLowerCase();
   if (lower === ".ds_store") {
@@ -61,6 +94,9 @@ function isIgnoredRuntimeFileName(name: string): boolean {
     return true;
   }
   if (isSqliteSidecarName(lower)) {
+    return true;
+  }
+  if (hasIgnoredExtension(lower)) {
     return true;
   }
   return false;
@@ -107,8 +143,12 @@ export function createFileWatchers(onEvent: (event: WatchedFileEvent) => void): 
     const watcher = watchFiles(rootPath, {
       ignored: shouldIgnoreWatchPath,
       ignoreInitial: true,
+      ignorePermissionErrors: true,
       awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
       persistent: true,
+    });
+    watcher.on("error", () => {
+      return;
     });
     watcher.on("add", (filePath: string) => {
       emit(projectId, filePath, "add");

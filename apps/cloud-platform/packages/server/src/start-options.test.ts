@@ -40,7 +40,7 @@ describe("resolveStartOptions", () => {
     assert.equal(opts.dataDir, "C:\\lotaru-data");
   });
 
-  it("reads PORT HOST DATA_DIR aliases for Docker", () => {
+  it("reads PORT HOST DATA_DIR aliases", () => {
     const opts = resolveStartOptions(
       [],
       { PORT: "8080", HOST: "0.0.0.0", DATA_DIR: "/data" },

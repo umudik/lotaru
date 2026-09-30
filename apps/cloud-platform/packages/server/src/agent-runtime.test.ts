@@ -4,7 +4,9 @@ import {
   agentCliSpec,
   defaultAgentCommand,
   parseAgentKind,
+  quoteCmdArg,
   resolvedAgentCommand,
+  windowsCommandLine,
 } from "./agent-runtime.js";
 
 describe("agentCliSpec", () => {
@@ -113,5 +115,15 @@ describe("agent command defaults", () => {
     assert.throws(() => resolvedAgentCommand("claude", "/usr/bin/claude"), {
       message: "Agent command override must be a bare binary name",
     });
+  });
+});
+
+describe("windowsCommandLine", () => {
+  it("quotes prompts that carry spaces without dropping flags", () => {
+    const line = windowsCommandLine("agent", ["-p", "--mode=ask", "Gate fail 1 test"]);
+    assert.equal(quoteCmdArg("agent"), "agent");
+    assert.equal(line.includes("-p"), true);
+    assert.equal(line.includes("--mode=ask"), true);
+    assert.equal(line.includes('"Gate fail 1 test"'), true);
   });
 });

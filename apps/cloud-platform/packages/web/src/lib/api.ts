@@ -358,7 +358,6 @@ export type LotaruAgent = {
   scheduleHour: number;
   scheduleMinute: number;
   scheduleCron: string;
-  includeVoice: boolean;
   action: AgentAction;
   noteBookTitle: string;
   aiToolId: string;
@@ -394,7 +393,6 @@ export async function createAgent(
     scheduleHour?: number;
     scheduleMinute?: number;
     scheduleCron?: string;
-    includeVoice?: boolean;
     action?: AgentAction;
     noteBookTitle?: string;
     aiToolId?: string;
@@ -419,7 +417,6 @@ export async function patchAgent(
     scheduleHour?: number;
     scheduleMinute?: number;
     scheduleCron?: string;
-    includeVoice?: boolean;
     action?: AgentAction;
     noteBookTitle?: string;
     aiToolId?: string;
@@ -445,46 +442,6 @@ export async function runAgentNow(session: Session, agentId: string) {
   });
 }
 
-export type VoiceRule = {
-  id: string;
-  projectId: string;
-  name: string;
-  slug: string;
-  instruction: string;
-  eventType: string;
-  enabled: boolean;
-  subscriberCount: number;
-  createdAt: string;
-  createdBy: string;
-};
-
-export type EventSubscriber = {
-  kind: "agent" | "script" | "knowledge";
-  eventType: string;
-  id: string;
-  label: string;
-  enabled: boolean;
-};
-
-export type VoiceRuleHit = {
-  id: string;
-  projectId: string;
-  ruleId: string;
-  slug: string;
-  title: string;
-  summary: string;
-  quote: string;
-  eventId: string;
-  createdAt: number;
-};
-
-export type VoiceRuleMatch = {
-  slug: string;
-  title: string;
-  summary: string;
-  quote: string;
-};
-
 export type EventTypeOption = {
   type: string;
   label: string;
@@ -498,80 +455,6 @@ export async function fetchEventTypes(session: Session, projectId: string) {
   return request<{ eventTypes: EventTypeOption[] }>(
     session,
     `/api/event-types?${query.toString()}`,
-  );
-}
-
-export async function fetchVoiceRules(session: Session, projectId: string) {
-  const query = new URLSearchParams({ projectId });
-  return request<{ rules: VoiceRule[]; hits: VoiceRuleHit[]; runtime: AgentKind }>(
-    session,
-    `/api/voice-rules?${query.toString()}`,
-  );
-}
-
-export async function fetchVoiceRuleSubscribers(session: Session, ruleId: string) {
-  return request<{ subscribers: EventSubscriber[] }>(
-    session,
-    `/api/voice-rules/${encodeURIComponent(ruleId)}/subscribers`,
-  );
-}
-
-export async function createVoiceRule(
-  session: Session,
-  input: {
-    projectId: string;
-    name: string;
-    slug?: string;
-    instruction: string;
-    enabled?: boolean;
-  },
-) {
-  return request<VoiceRule>(session, "/api/voice-rules", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-}
-
-export async function patchVoiceRule(
-  session: Session,
-  ruleId: string,
-  input: { name?: string; slug?: string; instruction?: string; enabled?: boolean },
-) {
-  return request<VoiceRule>(session, `/api/voice-rules/${encodeURIComponent(ruleId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-}
-
-export async function deleteVoiceRule(session: Session, ruleId: string) {
-  return request<{ ok: boolean }>(session, `/api/voice-rules/${encodeURIComponent(ruleId)}`, {
-    method: "DELETE",
-  });
-}
-
-export async function testVoiceRules(session: Session, projectId: string, transcript: string) {
-  return request<{ matches: VoiceRuleMatch[]; ran: boolean; error: string }>(
-    session,
-    "/api/voice-rules/test",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId, transcript }),
-    },
-  );
-}
-
-export async function scanVoiceRulesNow(session: Session, projectId: string) {
-  return request<{ ran: boolean; scanned: number; matched: number; skipped: string }>(
-    session,
-    "/api/voice-rules/scan",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId }),
-    },
   );
 }
 
@@ -750,52 +633,6 @@ export async function deleteKnowledgeTemplate(session: Session, templateId: stri
     `/api/knowledge/templates/${encodeURIComponent(templateId)}`,
     { method: "DELETE" },
   );
-}
-
-export type VoiceSegment = {
-  id: string;
-  projectId: string;
-  sessionId: string;
-  kind: "partial" | "final";
-  text: string;
-  startedAt: number;
-  endedAt: number;
-  audioPath: string;
-  createdAt: number;
-};
-
-export async function fetchVoiceSegments(
-  session: Session,
-  options: { limit?: number; cursor?: string } = {},
-) {
-  const query = new URLSearchParams();
-  let limit = 40;
-  if (options.limit !== undefined) {
-    limit = options.limit;
-  }
-  query.set("limit", String(limit));
-  if (options.cursor !== undefined && options.cursor.length > 0) {
-    query.set("cursor", options.cursor);
-  }
-  return request<{ segments: VoiceSegment[]; next: string[] }>(
-    session,
-    `/api/voice/segments?${query.toString()}`,
-  );
-}
-
-export async function fetchVoiceStatus(session: Session) {
-  return request<{
-    listening: boolean;
-    projectId: string;
-    sessionId: string;
-    sidecar: boolean;
-    sidecarMode: string;
-    sidecarReachable: boolean;
-    sidecarUrl: string;
-    sidecarModel: string;
-    sidecarLanguage: string;
-    sidecarDevice: string;
-  }>(session, "/api/voice/status");
 }
 
 export async function fetchKnowledgeArtifacts(

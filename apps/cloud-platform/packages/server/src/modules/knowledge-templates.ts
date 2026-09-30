@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   userCanAccessProject,
 } from "../../../../../task-bridge/apps/backend/dist/services/project-registry.js";
+import { executionLogExcerpt } from "./agents.js";
 import { runProjectAgentPrompt } from "../agent-prompt.js";
 import type { AgentKind, AgentMode } from "../agent-runtime.js";
 import { subscriberMaySelect, type NamedEventTemplate } from "../event-registry.js";
@@ -380,6 +381,7 @@ function artifactPrompt(
   eventType: string,
   detail: string,
   path: string,
+  gateLog: string,
 ): string {
   const lines = [
     `Create a ${template.kind} for this project.`,
@@ -392,6 +394,10 @@ function artifactPrompt(
   }
   if (detail.length > 0) {
     lines.push(`Detail: ${detail}`);
+  }
+  if (gateLog.length > 0) {
+    lines.push("GATE LOG (only evidence for pass/fail; do not invent commits or services):");
+    lines.push(gateLog);
   }
   lines.push("Instructions:");
   lines.push(template.description);
@@ -617,7 +623,14 @@ export async function fireKnowledgeTemplatesForEvent(input: {
       createdAt,
     );
     try {
-      const prompt = artifactPrompt(template, input.eventType, input.detail, input.path);
+      const gateLog = executionLogExcerpt(input.databasePath, input.eventType, input.path);
+      const prompt = artifactPrompt(
+        template,
+        input.eventType,
+        input.detail,
+        input.path,
+        gateLog,
+      );
       const text = await runProjectAgentPrompt({
         databasePath: input.databasePath,
         projectId: template.projectId,

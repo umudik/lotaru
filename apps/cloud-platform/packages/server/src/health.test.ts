@@ -12,10 +12,8 @@ import {
 } from "./health.js";
 
 const moduleFlags: HealthModuleFlags = {
-  voice: true,
   scriptRunner: true,
   agents: true,
-  voiceRules: true,
   notes: true,
   knowledge: true,
   knowledgeTemplates: true,

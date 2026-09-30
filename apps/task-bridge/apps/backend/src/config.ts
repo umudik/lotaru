@@ -32,9 +32,27 @@ const allowedOrigins = (getEnv("ALLOWED_ORIGINS") || "https://task.fookiecloud.c
   .map((o) => o.trim())
   .filter((o) => o.length > 0);
 
+export function resolveDatabasePathNow(): string {
+  const fromEnv = getEnv("DATABASE_PATH");
+  if (fromEnv !== null) {
+    const trimmed = fromEnv.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  const fromBridge = getEnv("BRIDGE_DB_PATH");
+  if (fromBridge !== null) {
+    const trimmed = fromBridge.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return "";
+}
+
 export const config = {
   port: configPort,
-  databasePath: getEnv("DATABASE_PATH") || getEnv("BRIDGE_DB_PATH") || "",
+  databasePath: resolveDatabasePathNow(),
   fookieAuthIssuer,
   taskBridgeClientId,
   fookieMode,

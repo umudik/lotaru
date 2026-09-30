@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "../config.js";
+import { resolveDatabasePathNow } from "../config.js";
 import { DEFAULT_WORKFLOW_TEMPLATE_ID } from "../domain/workflow-template-id.js";
 
 export type ProjectRow = {
@@ -17,7 +17,10 @@ export type ProjectRow = {
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 function resolveDatabasePath(): string {
-  if (config.databasePath) return config.databasePath;
+  const live = resolveDatabasePathNow();
+  if (live.length > 0) {
+    return live;
+  }
   return join(moduleDir, "..", "..", "..", "..", "data", "bridge.db");
 }
 

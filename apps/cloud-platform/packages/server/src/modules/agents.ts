@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import {
   userCanAccessProject,
@@ -19,17 +20,22 @@ import {
   parseCalendarCron,
   type CalendarSchedule,
 } from "../calendar-schedule.js";
-import { EVENT_AGENT_RAN, EVENT_CLOCK_TICK, EVENT_NOTE_PAGE_CREATED, agentEventType, type LotaruEvent } from "../events.js";
+import { listAgentEventSources } from "../agent-events.js";
+import { listEnabledClockSchedules } from "../clock-schedule.js";
+import { connectionEventsFor } from "../connector-catalog.js";
+import { EVENT_AGENT_RAN, EVENT_CLOCK_TICK, EVENT_NOTE_PAGE_CREATED, EVENT_SCRIPT_RAN, agentEventType, clockAtEventType, isClockEventType, type LotaruEvent } from "../events.js";
 import type { LotaruPublishInput } from "../event-publish.js";
-import { isKnownEventType, subscriberMaySelect } from "../event-registry.js";
+import { isKnownEventType, selectableEventTypes, subscriberMaySelect } from "../event-registry.js";
 import { connectedKindsAt } from "../connection-store.js";
 import { describeSubscribers, listEventSubscribers } from "../event-subscribers.js";
 import { slugifyName } from "../slug.js";
 import { cachedSqlite } from "../sqlite-cache.js";
-import { createProjectTask } from "../intent-task.js";
+import { closeOpenQcTasks, openOrNudgeQcTask } from "../intent-task.js";
 import { agentTaskFromOutput } from "../agent-action.js";
+import { ensureQcTitle, formatTaskInbox, type TaskInboxLine } from "../qc-tasks.js";
+import { listBridgeTasksForProject } from "../../../../../task-bridge/apps/backend/dist/services/task-service.js";
+import { isWorkDone } from "../../../../../task-bridge/apps/backend/dist/domain/work-status.js";
 import { appendNotePageByBookTitle } from "./notes.js";
-import { listVoiceSegments, openVoiceDb } from "./voice.js";
 import type { Identity } from "./identity.js";
 
 export type AgentTrigger = "event" | "schedule";
@@ -49,7 +55,6 @@ export type LotaruAgent = {
   scheduleHour: number;
   scheduleMinute: number;
   scheduleCron: string;
-  includeVoice: boolean;
   action: AgentAction;
   noteBookTitle: string;
   aiToolId: string;
@@ -92,7 +97,6 @@ const createAgentSchema = z.object({
   scheduleHour: z.number().int().min(0).max(23).optional(),
   scheduleMinute: z.number().int().min(0).max(59).optional(),
   scheduleCron: z.string().optional(),
-  includeVoice: z.boolean().optional(),
   action: actionSchema.optional(),
   noteBookTitle: z.string().trim().max(200).optional(),
   aiToolId: z.string().trim().optional(),
@@ -107,7 +111,6 @@ const patchAgentSchema = z.object({
   scheduleHour: z.number().int().min(0).max(23).optional(),
   scheduleMinute: z.number().int().min(0).max(59).optional(),
   scheduleCron: z.string().optional(),
-  includeVoice: z.boolean().optional(),
   action: actionSchema.optional(),
   noteBookTitle: z.string().trim().max(200).optional(),
   aiToolId: z.string().trim().optional(),
@@ -472,7 +475,6 @@ function agentFromRow(row: z.infer<typeof agentRowSchema>): LotaruAgent | null {
     scheduleHour: row.schedule_hour,
     scheduleMinute: row.schedule_minute,
     scheduleCron: agentCronFromRow(row.schedule_cron, row.schedule_hour, row.schedule_minute),
-    includeVoice: row.include_voice === 1,
     action: parseAgentAction(row.action),
     noteBookTitle: row.note_book_title,
     aiToolId: row.ai_tool_id,
@@ -531,19 +533,6 @@ function tryClaim(db: Database.Database, key: string, agentId: string): boolean 
   }
 }
 
-function voiceContext(databasePath: string): string {
-  const segments = listVoiceSegments(openVoiceDb(databasePath), 80);
-  if (segments.length === 0) {
-    return "No recent voice transcript segments.";
-  }
-  const lines: string[] = ["Recent voice transcripts (newest first):"];
-  for (const segment of segments) {
-    const when = new Date(segment.createdAt).toISOString();
-    lines.push(`- [${when}] ${segment.text}`);
-  }
-  return lines.join("\n");
-}
-
 /** Falls back to the agent title so a note action always has somewhere to land. */
 function noteBookFor(agent: LotaruAgent): string {
   const title = agent.noteBookTitle.trim();
@@ -553,13 +542,92 @@ function noteBookFor(agent: LotaruAgent): string {
   return agent.title.trim();
 }
 
+const LOG_EXCERPT_MAX = 8000;
+
+const executionLogRowSchema = z.object({
+  log_path: z.string().min(1),
+});
+
+export function tailLogText(contents: string, maxChars: number): string {
+  const trimmed = contents.trimEnd();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  if (maxChars < 1) {
+    return "";
+  }
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  return trimmed.slice(trimmed.length - maxChars);
+}
+
+export function executionLogExcerpt(
+  databasePath: string,
+  eventType: string,
+  executionId: string,
+): string {
+  if (eventType !== EVENT_SCRIPT_RAN) {
+    return "";
+  }
+  if (executionId.length === 0) {
+    return "";
+  }
+  try {
+    const db = openAgentsDb(databasePath);
+    const raw = db.prepare("SELECT log_path FROM script_executions WHERE id = ?").get(executionId);
+    const parsed = executionLogRowSchema.safeParse(raw);
+    if (parsed.success !== true) {
+      return "";
+    }
+    if (existsSync(parsed.data.log_path) !== true) {
+      return "";
+    }
+    const contents = readFileSync(parsed.data.log_path, "utf8");
+    return tailLogText(contents, LOG_EXCERPT_MAX);
+  } catch {
+    return "";
+  }
+}
+
+export function taskInboxExcerpt(projectId: string): string {
+  if (projectId.length === 0) {
+    return "";
+  }
+  try {
+    const rows = listBridgeTasksForProject(projectId);
+    const open: TaskInboxLine[] = [];
+    for (const row of rows) {
+      if (isWorkDone(row) === true) {
+        continue;
+      }
+      let claimedBy: string | null = null;
+      if (row.claimedBy !== null && row.claimedBy.length > 0) {
+        claimedBy = row.claimedBy;
+      }
+      open.push({
+        id: row.id,
+        title: row.title,
+        parentId: row.parentId,
+        stageId: row.stageId,
+        claimedBy,
+        workStatus: row.workStatus,
+      });
+    }
+    return formatTaskInbox(open);
+  } catch {
+    return "";
+  }
+}
+
 function buildPrompt(
   agent: LotaruAgent,
   eventType: string,
   path: string,
   detail: string,
-  voice: string,
   targetLanguageLabel: string,
+  gateLog: string,
+  taskInbox: string,
 ): string {
   const parts = [
     agent.prompt,
@@ -573,8 +641,11 @@ function buildPrompt(
   if (detail.length > 0) {
     parts.push(`Event detail: ${detail}`);
   }
-  if (agent.includeVoice) {
-    parts.push("", voice);
+  if (taskInbox.length > 0) {
+    parts.push("", taskInbox);
+  }
+  if (gateLog.length > 0) {
+    parts.push("", "GATE LOG (only evidence; do not invent commits, fields, or counts):", gateLog);
   }
   let mcpUrl = "http://127.0.0.1:18766/mcp";
   const fromEnv = process.env.LOTARU_MCP_URL;
@@ -584,7 +655,7 @@ function buildPrompt(
   parts.push(
     "",
     `Lotaru MCP is available without authentication at ${mcpUrl}.`,
-    "Use MCP tools for voice segments, note books, events, scripts, and responders when the prompt needs platform data.",
+    "Use MCP tools for note books, events, scripts, tasks (list/get/claim-next/complete), pipeline, and responders when the prompt needs platform data.",
     "Do not wait for the platform to file the reply as a note, task, or event. Call Lotaru MCP when those writes are needed.",
   );
   parts.push("", replyLanguageInstruction(targetLanguageLabel));
@@ -748,6 +819,17 @@ function applyAgentAction(input: {
       createdBy: input.agent.createdBy,
       emitBusEvent: false,
     });
+    if (input.eventType === "agent.out.challenge") {
+      try {
+        closeOpenQcTasks({
+          projectId: input.agent.projectId,
+          by: input.agent.createdBy,
+          summary: body.slice(0, 500),
+        });
+      } catch {
+        void 0;
+      }
+    }
     if (input.options.emitEvent !== undefined) {
       input.options.emitEvent(
         {
@@ -769,11 +851,12 @@ function applyAgentAction(input: {
       eventPath: input.path,
       eventDetail: input.detail,
     });
-    createProjectTask({
+    openOrNudgeQcTask({
       projectId: input.agent.projectId,
-      title: draft.title,
+      title: ensureQcTitle(draft.title, input.agent.slug),
       description: draft.description,
       createdBy: input.agent.createdBy,
+      slug: input.agent.slug,
     });
     return "";
   }
@@ -824,18 +907,20 @@ async function executeAgent(input: {
   ).run(runId, input.agent.id, input.agent.projectId, "running", startedAt);
   pruneAgentRuns(db, input.agent.id);
   try {
-    let voice = "";
-    if (input.agent.includeVoice) {
-      voice = voiceContext(input.options.databasePath);
-    }
     const settings = loadAppSettings(openSettingsDb(input.options.databasePath));
+    const gateLog = executionLogExcerpt(
+      input.options.databasePath,
+      input.eventType,
+      input.path,
+    );
     const prompt = buildPrompt(
       input.agent,
       input.eventType,
       input.path,
       input.detail,
-      voice,
       languageLabel(settings.targetLanguage),
+      gateLog,
+      taskInboxExcerpt(input.agent.projectId),
     );
     const text = await runAgentText({
       options: input.options,
@@ -1039,6 +1124,67 @@ export async function registerAgentsModule(
 ): Promise<void> {
   const db = openAgentsDb(options.databasePath);
 
+  app.get<{ Querystring: { projectId?: string } }>("/api/event-types", async (request, reply) => {
+    const viewers = await viewersFrom(request, options);
+    if (viewers.length === 0) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    let projectId = "";
+    if (request.query.projectId !== undefined) {
+      projectId = request.query.projectId.trim();
+    }
+    if (projectId.length === 0) {
+      return reply.code(400).send({ error: "projectId required" });
+    }
+    if (canSeeProject(options, projectId, viewers[0].sub) !== true) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    const eventTypes: {
+      type: string;
+      label: string;
+      kind: "platform" | "rule" | "agent" | "connection";
+      sourceId: string;
+      sourceLabel: string;
+    }[] = [];
+    for (const type of selectableEventTypes()) {
+      let sourceId = "lotaru";
+      let sourceLabel = "Lotaru";
+      if (isClockEventType(type)) {
+        sourceId = "clock";
+        sourceLabel = "Clock";
+      }
+      eventTypes.push({ type, label: "", kind: "platform", sourceId, sourceLabel });
+    }
+    for (const listed of connectionEventsFor(connectedKindsAt(options.databasePath))) {
+      eventTypes.push({
+        type: listed.type,
+        label: listed.label,
+        kind: "connection",
+        sourceId: listed.sourceId,
+        sourceLabel: listed.sourceLabel,
+      });
+    }
+    for (const schedule of listEnabledClockSchedules(options.databasePath)) {
+      eventTypes.push({
+        type: clockAtEventType(schedule.slug),
+        label: schedule.title,
+        kind: "platform",
+        sourceId: "clock",
+        sourceLabel: "Clock",
+      });
+    }
+    for (const source of listAgentEventSources(options.databasePath, projectId)) {
+      eventTypes.push({
+        type: source.eventType,
+        label: source.title,
+        kind: "agent",
+        sourceId: "responder",
+        sourceLabel: "Responders",
+      });
+    }
+    return { eventTypes };
+  });
+
   app.get<{ Querystring: { projectId?: string } }>("/api/agents", async (request, reply) => {
     const viewers = await viewersFrom(request, options);
     if (viewers.length === 0) {
@@ -1093,10 +1239,6 @@ export async function registerAgentsModule(
     const scheduleHour = schedule.hour;
     const scheduleMinute = schedule.minute;
     const scheduleCron = schedule.cron;
-    let includeVoice = false;
-    if (parsed.data.includeVoice === true) {
-      includeVoice = true;
-    }
     let noteBookTitle = "";
     if (parsed.data.noteBookTitle !== undefined) {
       noteBookTitle = parsed.data.noteBookTitle.trim().slice(0, 200);
@@ -1142,7 +1284,6 @@ export async function registerAgentsModule(
       scheduleHour,
       scheduleMinute,
       scheduleCron,
-      includeVoice,
       action,
       noteBookTitle,
       aiToolId,
@@ -1163,7 +1304,7 @@ export async function registerAgentsModule(
       agent.scheduleHour,
       agent.scheduleMinute,
       agent.scheduleCron,
-      agent.includeVoice ? 1 : 0,
+      0,
       agent.action,
       agent.noteBookTitle,
       agent.aiToolId,
@@ -1224,10 +1365,6 @@ export async function registerAgentsModule(
     const scheduleHour = schedule.hour;
     const scheduleMinute = schedule.minute;
     const scheduleCron = schedule.cron;
-    let includeVoice = existing.includeVoice;
-    if (parsed.data.includeVoice !== undefined) {
-      includeVoice = parsed.data.includeVoice;
-    }
     let noteBookTitle = existing.noteBookTitle;
     if (parsed.data.noteBookTitle !== undefined) {
       noteBookTitle = parsed.data.noteBookTitle.trim().slice(0, 200);
@@ -1262,7 +1399,7 @@ export async function registerAgentsModule(
       scheduleHour,
       scheduleMinute,
       scheduleCron,
-      includeVoice ? 1 : 0,
+      0,
       action,
       noteBookTitle,
       aiToolId,

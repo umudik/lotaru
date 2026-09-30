@@ -2,6 +2,7 @@ import type { WorkflowStageRow } from "../db/workflow-db.js";
 import { listWorkflowStageRows } from "../db/workflow-db.js";
 import {
   collectSpawnableTemplates,
+  resolveActiveStagePosition,
   type TemplateSpawnContext,
 } from "../domain/task-template-graph.js";
 import { isWorkDone } from "../domain/work-status.js";
@@ -31,19 +32,12 @@ function buildSpawnContext(
   epicId: number,
 ): TemplateSpawnContext {
   const state = loadEpicWorkflowState(epicId);
-  let activeStageId: string | null;
-  if (state !== null && state.stageId !== null) {
+  const fromWork = computeEpicStageId(stageRows, workflowTasks);
+  let activeStageId: string | null = fromWork;
+  if (activeStageId === null && state !== null && state.stageId !== null && state.stageId.length > 0) {
     activeStageId = state.stageId;
-  } else {
-    activeStageId = computeEpicStageId(stageRows, workflowTasks);
   }
-  let activeStage = stageRow;
-  for (const stage of stageRows) {
-    if (stage.id === activeStageId) {
-      activeStage = stage;
-      break;
-    }
-  }
+  const activeStagePosition = resolveActiveStagePosition(stageRows, activeStageId);
   let spawnedTemplateIds: Set<string>;
   let doneTemplateIds: Set<string>;
   if (state) {
@@ -66,7 +60,7 @@ function buildSpawnContext(
   return {
     stageId: stageRow.id,
     stagePosition: stageRow.position,
-    activeStagePosition: activeStage.position,
+    activeStagePosition,
     spawnedTemplateIds,
     doneTemplateIds,
   };

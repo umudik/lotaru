@@ -67,7 +67,6 @@ if (!existsSync(join(taskBridgeDist, "index.js"))) {
 copyInto(serverDist, join(cliRoot, "apps", "cloud-platform", "packages", "server", "dist"));
 copyInto(webDist, join(cliRoot, "apps", "cloud-platform", "packages", "web", "dist"));
 copyInto(taskBridgeDist, join(cliRoot, "apps", "task-bridge", "apps", "backend", "dist"));
-copyInto(join(cloudPlatformRoot, "voice-sidecar"), join(cliRoot, "apps", "cloud-platform", "voice-sidecar"));
 
 run("npm run build", cliRoot);
 

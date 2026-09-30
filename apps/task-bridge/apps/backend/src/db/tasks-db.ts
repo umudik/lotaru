@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "../config.js";
+import { resolveDatabasePathNow } from "../config.js";
 import {
   DONE_STAGE_ID,
   sortTasks,
@@ -13,7 +13,10 @@ import { isWorkStatus, type WorkStatus } from "../domain/work-status.js";
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 function resolveDatabasePath(): string {
-  if (config.databasePath) return config.databasePath;
+  const live = resolveDatabasePathNow();
+  if (live.length > 0) {
+    return live;
+  }
   return join(moduleDir, "..", "..", "..", "..", "data", "bridge.db");
 }
 let db: Database.Database | null = null;

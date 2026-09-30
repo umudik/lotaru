@@ -2,10 +2,8 @@ import { loadAppSettings, openSettingsDb, type AppSettings } from "./app-setting
 import { listOllamaModels } from "./ollama.js";
 
 export type HealthModuleFlags = {
-  voice: boolean;
   scriptRunner: boolean;
   agents: boolean;
-  voiceRules: boolean;
   notes: boolean;
   knowledge: boolean;
   knowledgeTemplates: boolean;

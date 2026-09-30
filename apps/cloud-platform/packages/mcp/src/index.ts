@@ -230,6 +230,168 @@ function createLotaruMcpServer(): McpServer {
   );
 
   server.tool(
+    "scripts_create",
+    "Create a project script (shell command + bus trigger)",
+    {
+      projectId: z.string(),
+      name: z.string(),
+      command: z.string(),
+      triggerBusEvent: z.string(),
+      enabled: z.boolean().optional(),
+    },
+    async (args) => {
+      let enabled = true;
+      if (args.enabled !== undefined) {
+        enabled = args.enabled;
+      }
+      return textResult(
+        await api("POST", `/api/v1/projects/${encodeURIComponent(args.projectId)}/scripts`, {
+          name: args.name,
+          command: args.command,
+          runtime: "shell",
+          trigger_type: "event",
+          trigger_bus_event: args.triggerBusEvent,
+          concurrency: "queue",
+          enabled,
+        }),
+      );
+    },
+  );
+
+  server.tool(
+    "scripts_patch",
+    "Update a script (full body: name, command, trigger, enabled)",
+    {
+      scriptId: z.string(),
+      name: z.string(),
+      command: z.string(),
+      triggerBusEvent: z.string(),
+      enabled: z.boolean(),
+    },
+    async (args) =>
+      textResult(
+        await api("PATCH", `/api/v1/scripts/${encodeURIComponent(args.scriptId)}`, {
+          name: args.name,
+          command: args.command,
+          runtime: "shell",
+          trigger_type: "event",
+          trigger_bus_event: args.triggerBusEvent,
+          concurrency: "queue",
+          enabled: args.enabled,
+        }),
+      ),
+  );
+
+  server.tool(
+    "clock_schedules_list",
+    "List clock schedules (daily-09, daily-21, …)",
+    {},
+    async () => textResult(await api("GET", "/api/clock-schedules")),
+  );
+
+  server.tool(
+    "clock_schedules_patch",
+    "Enable or disable a clock schedule",
+    {
+      scheduleId: z.string(),
+      enabled: z.boolean(),
+    },
+    async (args) =>
+      textResult(
+        await api("PATCH", `/api/clock-schedules/${encodeURIComponent(args.scheduleId)}`, {
+          enabled: args.enabled,
+        }),
+      ),
+  );
+
+  server.tool(
+    "knowledge_templates_create",
+    "Create a knowledge document or diagram template",
+    {
+      projectId: z.string(),
+      kind: z.enum(["document", "diagram"]),
+      title: z.string(),
+      eventType: z.string(),
+      description: z.string(),
+      language: z.string(),
+      aiToolId: z.string().optional(),
+      enabled: z.boolean().optional(),
+    },
+    async (args) => {
+      const body: Record<string, string | boolean> = {
+        projectId: args.projectId,
+        kind: args.kind,
+        title: args.title,
+        eventType: args.eventType,
+        description: args.description,
+        language: args.language,
+      };
+      if (args.aiToolId !== undefined) {
+        body.aiToolId = args.aiToolId;
+      }
+      if (args.enabled !== undefined) {
+        body.enabled = args.enabled;
+      }
+      return textResult(await api("POST", "/api/knowledge/templates", body));
+    },
+  );
+
+  server.tool(
+    "knowledge_templates_patch",
+    "Enable or disable a knowledge template",
+    {
+      templateId: z.string(),
+      enabled: z.boolean(),
+    },
+    async (args) =>
+      textResult(
+        await api("PATCH", `/api/knowledge/templates/${encodeURIComponent(args.templateId)}`, {
+          enabled: args.enabled,
+        }),
+      ),
+  );
+
+  server.tool(
+    "knowledge_templates_delete",
+    "Delete a knowledge template",
+    { templateId: z.string() },
+    async (args) =>
+      textResult(
+        await api("DELETE", `/api/knowledge/templates/${encodeURIComponent(args.templateId)}`),
+      ),
+  );
+
+  server.tool(
+    "note_book_patch",
+    "Patch a note book (translate/polish/summarize toggles)",
+    {
+      bookId: z.string(),
+      translateOn: z.boolean().optional(),
+      polishOn: z.boolean().optional(),
+      summarizeOn: z.boolean().optional(),
+    },
+    async (args) => {
+      const body: Record<string, boolean> = {};
+      if (args.translateOn !== undefined) {
+        body.translateOn = args.translateOn;
+      }
+      if (args.polishOn !== undefined) {
+        body.polishOn = args.polishOn;
+      }
+      if (args.summarizeOn !== undefined) {
+        body.summarizeOn = args.summarizeOn;
+      }
+      return textResult(
+        await api("PATCH", `/api/note-books/${encodeURIComponent(args.bookId)}`, body),
+      );
+    },
+  );
+
+  server.tool("ai_tools_list", "List AI tool connections (ollama/cursor/claude/…)", {}, async () =>
+    textResult(await api("GET", "/api/ai-tools")),
+  );
+
+  server.tool(
     "script_execution_log",
     "Read a script execution log by execution id",
     { executionId: z.string() },
@@ -258,58 +420,82 @@ function createLotaruMcpServer(): McpServer {
   );
 
   server.tool(
-    "voice_segments",
-    "List the global Voice transcript (not project-scoped)",
+    "pipeline_put",
+    "Replace project pipeline/workflow stages",
     {
-      limit: z.number().int().positive().optional(),
+      projectId: z.string(),
+      stages: z.array(
+        z
+          .object({
+            id: z.string(),
+            title: z.string(),
+          })
+          .passthrough(),
+      ),
+      roles: z.array(z.string()).optional(),
     },
     async (args) => {
-      let limit = 50;
-      if (args.limit !== undefined) {
-        limit = args.limit;
+      const roles: string[] = [];
+      if (args.roles !== undefined) {
+        for (const role of args.roles) {
+          roles.push(role);
+        }
       }
       return textResult(
-        await api("GET", `/api/voice/segments?limit=${String(limit)}`),
+        await api("PUT", `/api/projects/${encodeURIComponent(args.projectId)}/workflow`, {
+          stages: args.stages,
+          roles,
+        }),
       );
     },
   );
 
   server.tool(
-    "voice_rules",
-    "List the project voice rules and their recent matches",
-    { projectId: z.string() },
+    "tasks_get",
+    "Get one Task Bridge task",
+    { taskId: z.union([z.string(), z.number()]) },
+    async (args) =>
+      textResult(await api("GET", `/api/tasks/${encodeURIComponent(String(args.taskId))}`)),
+  );
+
+  server.tool(
+    "tasks_context",
+    "Get Task Bridge agent context for a task",
+    { taskId: z.union([z.string(), z.number()]) },
     async (args) =>
       textResult(
-        await api("GET", `/api/voice-rules?projectId=${encodeURIComponent(args.projectId)}`),
+        await api("GET", `/api/tasks/${encodeURIComponent(String(args.taskId))}/context`),
       ),
   );
 
   server.tool(
-    "voice_rules_scan",
-    "Scan pending voice transcript lines against the project rules now",
+    "tasks_claim_next",
+    "Claim the next Task Bridge worker task for a project",
     { projectId: z.string() },
     async (args) =>
-      textResult(await api("POST", "/api/voice-rules/scan", { projectId: args.projectId })),
+      textResult(await api("POST", "/api/worker/claim-next", { projectId: args.projectId })),
   );
 
   server.tool(
-    "voice_rules_test",
-    "Dry-run the project voice rules against a transcript without emitting events",
-    { projectId: z.string(), transcript: z.string() },
-    async (args) =>
-      textResult(
-        await api("POST", "/api/voice-rules/test", {
-          projectId: args.projectId,
-          transcript: args.transcript,
-        }),
-      ),
-  );
-
-  server.tool(
-    "voice_status",
-    "Voice listen / sidecar status (global, not project-scoped)",
-    {},
-    async () => textResult(await api("GET", "/api/voice/status")),
+    "tasks_complete",
+    "Complete a Task Bridge subtask",
+    {
+      taskId: z.union([z.string(), z.number()]),
+      summary: z.string().optional(),
+    },
+    async (args) => {
+      const body: { summary?: string } = {};
+      if (args.summary !== undefined && args.summary.length > 0) {
+        body.summary = args.summary;
+      }
+      return textResult(
+        await api(
+          "POST",
+          `/api/tasks/${encodeURIComponent(String(args.taskId))}/complete`,
+          body,
+        ),
+      );
+    },
   );
 
   server.tool("projects_list", "List Lotaru projects", {}, async () =>
@@ -480,9 +666,9 @@ function createLotaruMcpServer(): McpServer {
       scheduleHour: z.number().int().min(0).max(23).optional(),
       scheduleMinute: z.number().int().min(0).max(59).optional(),
       scheduleCron: z.string().optional(),
-      includeVoice: z.boolean().optional(),
       action: z.enum(["none", "note", "task", "event"]).optional(),
       noteBookTitle: z.string().optional(),
+      aiToolId: z.string().optional(),
       enabled: z.boolean().optional(),
     },
     async (args) => {
@@ -504,14 +690,14 @@ function createLotaruMcpServer(): McpServer {
       if (args.scheduleCron !== undefined) {
         body.scheduleCron = args.scheduleCron;
       }
-      if (args.includeVoice !== undefined) {
-        body.includeVoice = args.includeVoice;
-      }
       if (args.action !== undefined) {
         body.action = args.action;
       }
       if (args.noteBookTitle !== undefined) {
         body.noteBookTitle = args.noteBookTitle;
+      }
+      if (args.aiToolId !== undefined) {
+        body.aiToolId = args.aiToolId;
       }
       if (args.enabled !== undefined) {
         body.enabled = args.enabled;
@@ -540,9 +726,9 @@ function createLotaruMcpServer(): McpServer {
       scheduleHour: z.number().int().min(0).max(23).optional(),
       scheduleMinute: z.number().int().min(0).max(59).optional(),
       scheduleCron: z.string().optional(),
-      includeVoice: z.boolean().optional(),
       action: z.enum(["none", "note", "task", "event"]).optional(),
       noteBookTitle: z.string().optional(),
+      aiToolId: z.string().optional(),
       enabled: z.boolean().optional(),
     },
     async (args) => {
@@ -568,14 +754,14 @@ function createLotaruMcpServer(): McpServer {
       if (args.scheduleCron !== undefined) {
         body.scheduleCron = args.scheduleCron;
       }
-      if (args.includeVoice !== undefined) {
-        body.includeVoice = args.includeVoice;
-      }
       if (args.action !== undefined) {
         body.action = args.action;
       }
       if (args.noteBookTitle !== undefined) {
         body.noteBookTitle = args.noteBookTitle;
+      }
+      if (args.aiToolId !== undefined) {
+        body.aiToolId = args.aiToolId;
       }
       if (args.enabled !== undefined) {
         body.enabled = args.enabled;
@@ -727,6 +913,36 @@ function listenHost(): string {
   return raw.trim();
 }
 
+async function handleMcpHttp(req: Request, res: Response): Promise<void> {
+  const server = createLotaruMcpServer();
+  try {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    if (req.method === "POST") {
+      await transport.handleRequest(req, res, req.body);
+    } else {
+      await transport.handleRequest(req, res);
+    }
+    res.on("close", () => {
+      void transport.close();
+      void server.close();
+    });
+  } catch (error) {
+    if (res.headersSent !== true) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message: error instanceof Error ? error.message : "Internal server error",
+        },
+        id: null,
+      });
+    }
+  }
+}
+
 async function startHttp(): Promise<void> {
   const host = listenHost();
   const port = listenPort();
@@ -739,47 +955,9 @@ async function startHttp(): Promise<void> {
     res.status(200).json({ ok: true });
   });
 
-  app.post("/mcp", async (req: Request, res: Response) => {
-    const server = createLotaruMcpServer();
-    try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-      res.on("close", () => {
-        void transport.close();
-        void server.close();
-      });
-    } catch (error) {
-      if (res.headersSent !== true) {
-        res.status(500).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32603,
-            message: error instanceof Error ? error.message : "Internal server error",
-          },
-          id: null,
-        });
-      }
-    }
-  });
-
-  app.get("/mcp", (_req: Request, res: Response) => {
-    res.status(405).json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed." },
-      id: null,
-    });
-  });
-
-  app.delete("/mcp", (_req: Request, res: Response) => {
-    res.status(405).json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed." },
-      id: null,
-    });
-  });
+  app.post("/mcp", handleMcpHttp);
+  app.get("/mcp", handleMcpHttp);
+  app.delete("/mcp", handleMcpHttp);
 
   await new Promise<void>((resolve, reject) => {
     const httpServer = app.listen(port, host, (err?: Error) => {

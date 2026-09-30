@@ -481,14 +481,6 @@ export function EventsPage(): React.JSX.Element {
                             {cluster.count} ticks
                           </span>
                         ) : null}
-                        {isVoiceRuleEvent(cluster.head.type) ? (
-                          <Link
-                            className="text-[11px] text-muted-foreground underline underline-offset-2"
-                            to={`/projects/${projectId}/rules`}
-                          >
-                            Open extractors
-                          </Link>
-                        ) : null}
                       </div>
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">{cluster.head.type}</p>
                     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useLocation, useNavigate, Link } from "react-router-dom";
-import { Loader2, Volume2, Languages, Cpu, Pause, Mic } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Loader2, Volume2, Languages, Cpu, Pause } from "lucide-react";
 import { ConnectionsSettings } from "@/components/ConnectionsSettings";
 import { ClockSchedulesSettings } from "@/components/ClockSchedulesSettings";
 import { AiToolsSettings } from "@/components/AiToolsSettings";
@@ -483,16 +483,12 @@ export function SettingsPage(): React.JSX.Element {
         <section id="voice" className="panel-card space-y-6 p-6">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary">
-              <Mic className="h-4 w-4" />
+              <Volume2 className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Voice AI</h2>
+              <h2 className="text-base font-semibold">Read aloud</h2>
               <p className="text-xs text-muted-foreground">
-                Local only: Whisper sidecar for speech-to-text,{" "}
-                <Link to="/settings#ollama" className="underline underline-offset-2">
-                  Ollama
-                </Link>{" "}
-                for intent scanning, and read-aloud voices below.
+                Voices for Speak and for reading notes aloud.
               </p>
             </div>
           </div>

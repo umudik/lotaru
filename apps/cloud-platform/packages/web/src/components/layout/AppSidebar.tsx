@@ -10,11 +10,7 @@ import {
   FileText,
   GitBranch,
   ListOrdered,
-  Mic,
-  MicOff,
-  Loader2,
   Bot,
-  Wand2,
   Network,
   ScrollText,
   LayoutTemplate,
@@ -26,16 +22,12 @@ import {
 import { BrandMark } from "@/components/BrandMark";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/useSession";
-import { useVoiceListen } from "@/features/voice/VoiceListenContext";
 import { useSpeakPlayer } from "@/features/speak/SpeakPlayerContext";
-import { VoiceLevelBars } from "@/features/voice/VoiceWaveform";
-import { toast } from "sonner";
 import { useIngestAlarm } from "@/components/IngestAlarmBanner";
 
 export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) {
   const { pathname } = useLocation();
   const session = useSession();
-  const voice = useVoiceListen();
   const speak = useSpeakPlayer();
   const ingest = useIngestAlarm();
 
@@ -75,7 +67,6 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
         <NavGroup label="You">
-          <NavItem to="/voice" label="Voice" icon={Mic} />
           <NavItem to="/speak" label="Speak" icon={Volume2} />
         </NavGroup>
         <div className="space-y-0.5">
@@ -88,7 +79,6 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
               {projectName}
             </p>
             <NavGroup label="Automation">
-              <NavItem to={`/projects/${projectId}/rules`} label="Event extractors" icon={Wand2} />
               <NavItem to={`/projects/${projectId}/agents`} label="Event responders" icon={Bot} />
               <NavItem to={`/projects/${projectId}/scripts`} label="Scripts" icon={ScrollText} />
             </NavGroup>
@@ -151,11 +141,7 @@ export function AppSidebar(props: { mobileOpen: boolean; onClose: () => void }) 
       </nav>
       <div className="shrink-0 space-y-1 border-t border-border/70 px-2 py-2">
         <div className="space-y-1">
-          <SidebarListenButton voice={voice} />
           <SidebarSpeakButton speak={speak} />
-          {voice.error.length > 0 ? (
-            <p className="px-3 text-[10px] leading-snug text-destructive">{voice.error}</p>
-          ) : null}
           {speak.error.length > 0 ? (
             <p className="px-3 text-[10px] leading-snug text-destructive">{speak.error}</p>
           ) : null}
@@ -174,63 +160,6 @@ function NavGroup(props: { label: string; children: React.ReactNode }): React.JS
       </p>
       {props.children}
     </div>
-  );
-}
-
-function SidebarListenButton(props: {
-  voice: ReturnType<typeof useVoiceListen>;
-}): React.JSX.Element {
-  const listenActive = props.voice.armed;
-  const listenLive = listenActive && props.voice.listening;
-  let listenLabel = "Listen";
-  if (props.voice.reconnecting && listenActive) {
-    listenLabel = "Reconnecting";
-  } else if (listenLive) {
-    listenLabel = "Listening";
-  } else if (listenActive) {
-    listenLabel = "Connecting";
-  }
-  return (
-    <button
-      type="button"
-      className={cn(
-        "relative flex h-9 w-full items-center gap-2 overflow-hidden rounded-md px-2.5 text-sm font-medium transition-colors",
-        listenActive
-          ? "bg-success/15 text-success hover:bg-success/20"
-          : "bg-destructive/15 text-destructive hover:bg-destructive/20",
-      )}
-      onClick={() => {
-        if (listenActive) {
-          props.voice.stop();
-          return;
-        }
-        void props.voice.start().catch((err: unknown) => {
-          const message =
-            err instanceof Error && err.message.length > 0
-              ? err.message
-              : "Could not start Listen.";
-          toast.error(message);
-        });
-      }}
-    >
-      {props.voice.reconnecting && listenActive ? (
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-      ) : listenLive ? (
-        <MicOff className="h-4 w-4 shrink-0 opacity-90" />
-      ) : listenActive ? (
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-      ) : (
-        <Mic className="h-4 w-4 shrink-0 opacity-90" />
-      )}
-      <span className={cn("min-w-0 flex-1 truncate text-left", listenLive && "pr-[4.25rem]")}>
-        {listenLabel}
-      </span>
-      {listenLive ? (
-        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center">
-          <VoiceLevelBars level={props.voice.level} active={true} size="wide" className="shrink-0" />
-        </span>
-      ) : null}
-    </button>
   );
 }
 

@@ -173,7 +173,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
         prompt: trimmedPrompt,
         trigger: "event",
         eventType: draft.eventType,
-        includeVoice: draft.includeVoice,
         action: "none",
         aiToolId: draft.aiToolId,
         enabled: draft.enabled,
@@ -211,7 +210,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
         prompt: trimmedPrompt,
         trigger: "event",
         eventType: draft.eventType,
-        includeVoice: draft.includeVoice,
         action: "none",
         aiToolId: draft.aiToolId,
         enabled: draft.enabled,
@@ -313,7 +311,6 @@ export function AgentsFeature(props: { projectId: string }): React.JSX.Element {
                     {agent.trigger === "schedule"
                       ? formatCalendarCron(agent.scheduleCron, agent.scheduleHour, agent.scheduleMinute)
                       : eventLabelWithRules(agent.eventType, mintedLabels)}
-                    {agent.includeVoice ? " · voice" : ""}
                     {agent.enabled !== true ? " · off" : ""}
                   </p>
                   <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{agent.prompt}</p>

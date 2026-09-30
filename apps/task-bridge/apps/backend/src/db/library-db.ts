@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "../config.js";
+import { resolveDatabasePathNow } from "../config.js";
 import { getProjectsDb } from "./projects-db.js";
 
 export type LibraryRow = {
@@ -103,8 +103,9 @@ function ensureMigrated() {
 }
 
 export function resolveLibraryFilesRoot(): string {
-  if (config.databasePath) {
-    return join(dirname(config.databasePath), "library-files");
+  const live = resolveDatabasePathNow();
+  if (live.length > 0) {
+    return join(dirname(live), "library-files");
   }
   return join(moduleDir, "..", "..", "..", "..", "data", "library-files");
 }

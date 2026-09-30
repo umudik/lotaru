@@ -63,8 +63,6 @@ import {
   type NamedEventScript,
   type NamedEventTemplate,
 } from "../event-registry.js";
-import { tickVoiceBatchScans } from "../voice-batch.js";
-
 type RuntimeKind = "shell" | "docker";
 type TriggerKind = "save" | "manual" | "startup" | "scheduled" | "event";
 type ConcurrencyKind = "restart" | "queue" | "ignore" | "parallel";
@@ -993,19 +991,13 @@ export async function registerScriptRunnerModule(
     const due = clockTypesDue(nowMs, lastClockMs);
     lastClockMs = nowMs;
     const projects = refreshProjectRegistry();
-    const projectIds: string[] = [];
-    let scanVoice = false;
     let namedHits: readonly { slug: string; title: string }[] = [];
     for (const clockType of due) {
-      if (clockType === EVENT_CLOCK_TICK) {
-        scanVoice = true;
-      }
       if (clockType === EVENT_CLOCK_EVERY_1M) {
         namedHits = dueClockAtEvents(options.databasePath, new Date(nowMs));
       }
     }
     for (const project of projects) {
-      projectIds.push(project.id);
       for (const clockType of due) {
         emitLotaruEvent(
           {
@@ -1029,15 +1021,6 @@ export async function registerScriptRunnerModule(
         );
       }
     }
-    if (scanVoice !== true) {
-      return;
-    }
-    void tickVoiceBatchScans({
-      databasePath: options.databasePath,
-      projectIds,
-    }).catch((err) => {
-      app.log.error({ err }, "voice batch scan failed");
-    });
   }
 
   db.prepare(

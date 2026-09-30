@@ -11,7 +11,6 @@ type CreateDraft = {
   title: string;
   prompt: string;
   eventType: string;
-  includeVoice: boolean;
   aiToolId: string;
   enabled: boolean;
 };
@@ -128,25 +127,12 @@ export function AgentDetailPanel(props: Props): React.JSX.Element {
               onChange={(event) => {
                 props.onDraftChange(Object.assign({}, props.draft, { prompt: event.target.value }));
               }}
-              placeholder="Read today's voice transcripts and write a short daily journal."
+              placeholder="When this event fires, write a short summary of what changed."
             />
             <p className="text-[11px] text-muted-foreground">
               The trigger event's title and detail are appended automatically. The reply stays on
               the run. Use Lotaru MCP from the prompt to write notes, tasks, or events.
             </p>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-            <div>
-              <p className="text-sm font-medium">Include voice transcripts</p>
-              <p className="text-xs text-muted-foreground">Inject recent segments into the prompt</p>
-            </div>
-            <Switch
-              checked={props.draft.includeVoice}
-              onCheckedChange={(checked) => {
-                props.onDraftChange(Object.assign({}, props.draft, { includeVoice: checked }));
-              }}
-            />
           </div>
         </div>
 
@@ -198,7 +184,6 @@ export function emptyAgentDraft(): CreateDraft {
     title: "",
     prompt: "",
     eventType: "note.page.written",
-    includeVoice: true,
     aiToolId: "",
     enabled: true,
   };
@@ -209,7 +194,6 @@ export function draftFromAgent(agent: LotaruAgent): CreateDraft {
     title: agent.title,
     prompt: agent.prompt,
     eventType: agent.eventType.length > 0 ? agent.eventType : "note.page.written",
-    includeVoice: agent.includeVoice,
     aiToolId: agent.aiToolId,
     enabled: agent.enabled,
   };

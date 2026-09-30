@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-// Every per-project backing service (script sandbox, git checkout, code-server) shares
+// Every per-project backing service (scripts, git checkout) shares
 // ONE root folder per project so they can all see the same files. Do not give any
 // feature its own private subdirectory naming scheme — that's how "workspace" silos
 // crept back in last time.

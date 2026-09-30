@@ -136,14 +136,51 @@ function codexCliSpec(command: string, mode: AgentMode, prompt: string): AgentCl
   return { command, args };
 }
 
-export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, {
+export function quoteCmdArg(value: string): string {
+  const simple = /^[A-Za-z0-9._:\\\/=+-]+$/;
+  if (simple.test(value)) {
+    return value;
+  }
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function windowsCommandLine(command: string, args: readonly string[]): string {
+  const parts: string[] = [];
+  parts.push(quoteCmdArg(command));
+  for (const arg of args) {
+    parts.push(quoteCmdArg(arg));
+  }
+  return parts.join(" ");
+}
+
+function spawnCliProcess(spec: AgentCliSpec, cwd: string): ReturnType<typeof spawn> {
+  if (process.platform === "win32") {
+    let shell = "cmd.exe";
+    const comspec = process.env.ComSpec;
+    if (comspec !== undefined) {
+      const trimmed = comspec.trim();
+      if (trimmed.length > 0) {
+        shell = trimmed;
+      }
+    }
+    return spawn(shell, ["/d", "/s", "/c", windowsCommandLine(spec.command, spec.args)], {
       cwd,
       env: process.env,
       windowsHide: true,
       shell: false,
     });
+  }
+  return spawn(spec.command, spec.args, {
+    cwd,
+    env: process.env,
+    windowsHide: true,
+    shell: false,
+  });
+}
+
+export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawnCliProcess(spec, cwd);
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -167,7 +204,7 @@ export function spawnAgentCli(spec: AgentCliSpec, cwd: string, timeoutMs: number
         }
         reject(
           new Error(
-            `CLI binary "${binary}" not found on PATH. In Docker, host CLIs (agent/claude/codex) are unavailable — switch AI to Local Ollama, or run Lotaru on the host.`,
+            `CLI binary "${binary}" not found on PATH. Install it, or switch AI to Local Ollama.`,
           ),
         );
         return;

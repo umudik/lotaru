@@ -4,132 +4,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { openVoiceDb } from "./modules/voice.js";
 import {
   AGENT_RUN_OUTPUT_MAX,
   clampRunOutput,
   openAgentsDb,
   pruneAgentRuns,
 } from "./modules/agents.js";
-import { pruneVoiceSegments, scanCursor } from "./voice-retention.js";
 
 const PROJECT = "proj-retention";
-
-function voiceHarness(): ReturnType<typeof openVoiceDb> {
-  const dir = mkdtempSync(join(tmpdir(), "lotaru-retention-"));
-  return openVoiceDb(join(dir, "app.sqlite"));
-}
-
-/** Segment ids are sortable so the cursor comparison in the prune is testable. */
-function segmentId(index: number): string {
-  return `seg-${String(index).padStart(4, "0")}`;
-}
-
-function addSegments(db: ReturnType<typeof openVoiceDb>, count: number, from = 0): void {
-  const insert = db.prepare(
-    "INSERT INTO voice_segments (id, project_id, session_id, kind, text, started_at, ended_at, audio_path, created_at) VALUES (?, ?, ?, 'final', ?, 0, 0, '', ?)",
-  );
-  for (let index = from; index < from + count; index += 1) {
-    insert.run(segmentId(index), PROJECT, "sess", `line ${String(index)}`, index);
-  }
-}
-
-function segmentCount(db: ReturnType<typeof openVoiceDb>): number {
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM voice_segments WHERE project_id = ?")
-    .get(PROJECT) as { n: number };
-  return row.n;
-}
-
-function setCursor(db: ReturnType<typeof openVoiceDb>, index: number): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS voice_batch_state (
-      project_id TEXT PRIMARY KEY,
-      last_scan_at INTEGER NOT NULL DEFAULT 0,
-      last_created_at INTEGER NOT NULL DEFAULT 0,
-      last_segment_id TEXT NOT NULL DEFAULT ''
-    );
-  `);
-  db.prepare(
-    `INSERT INTO voice_batch_state (project_id, last_scan_at, last_created_at, last_segment_id)
-     VALUES (?, 0, ?, ?)
-     ON CONFLICT(project_id) DO UPDATE SET
-       last_created_at = excluded.last_created_at,
-       last_segment_id = excluded.last_segment_id`,
-  ).run(PROJECT, index, segmentId(index));
-}
-
-describe("voice segment retention", () => {
-  it("keeps the newest window when no scanner has ever run", () => {
-    const db = voiceHarness();
-    addSegments(db, 10);
-    assert.equal(scanCursor(db, PROJECT), null);
-
-    const removed = pruneVoiceSegments(db, 4);
-    assert.equal(removed, 6);
-    assert.equal(segmentCount(db), 4);
-
-    const oldest = db
-      .prepare(
-        "SELECT id FROM voice_segments WHERE project_id = ? ORDER BY created_at ASC LIMIT 1",
-      )
-      .get(PROJECT) as { id: string };
-    assert.equal(oldest.id, segmentId(6));
-  });
-
-  it("never drops a line the scanner has not read yet", () => {
-    const db = voiceHarness();
-    addSegments(db, 10);
-    // The scanner stalled after line 2, so 3..9 are still owed a pass.
-    setCursor(db, 2);
-
-    const removed = pruneVoiceSegments(db, 4);
-    assert.equal(removed, 3);
-    assert.equal(segmentCount(db), 7);
-
-    const survivors = db
-      .prepare("SELECT id FROM voice_segments WHERE project_id = ? ORDER BY created_at ASC")
-      .all(PROJECT) as { id: string }[];
-    assert.equal(survivors[0]?.id, segmentId(3));
-  });
-
-  it("prunes nothing while every line is still pending", () => {
-    const db = voiceHarness();
-    addSegments(db, 10);
-    setCursor(db, -1);
-    assert.equal(pruneVoiceSegments(db, 2), 0);
-    assert.equal(segmentCount(db), 10);
-  });
-
-  it("resumes pruning once the scanner catches up", () => {
-    const db = voiceHarness();
-    addSegments(db, 10);
-    setCursor(db, -1);
-    assert.equal(pruneVoiceSegments(db, 4), 0);
-
-    setCursor(db, 9);
-    assert.equal(pruneVoiceSegments(db, 4), 6);
-    assert.equal(segmentCount(db), 4);
-  });
-
-  it("waits for the slowest extractor before dropping lines", () => {
-    const db = voiceHarness();
-    addSegments(db, 10);
-    setCursor(db, 9);
-    db.prepare(
-      `INSERT INTO voice_batch_state (project_id, last_scan_at, last_created_at, last_segment_id)
-       VALUES ('proj-other', 0, ?, ?)`,
-    ).run(2, segmentId(2));
-
-    const removed = pruneVoiceSegments(db, 4);
-    assert.equal(removed, 3);
-    assert.equal(segmentCount(db), 7);
-    const oldest = db
-      .prepare("SELECT id FROM voice_segments ORDER BY created_at ASC LIMIT 1")
-      .get() as { id: string };
-    assert.equal(oldest.id, segmentId(3));
-  });
-});
 
 describe("agent run retention", () => {
   it("keeps the newest runs and drops the rest", () => {

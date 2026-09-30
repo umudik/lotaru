@@ -8,15 +8,12 @@ import { ScriptFeature } from "@/features/script/ScriptFeature";
 import { KnowledgeFeature } from "@/features/knowledge/KnowledgeFeature";
 import { NotesFeature } from "@/features/notes/NotesFeature";
 import { AgentsFeature } from "@/features/agents/AgentsFeature";
-import { RulesFeature } from "@/features/rules/RulesFeature";
 import { TerminalFeature } from "@/features/terminal/TerminalFeature";
-import { VoiceListenProvider } from "@/features/voice/VoiceListenContext";
 import { SpeakPlayerProvider } from "@/features/speak/SpeakPlayerContext";
 import { SpeakPage } from "@/pages/SpeakPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { EventsPage } from "@/pages/EventsPage";
-import { VoicePage } from "@/pages/VoicePage";
 import { WorkflowPage } from "@/pages/WorkflowPage";
 import { MarketplacePage } from "@/pages/MarketplacePage";
 import { loadSession } from "@/lib/session";
@@ -24,12 +21,11 @@ import { loadSession } from "@/lib/session";
 export function App() {
   return (
     <div className="h-full">
-      <VoiceListenProvider>
-        <SpeakPlayerProvider>
+      <SpeakPlayerProvider>
         <Routes>
         <Route element={<AppLayout />}>
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/voice" element={<VoicePage />} />
+          <Route path="/voice" element={<Navigate to="/speak" replace />} />
           <Route path="/speak" element={<SpeakPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
@@ -37,7 +33,7 @@ export function App() {
             <Route path="tasks" element={<TasksPage />} />
             <Route path="tasks/workflow" element={<LegacyPipelineRedirect />} />
             <Route path="pipeline" element={<WorkflowPage />} />
-            <Route path="rules" element={<ProjectRulesRoute />} />
+            <Route path="rules" element={<LegacyRulesRedirect />} />
             <Route path="agents" element={<ProjectAgentsRoute />} />
             <Route path="chat" element={<LegacyRulesRedirect />} />
             <Route path="terminal" element={<ProjectTerminalRoute />} />
@@ -45,7 +41,7 @@ export function App() {
             <Route path="library" element={<LibraryPage />} />
             <Route path="logs" element={<EventsPage />} />
             <Route path="events" element={<LegacyLogsRedirect />} />
-            <Route path="voice" element={<Navigate to="/voice" replace />} />
+            <Route path="voice" element={<Navigate to="/speak" replace />} />
             <Route path="speak" element={<Navigate to="/speak" replace />} />
             <Route path="scripts/*" element={<ProjectScriptsRoute />} />
             <Route path="notes/*" element={<ProjectNotesRoute />} />
@@ -58,8 +54,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
-        </SpeakPlayerProvider>
-      </VoiceListenProvider>
+      </SpeakPlayerProvider>
     </div>
   );
 }
@@ -125,20 +120,12 @@ function ProjectAgentsRoute(): React.JSX.Element {
   return <AgentsFeature projectId={projectId} />;
 }
 
-function ProjectRulesRoute(): React.JSX.Element {
-  const { projectId } = useParams();
-  if (projectId === undefined) {
-    return <Navigate to="/projects" replace />;
-  }
-  return <RulesFeature projectId={projectId} />;
-}
-
 function LegacyRulesRedirect(): React.JSX.Element {
   const { projectId } = useParams();
   if (projectId === undefined) {
     return <Navigate to="/projects" replace />;
   }
-  return <Navigate to={`/projects/${projectId}/rules`} replace />;
+  return <Navigate to={`/projects/${projectId}/agents`} replace />;
 }
 
 function ProjectTerminalRoute(): React.JSX.Element {

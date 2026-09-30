@@ -14,6 +14,17 @@ function extractBearerToken(request: FastifyRequest): string {
 }
 
 export async function resolveAuthUser(request: FastifyRequest): Promise<UserRow> {
+  const selfHost = process.env.FOOKIE_SELF_HOST;
+  if (selfHost !== undefined) {
+    const flag = selfHost.trim();
+    if (flag === "1") {
+      return upsertUserFromFookie({
+        sub: "lotaru-local",
+        email: "local@lotaru",
+        name: "Lotaru",
+      });
+    }
+  }
   const token = extractBearerToken(request);
   if (token === "") {
     throw new AppError("Unauthorized", 401);

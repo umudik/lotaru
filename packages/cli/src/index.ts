@@ -52,9 +52,6 @@ Options:
   -p, --port   Listen port (default 2222, or $LOTARU_PORT)
   -d, --data   Data directory (default ~/.lotaru, or $LOTARU_DATA_DIR)
   -h, --help   Show this help
-
-Listen starts the speech Docker engine on demand (CPU on Mac, existing NVIDIA
-container on Windows/Linux when present) and stops it when you turn Listen off.
 `);
 }
 

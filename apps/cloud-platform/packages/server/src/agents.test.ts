@@ -11,7 +11,18 @@ import {
   recoverStaleAgentRuns,
   registerAgentsModule,
   scheduleIsDue,
+  tailLogText,
 } from "./modules/agents.js";
+
+describe("tailLogText", () => {
+  it("keeps the end of a long log so failing tests stay visible", () => {
+    const prefix = "ok\n".repeat(40);
+    const suffix = "failing tests:\nobservability-cursor.test.ts";
+    const sliced = tailLogText(`${prefix}${suffix}`, 40);
+    assert.equal(sliced.includes("observability-cursor.test.ts"), true);
+    assert.equal(sliced.includes("ok\nok\nok"), false);
+  });
+});
 
 describe("scheduleIsDue", () => {
   it("is false before scheduled hour", () => {

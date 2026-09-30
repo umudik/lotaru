@@ -21,4 +21,19 @@ describe("shouldIgnoreWatchPath", () => {
     assert.equal(shouldIgnoreWatchPath("/home/user/.aws/credentials"), true);
     assert.equal(shouldIgnoreWatchPath("/work/app/.cache/foo"), true);
   });
+
+  it("skips mesh and raster assets that lock under OneDrive", () => {
+    assert.equal(
+      shouldIgnoreWatchPath("/work/packages/craft/src/ui/client/assets/robot-arm-a.obj"),
+      true,
+    );
+    assert.equal(shouldIgnoreWatchPath("/work/app/src/index.ts"), false);
+  });
+
+  it("skips editor scratch under .impeccable", () => {
+    assert.equal(
+      shouldIgnoreWatchPath("/work/packages/craft/.impeccable/questions/00b6e7b5.state.json"),
+      true,
+    );
+  });
 });

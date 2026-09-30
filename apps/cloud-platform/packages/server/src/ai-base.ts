@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1", "host.docker.internal"];
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
 
 function trimBase(base: string): string {
   return base.trim().replace(/\/$/, "");
